@@ -1,17 +1,14 @@
 class Havm < Formula
   desc "Zero-config Home Assistant OS VM runner for Apple Silicon"
-  homepage "https://github.com/homebrew/havm"
-  url "https://github.com/homebrew/havm/archive/refs/tags/v0.1.0.tar.gz"
+  homepage "https://github.com/IngmarStein/havm"
+  url "https://github.com/IngmarStein/havm/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "REPLACE_WITH_ACTUAL_SHA256"
   license "MIT"
-  head "https://github.com/homebrew/havm.git", branch: "main"
+  head "https://github.com/IngmarStein/havm.git", branch: "main"
 
-  # macOS 27 Golden Gate required at runtime.
-  # Homebrew may not yet have a :golden_gate symbol; adjust when available.
-  depends_on macos: :sequoia  # minimum for formula; actual requirement is macOS 27
+  depends_on macos: :golden_gate  # macOS 27+ with Apple Silicon
   depends_on arch: :arm64
   depends_on xcode: ["17.0", :build]
-
   uses_from_macos "swift"
 
   def install
@@ -20,13 +17,12 @@ class Havm < Formula
            "--product", "havm"
     bin.install ".build/release/havm"
 
-    # Install config example
-    (etc/"havm").mkpath
-    (share/"havm/examples").install Dir["share/examples/*"]
+    # Install example config to Homebrew's etc directory
+    (etc/"havm").install "share/examples/config.yml" => "havm.yml"
   end
 
   service do
-    run [opt_bin/"havm", "run"]
+    run [opt_bin/"havm", "run", "--config", etc/"havm/havm.yml"]
     keep_alive true
     run_type :immediate
     working_dir var/"lib/havm"
@@ -40,15 +36,16 @@ class Havm < Formula
       havm will automatically download and set up Home Assistant OS on first run.
 
       Quick start:
-        havm run      # Start the VM — auto-downloads HA OS on first run
+        havm run                    # Start VM — auto-downloads HA OS on first run
+        havm run -c #{etc}/havm/havm.yml  # Use the installed config
 
-      Start as a background service:
-        brew services start havm
+      Background service:
+        brew services start havm    # Runs with #{etc}/havm/havm.yml
 
-      Optional config: ~/.config/havm/config.yml
-      Data directory:  ~/.local/share/havm/
+      User config: ~/.config/havm/config.yml
+      Data:        ~/Library/Application Support/havm/
 
-      Requires macOS 27 (Golden Gate) or later with Apple Silicon.
+      Requires macOS 27 (Golden Gate) with Apple Silicon.
     EOS
   end
 
