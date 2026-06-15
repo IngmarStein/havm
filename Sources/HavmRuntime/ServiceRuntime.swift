@@ -30,8 +30,6 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     /// Run the VM, blocking the calling thread until the VM exits or a signal is received.
     public func runBlocking(usbManager: USBManager? = nil) -> Int32 {
-        // Dispatch setup to main queue, then enter dispatchMain() to keep
-        // the process alive. Signal handlers call exit() directly.
         DispatchQueue.main.async {
             self.setupSignalHandlers()
 
@@ -44,10 +42,9 @@ public final class ServiceRuntime: @unchecked Sendable {
                 self.logger.info("VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.")
                 self.printBootingInstructions()
 
-                // Poll every 250ms for signals and VM state.
-                // Every 5 seconds (every 20th poll), check if guest is reachable.
-                // Poll state is on the main queue — no data races
-                let pollState = LockBox(PollState())
+                // Mutable poll state, accessed only from the main queue.
+                nonisolated(unsafe) var tick = 0
+                nonisolated(unsafe) var healthProbes = 0
                 func poll() {
                     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
                         let sig = Self.signalFlag
@@ -57,17 +54,16 @@ public final class ServiceRuntime: @unchecked Sendable {
                             return
                         }
                         if self.vmController.state == .stopped {
-                            self.logger.info("VM exited.")
+                            self.logger.info("VM stopped.")
                             fflush(stdout)
                             _exit(0)
                             return
                         }
 
-                        pollState.value.tick += 1
-                        if pollState.value.tick % 20 == 0 {
-                            // Health probe: try known VZ NAT guest IPs
-                            pollState.value.healthProbes += 1
-                            self.probeGuestHealth(pollState.value.healthProbes)
+                        tick += 1
+                        if tick % 20 == 0 {
+                            healthProbes += 1
+                            self.checkGuestNetwork(healthProbes)
                         }
                         poll()
                     }
@@ -76,13 +72,10 @@ public final class ServiceRuntime: @unchecked Sendable {
             }
         }
 
-        // Block calling thread. The process exits via exit() in signal handlers
-        // or poll loop, not via normal return.
+        // Block calling thread.
         DispatchSemaphore(value: 0).wait()
         return 0
     }
-
-    // Rest removed...
 
     // MARK: - Boot instructions
 
@@ -99,8 +92,7 @@ public final class ServiceRuntime: @unchecked Sendable {
                 "║  Web:  http://<guest-ip>:8123                            ║",
                 "║                                                          ║",
                 "║  Guest IP is typically 192.168.64.2 (or .3, .4 …).       ║",
-                "║  Watch console output for the boot log:                  ║",
-                "║    tail -f \(HavmConfig.consoleLogPath)                   ║",
+                "║  havm will notify you when the guest responds.           ║",
                 "║                                                          ║",
                 "║  First boot may take a few minutes.                      ║",
                 "╚══════════════════════════════════════════════════════════╝",
@@ -126,7 +118,6 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     // MARK: - Signal handling
 
-    /// Signal state shared between C signal handler and Swift.
     private static nonisolated(unsafe) var signalFlag: Int32 = 0
 
     private func setupSignalHandlers() {
@@ -140,7 +131,8 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     private func signalShutdown(name: String) {
         guard !shutdownRequested else {
-            logger.warning("\(name) received again — forcing stop")
+            // Second signal — force immediate exit
+            logger.warning("\(name) received again — exiting immediately")
             _exit(1)
         }
         shutdownRequested = true
@@ -158,7 +150,8 @@ public final class ServiceRuntime: @unchecked Sendable {
         while Date() < deadline {
             if vmController.state == .stopped {
                 logger.info("VM stopped gracefully.")
-                return
+                fflush(stdout)
+                _exit(0)
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
@@ -168,33 +161,46 @@ public final class ServiceRuntime: @unchecked Sendable {
             logger.info("Force stop completed.")
         }
         catch { logger.error("Force stop failed: \(error)") }
+        fflush(stdout)
+        _exit(0)
     }
 
-    /// Probe guest IPs for connectivity. Notifies once when the guest becomes reachable.
-    private func probeGuestHealth(_ count: Int) {
-        // Only probe NAT mode guests (bridge gets router DHCP).
-        // Try the common VZ NAT DHCP range.
-        let ips = (2...10).map { "192.168.64.\($0)" }
-        for ip in ips {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/sbin/ping")
-            process.arguments = ["-c", "1", "-W", "1", ip]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            do {
-                try process.run()
-                process.waitUntilExit()
-                if process.terminationStatus == 0 {
-                    logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
-                    logger.info("  Web: http://\(ip):8123")
-                    logger.info("  SSH: ssh root@\(ip) -p 22222")
-                    return
+    // MARK: - Guest connectivity
+
+    /// Check the ARP table for VZ NAT guests that have obtained a DHCP lease.
+    private func checkGuestNetwork(_ count: Int) {
+        guard config.effectiveNetworkType == .nat else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/arp")
+        process.arguments = ["-an"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return }
+            for line in output.split(separator: "\n") {
+                // Look for entries on the VZ bridge interface
+                if line.contains("bridge100") {
+                    let parts = line.split(separator: " ")
+                    if parts.count >= 4 {
+                        let ip = String(parts[1]).replacingOccurrences(of: "(", with: "")
+                                                    .replacingOccurrences(of: ")", with: "")
+                        if ip.hasPrefix("192.168.64.") {
+                            logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
+                            logger.info("  Web: http://\(ip):8123")
+                            logger.info("  SSH: ssh root@\(ip) -p 22222")
+                            return
+                        }
+                    }
                 }
-            } catch {}
-        }
-        // Every 24 probes (2 min): remind user
-        if count % 24 == 1 && count > 1 {
-            logger.info("Still waiting for guest to boot... (probing 192.168.64.2-10)")
+            }
+        } catch {}
+        // Every 12 probes (~1 min): remind user
+        if count % 12 == 1 && count > 1 {
+            logger.info("Still waiting for guest to boot... (checking ARP on bridge100)")
         }
     }
 
