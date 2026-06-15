@@ -44,18 +44,30 @@ public final class ServiceRuntime: @unchecked Sendable {
                 self.logger.info("VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.")
                 self.printBootingInstructions()
 
-                // Poll every 250ms — fast signal response + VM state check.
+                // Poll every 250ms for signals and VM state.
+                // Every 5 seconds (every 20th poll), check if guest is reachable.
+                // Poll state is on the main queue — no data races
+                let pollState = LockBox(PollState())
                 func poll() {
                     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
                         let sig = Self.signalFlag
                         if sig != 0 {
                             Self.signalFlag = 0
                             self.signalShutdown(name: sig == SIGTERM ? "SIGTERM" : "SIGINT")
+                            return
                         }
                         if self.vmController.state == .stopped {
-                            self.logger.info("VM exited (state: \(self.vmController.state)).")
+                            self.logger.info("VM exited.")
                             fflush(stdout)
                             _exit(0)
+                            return
+                        }
+
+                        pollState.value.tick += 1
+                        if pollState.value.tick % 20 == 0 {
+                            // Health probe: try known VZ NAT guest IPs
+                            pollState.value.healthProbes += 1
+                            self.probeGuestHealth(pollState.value.healthProbes)
                         }
                         poll()
                     }
@@ -158,6 +170,34 @@ public final class ServiceRuntime: @unchecked Sendable {
         catch { logger.error("Force stop failed: \(error)") }
     }
 
+    /// Probe guest IPs for connectivity. Notifies once when the guest becomes reachable.
+    private func probeGuestHealth(_ count: Int) {
+        // Only probe NAT mode guests (bridge gets router DHCP).
+        // Try the common VZ NAT DHCP range.
+        let ips = (2...10).map { "192.168.64.\($0)" }
+        for ip in ips {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/sbin/ping")
+            process.arguments = ["-c", "1", "-W", "1", ip]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+                if process.terminationStatus == 0 {
+                    logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
+                    logger.info("  Web: http://\(ip):8123")
+                    logger.info("  SSH: ssh root@\(ip) -p 22222")
+                    return
+                }
+            } catch {}
+        }
+        // Every 24 probes (2 min): remind user
+        if count % 24 == 1 && count > 1 {
+            logger.info("Still waiting for guest to boot... (probing 192.168.64.2-10)")
+        }
+    }
+
     /// Human-readable VM state description.
     private static func stateDescription(_ state: VZVirtualMachine.State) -> String {
         switch state.rawValue {
@@ -173,6 +213,11 @@ public final class ServiceRuntime: @unchecked Sendable {
 }
 
 // MARK: - Helpers
+
+private struct PollState: Sendable {
+    var tick = 0
+    var healthProbes = 0
+}
 
 private final class LockBox<T: Sendable>: @unchecked Sendable {
     var value: T

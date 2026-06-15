@@ -87,30 +87,6 @@ public final class VMController: NSObject, @unchecked Sendable {
             logger.info("Network: NAT")
         }
 
-        // Serial console — guest boot output goes to stdout and is persisted to a file
-        let consoleConfig = VZVirtioConsoleDeviceSerialPortConfiguration()
-        let consoleLogPath = HavmConfig.consoleLogPath
-        let dir = (consoleLogPath as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        // Truncate previous log
-        try Data().write(to: URL(fileURLWithPath: consoleLogPath))
-        // Open log file for append; guest output is written to both stdout and the log.
-        let logFileHandle = try FileHandle(forWritingTo: URL(fileURLWithPath: consoleLogPath))
-        // Create a pipe: guest writes → pipe → we read and tee to stdout + log file
-        let pipe = Pipe()
-        consoleConfig.attachment = VZFileHandleSerialPortAttachment(
-            fileHandleForReading: nil,
-            fileHandleForWriting: pipe.fileHandleForWriting
-        )
-        // Read from pipe in background, write to stdout and log file
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            FileHandle.standardOutput.write(data)
-            logFileHandle.write(data)
-        }
-
-        vmConfig.serialPorts = [consoleConfig]
         vmConfig.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
 
         // Memory balloon — allows macOS to reclaim idle guest memory
