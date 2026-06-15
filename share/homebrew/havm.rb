@@ -18,11 +18,11 @@ class Havm < Formula
     bin.install ".build/release/havm"
 
     # Install example config to Homebrew's etc directory
-    (etc/"havm").install "share/examples/config.yml" => "havm.yml"
+    (etc/"havm").install "share/examples/config.yml" => "config.yml"
   end
 
   service do
-    run [opt_bin/"havm", "run", "--config", etc/"havm/havm.yml"]
+    run [opt_bin/"havm", "run", "--config", etc/"havm/config.yml"]
     keep_alive true
     run_type :immediate
     working_dir var/"lib/havm"
@@ -37,10 +37,10 @@ class Havm < Formula
 
       Quick start:
         havm run                    # Start VM — auto-downloads HA OS on first run
-        havm run -c #{etc}/havm/havm.yml  # Use the installed config
+        havm run -c #{etc}/havm/config.yml  # Use the installed config
 
       Background service:
-        brew services start havm    # Runs with #{etc}/havm/havm.yml
+        brew services start havm    # Runs with #{etc}/havm/config.yml
 
       User config: ~/.config/havm/config.yml
       Data:        ~/Library/Application Support/havm/
