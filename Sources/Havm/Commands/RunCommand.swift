@@ -14,7 +14,20 @@ struct RunCommand: AsyncParsableCommand {
             help: "Path to optional config file (default: ~/.config/havm/config.yml).")
     var config: String?
 
+    @Flag(name: [.long],
+          help: "Output logs as structured JSON (NDJSON, one object per line).")
+    var jsonLog = false
+
     func run() async throws {
+        // Bootstrap LoggingSystem before creating any Loggers.
+        // This must happen before any Logger(label:) call.
+        if jsonLog {
+            LoggingSystem.bootstrap { label in
+                var handler = JSONLogHandler(label: label, stream: FileHandle.standardOutput)
+                handler.logLevel = .info
+                return handler
+            }
+        }
         var logger = Logger(label: "havm.run")
         logger.logLevel = .info
 
