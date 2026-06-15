@@ -23,7 +23,8 @@ public final class ServiceRuntime: @unchecked Sendable {
         self.logger = logger
 
         vmController.onStateChange = { [weak self] state in
-            self?.logger.info("VM state changed: \(state)")
+            let name = Self.stateDescription(state)
+            self?.logger.info("VM state: \(name)")
         }
     }
 
@@ -80,10 +81,14 @@ public final class ServiceRuntime: @unchecked Sendable {
             lines = [
                 "",
                 "╔══════════════════════════════════════════════════════════╗",
-                "║  Home Assistant OS is booting.                           ║",
+                "║  Home Assistant OS is booting (NAT mode).                ║",
                 "║                                                          ║",
-                "║  Once ready, open:                                       ║",
-                "║    http://homeassistant.local:8123                       ║",
+                "║  SSH:  ssh root@<guest-ip> -p 22222                      ║",
+                "║  Web:  http://<guest-ip>:8123                            ║",
+                "║                                                          ║",
+                "║  Guest IP is typically 192.168.64.2 (or .3, .4 …).       ║",
+                "║  Watch console output for the boot log:                  ║",
+                "║    tail -f \(HavmConfig.consoleLogPath)                   ║",
                 "║                                                          ║",
                 "║  First boot may take a few minutes.                      ║",
                 "╚══════════════════════════════════════════════════════════╝",
@@ -151,6 +156,19 @@ public final class ServiceRuntime: @unchecked Sendable {
             logger.info("Force stop completed.")
         }
         catch { logger.error("Force stop failed: \(error)") }
+    }
+
+    /// Human-readable VM state description.
+    private static func stateDescription(_ state: VZVirtualMachine.State) -> String {
+        switch state.rawValue {
+        case 0: "stopped"
+        case 1: "running"
+        case 2: "paused"
+        case 3: "starting"
+        case 4: "saving"
+        case 5: "restoring"
+        default: "unknown (\(state.rawValue))"
+        }
     }
 }
 
