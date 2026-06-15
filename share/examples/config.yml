@@ -1,0 +1,36 @@
+# havm configuration example
+# Copy to ~/.config/havm/config.yml and customize as needed.
+# All fields are optional — havm run works with zero config.
+
+# Virtual machine resource limits
+vm:
+  cpu_count: 4                # default: host cores - 1 (min 2)
+  memory_size: "4 GiB"        # default: 4 GiB
+  disk_size: "32 GiB"         # default: 32 GiB
+
+# Network configuration
+network:
+  # bridge: VM gets its own IP on your LAN (default).
+  # nat:    VM is behind NAT (use if bridge doesn't work).
+  type: bridge
+  # interface: override auto-detected primary network interface
+  # interface: "en0"
+
+# Home Assistant OS release channel
+haos:
+  # stable (default) or pre-release
+  release_channel: stable
+
+# USB device passthrough
+usb:
+  # Known Zigbee/Z-Wave coordinators are auto-detected.
+  # Add additional devices here:
+  # devices:
+  #   - vendor_id: "0x1CF1"
+  #     product_id: "0x0030"
+  #     name: "ConBee II"
+  auto_connect: true          # auto-detect known coordinators (default: true)
+
+# Shutdown behavior on SIGTERM/SIGINT
+shutdown:
+  timeout_seconds: 30         # max wait for graceful ACPI shutdown

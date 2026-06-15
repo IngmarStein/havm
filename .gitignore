@@ -1,0 +1,20 @@
+# Build artifacts
+.build/
+build/
+*.o
+*.dSYM/
+default.profraw
+
+# IDE
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+.DS_Store
+
+# SwiftPM
+.swiftpm/xcode/xcuserdata/
+
+# Xcode user data (anywhere)
+
+# Xcode user-specific data (ignore everywhere)
+**/xcuserdata/

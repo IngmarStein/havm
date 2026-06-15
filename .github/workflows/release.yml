@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          for xcode in /Applications/Xcode_17*.app; do
+            if [ -d "$xcode" ]; then
+              sudo xcode-select -s "$xcode"
+              echo "Selected: $xcode"
+              break
+            fi
+          done
+          echo "Using: $(xcode-select -p)"
+
+      - name: Build
+        run: |
+          swift build -c release
+
+      - name: Import Developer ID certificate
+        if: env.DEVELOPER_ID_CERT != ''
+        env:
+          DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
+          DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
+        run: |
+          echo "$DEVELOPER_ID_CERT" | base64 -d > /tmp/cert.p12
+          security import /tmp/cert.p12 -k ~/Library/Keychains/login.keychain-db \
+            -P "$DEVELOPER_ID_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$DEVELOPER_ID_PASSWORD" ~/Library/Keychains/login.keychain-db
+
+      - name: Sign (Developer ID — full entitlements)
+        if: env.DEVELOPER_ID_CERT != ''
+        env:
+          DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+        run: |
+          # Full entitlements including vm.networking and accessory-access.usb.
+          # These require Apple-approved provisioning — only works with paid
+          # Developer ID accounts that have been granted these entitlements.
+          codesign --sign "$DEVELOPER_ID" \
+            --entitlements resources/entitlements.plist \
+            --force --timestamp --options runtime \
+            .build/release/havm
+
+      - name: Sign (ad-hoc — dev entitlements only)
+        if: env.DEVELOPER_ID_CERT == ''
+        run: |
+          # Fallback: ad-hoc signing with unrestricted entitlements only.
+          # Bridge networking and USB passthrough will NOT work.
+          codesign --sign - \
+            --entitlements resources/entitlements-dev.plist \
+            --force .build/release/havm
+
+      - name: Package
+        run: |
+          mkdir -p release
+          cp .build/release/havm release/
+          cp README.md release/
+          cp -r share/examples release/ 2>/dev/null || true
+          tar -czf havm.tar.gz -C release .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: havm.tar.gz
+          body: |
+            ## havm — Home Assistant OS VM for Apple Silicon
+
+            Zero-config CLI for running Home Assistant OS on macOS 27+ using the
+            native Virtualization framework.
+
+            ### Requirements
+            - macOS 27 (Golden Gate) or later
+            - Apple Silicon Mac
+
+            ### Install
+
+            ```bash
+            tar -xzf havm.tar.gz
+            ./havm run
+            ```
+
+            ### Networking
+
+            NAT networking works out of the box. **Bridge networking** requires
+            `com.apple.vm.networking` — a restricted entitlement that requires
+            Apple approval and a paid Developer ID for distribution.
+
+            ### USB Passthrough
+
+            Requires `com.apple.developer.accessory-access.usb` — also a
+            restricted entitlement requiring Apple approval.
+          generate_release_notes: true

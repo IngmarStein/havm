@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    # macOS 27 (Golden Gate) SDK required — Xcode 17+.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          for xcode in /Applications/Xcode_17*.app; do
+            if [ -d "$xcode" ]; then
+              sudo xcode-select -s "$xcode"
+              echo "Selected: $xcode"
+              break
+            fi
+          done
+          echo "Using: $(xcode-select -p)"
+
+      - name: Build (xcodebuild)
+        run: |
+          xcodebuild -workspace .swiftpm/xcode/package.xcworkspace \
+            -scheme havm \
+            -destination 'platform=macOS,arch=arm64' \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_ENTITLEMENTS=resources/entitlements-dev.plist
+
+      - name: Test
+        run: swift test
