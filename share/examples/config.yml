@@ -31,6 +31,13 @@ usb:
   #     name: "ConBee II"
   auto_connect: true          # auto-detect known coordinators (default: true)
 
+# Logging
+logging:
+  # Format: text (default, human-readable) or json (NDJSON, one object per line)
+  format: text
+  # Level: debug, info (default), warning, error
+  level: info
+
 # Shutdown behavior on SIGTERM/SIGINT
 shutdown:
   timeout_seconds: 30         # max wait for graceful ACPI shutdown

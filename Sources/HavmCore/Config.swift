@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import Yams
 
 // MARK: - Minimal optional configuration
@@ -89,15 +90,36 @@ public struct HavmConfig: Decodable, Sendable {
 
     public struct LoggingOverrides: Decodable, Sendable {
         public var level: LogLevel?
+        public var format: LogFormat?
         public var file: String?
 
         public enum LogLevel: String, Decodable, Sendable {
             case debug, info, warning, error
         }
 
-        public init(level: LogLevel? = nil, file: String? = nil) {
+        public enum LogFormat: String, Decodable, Sendable {
+            case text, json
+        }
+
+        public init(level: LogLevel? = nil, format: LogFormat? = nil, file: String? = nil) {
             self.level = level
+            self.format = format
             self.file = file
+        }
+    }
+
+    /// Effective log format: defaults to `.text`.
+    public var effectiveLogFormat: LoggingOverrides.LogFormat {
+        logging?.format ?? .text
+    }
+
+    /// Effective log level: defaults to `.info`.
+    public var effectiveLogLevel: Logger.Level {
+        switch logging?.level {
+        case .debug: .debug
+        case .warning: .warning
+        case .error: .critical
+        case .info, nil: .info
         }
     }
 
