@@ -14,6 +14,8 @@ public final class VMController: NSObject, @unchecked Sendable {
 
     public var onStateChange: ((VZVirtualMachine.State) -> Void)?
     public private(set) var state: VZVirtualMachine.State = .stopped
+    /// Stable MAC address derived from the machine identifier.
+    public private(set) var guestMAC: String?
 
     public init(config: HavmConfig, logger: Logger = Logger(label: "havm.vm")) {
         self.config = config
@@ -26,9 +28,9 @@ public final class VMController: NSObject, @unchecked Sendable {
     /// Build the VZVirtualMachineConfiguration using EFI boot from disk.
     func createConfiguration() throws -> VZVirtualMachineConfiguration {
         let vmConfig = VZVirtualMachineConfiguration()
+        let logger = self.logger
 
         // EFI Boot Loader — boots directly from the GPT disk image via UEFI.
-        // The EFI System Partition contains GRUB which chain-loads HA OS.
         let bootLoader = VZEFIBootLoader()
         bootLoader.variableStore = loadOrCreateEFIVariableStore()
         vmConfig.bootLoader = bootLoader
@@ -37,70 +39,70 @@ public final class VMController: NSObject, @unchecked Sendable {
         vmConfig.memorySize = config.effectiveMemorySize
         logger.info("CPU: \(vmConfig.cpuCount), Memory: \(MemorySize(bytes: vmConfig.memorySize))")
 
-        // Storage: main HA OS disk
+        // Storage: main HA OS disk (minimal — just the boot disk)
         let mainDisk = try VZDiskImageStorageDeviceAttachment(
             url: URL(fileURLWithPath: HavmConfig.persistentDiskPath),
             readOnly: false
         )
+        // Storage: main HA OS disk
         var storageDevices: [VZStorageDeviceConfiguration] = [
             VZVirtioBlockDeviceConfiguration(attachment: mainDisk)
         ]
 
-        // Optional: SSH CONFIG disk for key auto-import
+        // Optional: SSH CONFIG disk as USB mass storage (HA OS imports from USB)
+        var usbDevices: [VZUSBDeviceConfiguration] = []
         let configDiskPath = HavmConfig.configDiskPath
         if FileManager.default.fileExists(atPath: configDiskPath) {
-            let configDisk = try VZDiskImageStorageDeviceAttachment(
+            let configAttachment = try VZDiskImageStorageDeviceAttachment(
                 url: URL(fileURLWithPath: configDiskPath),
                 readOnly: true
             )
-            storageDevices.append(VZVirtioBlockDeviceConfiguration(attachment: configDisk))
-            logger.info("SSH CONFIG disk attached")
+            usbDevices.append(VZUSBMassStorageDeviceConfiguration(attachment: configAttachment))
+            logger.info("SSH CONFIG disk attached (USB)")
+        }
+        if !usbPassthroughConfigs.isEmpty {
+            usbDevices.append(contentsOf: usbPassthroughConfigs)
+        }
+        if !usbDevices.isEmpty {
+            let xhci = VZXHCIControllerConfiguration()
+            xhci.usbDevices = usbDevices
+            vmConfig.usbControllers = [xhci]
+            logger.info("USB: \(usbDevices.count) device(s)")
         }
 
         vmConfig.storageDevices = storageDevices
 
-        // Network
-        switch config.effectiveNetworkType {
-        case .bridge:
-            let bridgeInterface: VZBridgedNetworkInterface
-            if let ifaceName = config.network?.interface {
-                guard let iface = VZBridgedNetworkInterface.networkInterfaces
-                    .first(where: { $0.identifier == ifaceName }) else {
-                    throw VMConfigError.bridgeInterfaceNotFound(ifaceName)
-                }
-                bridgeInterface = iface
-            } else {
-                guard let primary = VZBridgedNetworkInterface.networkInterfaces.first else {
-                    throw VMConfigError.noNetworkInterfaces
-                }
-                bridgeInterface = primary
-                logger.info("Bridge: \(bridgeInterface.identifier)")
-            }
-            let net = VZVirtioNetworkDeviceConfiguration()
-            net.attachment = VZBridgedNetworkDeviceAttachment(interface: bridgeInterface)
-            vmConfig.networkDevices = [net]
-            logger.info("Network: bridged (\(bridgeInterface.identifier))")
-        case .nat:
-            let net = VZVirtioNetworkDeviceConfiguration()
-            net.attachment = VZNATNetworkDeviceAttachment()
-            vmConfig.networkDevices = [net]
-            logger.info("Network: NAT")
+        // Network: NAT with stable MAC for ARP-based IP discovery.
+        let net = VZVirtioNetworkDeviceConfiguration()
+        let mid = loadOrCreateMachineIdentifier()
+        let idBytes = mid.dataRepresentation
+        var rawBytes = Array(idBytes.suffix(6))
+        while rawBytes.count < 6 { rawBytes.append(0) }
+        rawBytes[0] = (rawBytes[0] & 0xFC) | 0x02  // locally-administered unicast
+        let ether = ether_addr_t(
+            octet: (rawBytes[0], rawBytes[1], rawBytes[2], rawBytes[3], rawBytes[4], rawBytes[5])
+        )
+        net.macAddress = VZMACAddress(ethernetAddress: ether)
+        net.attachment = VZNATNetworkDeviceAttachment()
+        vmConfig.networkDevices = [net]
+        self.guestMAC = net.macAddress.string
+        logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
+
+        // Serial console — guest output to stdout
+        let serialPort = VZVirtioConsoleDeviceSerialPortConfiguration()
+        let pipe = Pipe()
+        serialPort.attachment = VZFileHandleSerialPortAttachment(
+            fileHandleForReading: nil,
+            fileHandleForWriting: pipe.fileHandleForWriting
+        )
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            FileHandle.standardOutput.write(data)
         }
+        vmConfig.serialPorts = [serialPort]
 
-        vmConfig.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
-
-        // Memory balloon — allows macOS to reclaim idle guest memory
-        vmConfig.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
-
-        // USB passthrough
-        if !usbPassthroughConfigs.isEmpty {
-            let xhci = VZXHCIControllerConfiguration()
-            xhci.usbDevices = usbPassthroughConfigs
-            vmConfig.usbControllers = [xhci]
-            logger.info("USB: \(usbPassthroughConfigs.count) passthrough device(s)")
-        }
-
-        // Stable machine identifier for consistent MAC addresses
+        // Platform
         let platform = VZGenericPlatformConfiguration()
         platform.machineIdentifier = loadOrCreateMachineIdentifier()
         vmConfig.platform = platform

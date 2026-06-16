@@ -349,11 +349,6 @@ extension HavmConfig {
         (vmDirectory as NSString).appendingPathComponent("config.img")
     }
 
-    /// Console log file — captures VM serial console output.
-    public static var consoleLogPath: String {
-        (vmDirectory as NSString).appendingPathComponent("console.log")
-    }
-
     /// Directory for persisted USB accessory data (from havm-helper).
     public static var usbPersistenceDirectory: String {
         (dataDirectory as NSString).appendingPathComponent("usb")

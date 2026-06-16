@@ -35,6 +35,7 @@ public enum SetupError: Error, CustomStringConvertible {
     case downloadFailed(String, Error)
     case decompressFailed(String)
     case diskCopyFailed(String)
+    case diskTooSmall
 
     public var description: String {
         switch self {
@@ -46,6 +47,8 @@ public enum SetupError: Error, CustomStringConvertible {
             return "Failed to decompress \(path)."
         case .diskCopyFailed(let path):
             return "Failed to copy disk image to \(path)."
+        case .diskTooSmall:
+            return "Disk image is too small for GPT repair."
         }
     }
 }
@@ -117,8 +120,19 @@ public final class HAOSSetupManager: @unchecked Sendable {
         logger.info("Copied disk image to \(HavmConfig.persistentDiskPath)")
 
         // 4. Resize disk image if needed
+        // GPT repair is complex; deferring until we verify basic EFI boot works.
         let targetSize = config.effectiveDiskSize
-        try resizeDiskIfNeeded(at: HavmConfig.persistentDiskPath, targetSize: targetSize)
+        let attrs = try fileManager.attributesOfItem(atPath: HavmConfig.persistentDiskPath)
+        let currentSize = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
+        if currentSize < targetSize {
+            logger.info("Resizing disk from \(MemorySize(bytes: currentSize)) to \(MemorySize(bytes: targetSize))...")
+            let fh = try FileHandle(forWritingTo: URL(fileURLWithPath: HavmConfig.persistentDiskPath))
+            defer { try? fh.close() }
+            try fh.seek(toOffset: targetSize - 1)
+            try fh.write(contentsOf: Data([0]))
+            try fh.synchronize()
+            logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
+        }
 
         // 5. Create SSH CONFIG disk if authorized_keys is configured
         try setupSSHConfigDisk()
@@ -235,23 +249,6 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     private func copyDiskImage(from source: String, to destination: String) throws {
         try fileManager.copyItem(atPath: source, toPath: destination)
-    }
-
-    private func resizeDiskIfNeeded(at path: String, targetSize: UInt64) throws {
-        let attrs = try fileManager.attributesOfItem(atPath: path)
-        let currentSize = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
-
-        if currentSize < targetSize {
-            logger.info("Resizing disk from \(MemorySize(bytes: currentSize)) to \(MemorySize(bytes: targetSize))...")
-
-            let fh = try FileHandle(forWritingTo: URL(fileURLWithPath: path))
-            defer { try? fh.close() }
-            try fh.seek(toOffset: targetSize - 1)
-            try fh.write(contentsOf: Data([0]))
-            try fh.synchronize()
-
-            logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
-        }
     }
 
     private func createDirectories() {

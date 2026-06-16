@@ -2,71 +2,140 @@ import Foundation
 
 // MARK: - CONFIG Disk Builder
 
-/// Builds a minimal FAT16 disk image with volume label "CONFIG" and an
+/// Builds a minimal MBR + FAT16 disk image with volume label "CONFIG" and an
 /// `authorized_keys` file. Home Assistant OS auto-imports SSH keys from
-/// any attached disk with a partition/filesystem labeled "CONFIG" on boot.
+/// any attached disk with an MBR partition labeled "CONFIG" on boot.
 enum CONFIGDiskBuilder {
 
-    /// Create a minimal FAT16 disk image containing an authorized_keys file.
+    /// Create an MBR + FAT16 disk image containing an authorized_keys file.
     /// - Parameter keyData: The SSH public key text (one key per line, LF-separated).
-    /// - Returns: Raw disk image data (FAT16, volume label "CONFIG").
+    /// - Returns: Raw disk image data (MBR + FAT16 partition, volume label "CONFIG").
     static func build(authorizedKey keyData: Data) -> Data {
-        let diskSize = 2 * 1024 * 1024  // 2 MB (plenty for a single key file)
+        let diskSize = 2 * 1024 * 1024  // 2 MB
         let sectorSize = 512
-        let totalSectors = diskSize / sectorSize
-        let spc = 4  // sectors per cluster
+        let mbrSectors = 1
 
-        // Compute FAT parameters
+        // FAT16 filesystem (occupies all sectors after MBR)
+        let fsTotalSectors = diskSize / sectorSize - mbrSectors
+        let spc = 4
         let reservedSectors = 1
         let fatCount = 2
         let rootEntries = 512
-        let rootDirSectors = (rootEntries * 32 + sectorSize - 1) / sectorSize  // 32
-        // Compute FAT size: each entry is 2 bytes, need entries for all clusters
-        let clusters = (totalSectors - reservedSectors - rootDirSectors) / spc
+        let rootDirSectors = (rootEntries * 32 + sectorSize - 1) / sectorSize
+        let clusters = (fsTotalSectors - reservedSectors - rootDirSectors) / spc
         let fatSectors = max(1, (clusters * 2 + sectorSize - 1) / sectorSize)
         let sectorsPerFAT = UInt16(fatSectors)
 
         var data = Data(count: diskSize)
+        let fsOffset = mbrSectors * sectorSize  // FAT starts at offset 512
 
-        // --- Boot Sector (FAT16 BPB) ---
+        // --- Sector 0: MBR with one FAT16 LBA partition ---
+        writeMBR(&data, fsTotalSectors: UInt16(fsTotalSectors))
+
+        // --- Sector 1: FAT16 Boot Sector ---
         writeBootSector(&data,
-            totalSectors: UInt16(totalSectors),
+            at: fsOffset,
+            totalSectors: UInt16(fsTotalSectors),
             spc: UInt8(spc),
             reservedSectors: UInt16(reservedSectors),
             fatCount: UInt8(fatCount),
             rootEntries: UInt16(rootEntries),
             sectorsPerFAT: sectorsPerFAT,
-            volumeLabel: "CONFIG"
-        )
+            volumeLabel: "CONFIG")
 
-        // --- FAT tables (offset: reservedSectors * sectorSize) ---
-        let fatOffset = reservedSectors * sectorSize
+        // --- FAT tables ---
+        let fatOffset = fsOffset + reservedSectors * sectorSize
         writeFAT16Tables(&data, fatOffset: fatOffset, fatCount: fatCount, fatSectors: fatSectors)
 
-        // --- Root directory (offset: fatOffset + fatCount * fatSectors * sectorSize) ---
+        // --- Root directory ---
         let rootDirOffset = fatOffset + Int(fatCount) * Int(fatSectors) * sectorSize
 
         // Entry 1: Volume label "CONFIG"
         writeVolumeLabelEntry(&data, rootDirOffset, label: "CONFIG")
 
-        // Entry 2: "AUTHORIZED KEYS" file (8.3: AUTHO~1.KEY, but let's use AUTHKEYS.)
-        // Actually, "authorized_keys" doesn't fit 8.3. Let's use "AUTHKEYS.KEY"
+        // Entry 2+: VFAT LFN + 8.3 for "authorized_keys"
+        let longName = "authorized_keys"
+        let shortName = "AUTHKE~1"
+        let shortExt = "KEY"
         let fileSize = UInt32(keyData.count)
-        writeDirectoryEntry(&data, offset: rootDirOffset + 32,
-                            name: "AUTHKEYS", ext: "KEY",
+        let utf16 = Array(longName.utf16)
+        let lfnSlots = (utf16.count + 12) / 13
+
+        for slot in 0..<lfnSlots {
+            let entryOff = rootDirOffset + 32 + (lfnSlots - 1 - slot) * 32
+            data[entryOff] = UInt8(slot + 1) | (slot == lfnSlots - 1 ? 0x40 : 0)
+
+            var ci = slot * 13
+            for i in 0..<5 {
+                let p = entryOff + 1 + i * 2
+                if ci < utf16.count { data[p] = UInt8(utf16[ci] & 0xFF); data[p+1] = UInt8((utf16[ci] >> 8) & 0xFF); ci += 1 }
+                else if ci == utf16.count { data[p] = 0; data[p+1] = 0; ci += 1 }
+                else { data[p] = 0xFF; data[p+1] = 0xFF }
+            }
+            for i in 0..<6 {
+                let p = entryOff + 14 + i * 2
+                if ci < utf16.count { data[p] = UInt8(utf16[ci] & 0xFF); data[p+1] = UInt8((utf16[ci] >> 8) & 0xFF); ci += 1 }
+                else if ci == utf16.count { data[p] = 0; data[p+1] = 0; ci += 1 }
+                else { data[p] = 0xFF; data[p+1] = 0xFF }
+            }
+            for i in 0..<2 {
+                let p = entryOff + 28 + i * 2
+                if ci < utf16.count { data[p] = UInt8(utf16[ci] & 0xFF); data[p+1] = UInt8((utf16[ci] >> 8) & 0xFF); ci += 1 }
+                else if ci == utf16.count { data[p] = 0; data[p+1] = 0; ci += 1 }
+                else { data[p] = 0xFF; data[p+1] = 0xFF }
+            }
+
+            data[entryOff + 11] = 0x0F; data[entryOff + 12] = 0x00
+            data[entryOff + 26] = 0x00; data[entryOff + 27] = 0x00
+
+            var cs: UInt8 = 0
+            var sn = Array(shortName.utf8) + Array(shortExt.utf8)
+            while sn.count < 11 { sn.append(0x20) }
+            for b in sn { cs = ((cs & 1) << 7) &+ (cs >> 1) &+ b }
+            data[entryOff + 13] = cs
+        }
+
+        writeDirectoryEntry(&data, offset: rootDirOffset + 32 + lfnSlots * 32,
+                            name: shortName, ext: shortExt,
                             cluster: 2, fileSize: fileSize)
 
-        // --- Data region: cluster 2 = authorized_keys content ---
+        // --- Data region ---
         let dataRegionOffset = rootDirOffset + rootDirSectors * sectorSize
-        let cluster2Offset = dataRegionOffset  // cluster 2 = first data cluster
+        let cluster2Offset = dataRegionOffset
         data[cluster2Offset..<(cluster2Offset + keyData.count)] = keyData
 
         return data
     }
 
+    // MARK: - MBR
+
+    private static func writeMBR(_ data: inout Data, fsTotalSectors: UInt16) {
+        // MBR partition table starts at offset 446 (partition entry 1 at 446)
+        let partOffset = 446
+        // Boot indicator: 0x00 = not bootable
+        data[partOffset] = 0x00
+        // Starting CHS (ignored by modern OS, set to standard values)
+        data[partOffset + 1] = 0x01  // head
+        data[partOffset + 2] = 0x01  // sector (bits 0-5) + cylinder high (bits 6-7)
+        data[partOffset + 3] = 0x00  // cylinder low
+        // Partition type: 0x0E = FAT16 LBA
+        data[partOffset + 4] = 0x0E
+        // Ending CHS
+        data[partOffset + 5] = 0xFE  // head
+        data[partOffset + 6] = 0xFF  // sector + cylinder high
+        data[partOffset + 7] = 0xFF  // cylinder low
+        // Starting LBA: 1 (FAT starts right after MBR)
+        writeLE32(&data, offset: partOffset + 8, value: 1)
+        // Partition size in sectors
+        writeLE32(&data, offset: partOffset + 12, value: UInt32(fsTotalSectors))
+        // Boot signature
+        data[510] = 0x55; data[511] = 0xAA
+    }
+
     // MARK: - Boot Sector
 
     private static func writeBootSector(_ data: inout Data,
+                                         at offset: Int,
                                          totalSectors: UInt16,
                                          spc: UInt8,
                                          reservedSectors: UInt16,
@@ -74,34 +143,27 @@ enum CONFIGDiskBuilder {
                                          rootEntries: UInt16,
                                          sectorsPerFAT: UInt16,
                                          volumeLabel: String) {
-        // Jump instruction
-        data[0] = 0xEB; data[1] = 0x3C; data[2] = 0x90
-        // OEM name
-        writeString(&data, offset: 3, text: "mkfs.fat", maxLen: 8)
-        // BPB
-        writeLE16(&data, offset: 11, value: 512)      // bytes per sector
-        data[13] = spc                                  // sectors per cluster
-        writeLE16(&data, offset: 14, value: reservedSectors)  // reserved sectors
-        data[16] = fatCount                             // number of FATs
-        writeLE16(&data, offset: 17, value: rootEntries)     // root entries
-        writeLE16(&data, offset: 19, value: totalSectors)    // total sectors (16-bit)
-        data[21] = 0xF8                                 // media descriptor (hard disk)
-        writeLE16(&data, offset: 22, value: sectorsPerFAT)   // sectors per FAT
-        writeLE16(&data, offset: 24, value: 32)         // sectors per track
-        writeLE16(&data, offset: 26, value: 64)         // number of heads
-        writeLE32(&data, offset: 28, value: 0)          // hidden sectors
-        writeLE32(&data, offset: 32, value: 0)          // total sectors (32-bit, 0 = use 16-bit)
-
-        // Extended BPB
-        data[36] = 0x80                                 // physical drive number
-        data[37] = 0x00                                 // reserved
-        data[38] = 0x29                                 // extended boot signature
-        writeLE32(&data, offset: 39, value: 0x12345678) // volume serial number
-        writeString(&data, offset: 43, text: volumeLabel, maxLen: 11, padChar: 0x20)
-        writeString(&data, offset: 54, text: "FAT16   ", maxLen: 8)
-
-        // Boot signature
-        data[510] = 0x55; data[511] = 0xAA
+        data[offset] = 0xEB; data[offset + 1] = 0x3C; data[offset + 2] = 0x90
+        writeString(&data, offset: offset + 3, text: "mkfs.fat", maxLen: 8)
+        writeLE16(&data, offset: offset + 11, value: 512)
+        data[offset + 13] = spc
+        writeLE16(&data, offset: offset + 14, value: reservedSectors)
+        data[offset + 16] = fatCount
+        writeLE16(&data, offset: offset + 17, value: rootEntries)
+        writeLE16(&data, offset: offset + 19, value: totalSectors)
+        data[offset + 21] = 0xF8
+        writeLE16(&data, offset: offset + 22, value: sectorsPerFAT)
+        writeLE16(&data, offset: offset + 24, value: 32)    // sectors per track
+        writeLE16(&data, offset: offset + 26, value: 64)    // heads
+        writeLE32(&data, offset: offset + 28, value: 1)     // hidden sectors (partition starts at LBA 1)
+        writeLE32(&data, offset: offset + 32, value: 0)
+        data[offset + 36] = 0x80
+        data[offset + 37] = 0x00
+        data[offset + 38] = 0x29
+        writeLE32(&data, offset: offset + 39, value: 0x12345678)  // serial
+        writeString(&data, offset: offset + 43, text: volumeLabel, maxLen: 11, padChar: 0x20)
+        writeString(&data, offset: offset + 54, text: "FAT16   ", maxLen: 8)
+        data[offset + 510] = 0x55; data[offset + 511] = 0xAA
     }
 
     // MARK: - FAT Tables
@@ -109,11 +171,8 @@ enum CONFIGDiskBuilder {
     private static func writeFAT16Tables(_ data: inout Data, fatOffset: Int, fatCount: Int, fatSectors: Int) {
         for fatIdx in 0..<fatCount {
             let offset = fatOffset + fatIdx * fatSectors * 512
-            // Entry 0: media descriptor
             data[offset] = 0xF8; data[offset + 1] = 0xFF
-            // Entry 1: end-of-chain
             data[offset + 2] = 0xFF; data[offset + 3] = 0xFF
-            // Entry 2: end-of-chain (our authorized_keys file uses 1 cluster)
             data[offset + 4] = 0xFF; data[offset + 5] = 0xFF
         }
     }
@@ -122,7 +181,7 @@ enum CONFIGDiskBuilder {
 
     private static func writeVolumeLabelEntry(_ data: inout Data, _ offset: Int, label: String) {
         writeString(&data, offset: offset, text: label, maxLen: 11, padChar: 0x20)
-        data[offset + 11] = 0x08  // volume label attribute
+        data[offset + 11] = 0x08
     }
 
     private static func writeDirectoryEntry(_ data: inout Data, offset: Int,
@@ -130,10 +189,11 @@ enum CONFIGDiskBuilder {
                                              cluster: Int, fileSize: UInt32) {
         writeString(&data, offset: offset, text: name, maxLen: 8, padChar: 0x20)
         writeString(&data, offset: offset + 8, text: ext, maxLen: 3, padChar: 0x20)
-        data[offset + 11] = 0x00  // no special attributes
-        writeLE16(&data, offset: 20, value: 0)           // cluster high (FAT16: always 0)
-        writeLE16(&data, offset: 26, value: UInt16(cluster)) // cluster low
-        writeLE32(&data, offset: 28, value: fileSize)
+        data[offset + 11] = 0x00
+        data[offset + 12] = 0x00                          // reserved
+        writeLE16(&data, offset: offset + 20, value: 0)   // cluster high (FAT16: always 0)
+        writeLE16(&data, offset: offset + 26, value: UInt16(cluster))
+        writeLE32(&data, offset: offset + 28, value: fileSize)
     }
 
     // MARK: - LE Helpers
@@ -144,13 +204,14 @@ enum CONFIGDiskBuilder {
     }
 
     private static func writeLE32(_ data: inout Data, offset: Int, value: UInt32) {
-        for i in 0..<4 {
-            data[offset + i] = UInt8((value >> (i * 8)) & 0xFF)
-        }
+        data[offset] = UInt8(value & 0xFF)
+        data[offset + 1] = UInt8((value >> 8) & 0xFF)
+        data[offset + 2] = UInt8((value >> 16) & 0xFF)
+        data[offset + 3] = UInt8((value >> 24) & 0xFF)
     }
 
-    private static func writeString(_ data: inout Data, offset: Int, text: String, maxLen: Int, padChar: UInt8 = 0x00) {
-        let bytes = Array(text.utf8)
+    private static func writeString(_ data: inout Data, offset: Int, text: String, maxLen: Int, padChar: UInt8 = 0x20) {
+        let bytes = Array(text.utf8).prefix(maxLen)
         for i in 0..<maxLen {
             data[offset + i] = i < bytes.count ? bytes[i] : padChar
         }

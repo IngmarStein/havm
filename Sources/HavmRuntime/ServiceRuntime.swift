@@ -15,6 +15,8 @@ public final class ServiceRuntime: @unchecked Sendable {
     private let logger: Logger
 
     private var shutdownRequested = false
+    private var guestReachableNotified = false
+    private var firstProbeDone = false
     private var exitCode: Int32 = 0
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
@@ -44,7 +46,6 @@ public final class ServiceRuntime: @unchecked Sendable {
 
                 // Mutable poll state, accessed only from the main queue.
                 nonisolated(unsafe) var tick = 0
-                nonisolated(unsafe) var healthProbes = 0
                 func poll() {
                     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
                         let sig = Self.signalFlag
@@ -60,10 +61,13 @@ public final class ServiceRuntime: @unchecked Sendable {
                             return
                         }
 
+                        // Drain CFRunLoop — VZVirtualMachine uses XPC which
+                        // requires the run loop for Mach port event delivery.
+                        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+
                         tick += 1
-                        if tick % 20 == 0 {
-                            healthProbes += 1
-                            self.checkGuestNetwork(healthProbes)
+                        if tick % 20 == 0, !self.guestReachableNotified {
+                            self.checkGuestNetwork()
                         }
                         poll()
                     }
@@ -91,9 +95,7 @@ public final class ServiceRuntime: @unchecked Sendable {
                 "║  SSH:  ssh root@<guest-ip> -p 22222                      ║",
                 "║  Web:  http://<guest-ip>:8123                            ║",
                 "║                                                          ║",
-                "║  Guest IP is typically 192.168.64.2 (or .3, .4 …).       ║",
                 "║  havm will notify you when the guest responds.           ║",
-                "║                                                          ║",
                 "║  First boot may take a few minutes.                      ║",
                 "╚══════════════════════════════════════════════════════════╝",
                 "",
@@ -121,11 +123,21 @@ public final class ServiceRuntime: @unchecked Sendable {
     private static nonisolated(unsafe) var signalFlag: Int32 = 0
 
     private func setupSignalHandlers() {
+        // First signal → set flag for poll loop to pick up
+        // Repeated signal → _exit immediately (graceful shutdown already in progress)
         signal(SIGTERM) { _ in
-            if ServiceRuntime.signalFlag == 0 { ServiceRuntime.signalFlag = SIGTERM }
+            if ServiceRuntime.signalFlag == 0 {
+                ServiceRuntime.signalFlag = SIGTERM
+            } else {
+                _exit(1)
+            }
         }
         signal(SIGINT) { _ in
-            if ServiceRuntime.signalFlag == 0 { ServiceRuntime.signalFlag = SIGINT }
+            if ServiceRuntime.signalFlag == 0 {
+                ServiceRuntime.signalFlag = SIGINT
+            } else {
+                _exit(1)
+            }
         }
     }
 
@@ -167,40 +179,48 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     // MARK: - Guest connectivity
 
-    /// Check the ARP table for VZ NAT guests that have obtained a DHCP lease.
-    private func checkGuestNetwork(_ count: Int) {
-        guard config.effectiveNetworkType == .nat else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/arp")
-        process.arguments = ["-an"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return }
-            for line in output.split(separator: "\n") {
-                // Look for entries on the VZ bridge interface
-                if line.contains("bridge100") {
-                    let parts = line.split(separator: " ")
-                    if parts.count >= 4 {
-                        let ip = String(parts[1]).replacingOccurrences(of: "(", with: "")
-                                                    .replacingOccurrences(of: ")", with: "")
-                        if ip.hasPrefix("192.168.64.") {
-                            logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
-                            logger.info("  Web: http://\(ip):8123")
-                            logger.info("  SSH: ssh root@\(ip) -p 22222")
-                            return
-                        }
-                    }
+    /// Check whether the guest is reachable via NAT networking.
+    /// Reads the VZ DHCP lease file to find the guest's assigned IP by its MAC.
+    private func checkGuestNetwork() {
+        guard config.effectiveNetworkType == .nat,
+              let mac = vmController.guestMAC else { return }
+
+        // Read DHCP lease file: each lease is a plist blob with name, ip_address,
+        // hw_address (prefixed with "1," for Ethernet). Raw file is concatenated plists.
+        guard let leaseData = try? Data(contentsOf: URL(fileURLWithPath: "/var/db/dhcpd_leases")),
+              let leaseText = String(data: leaseData, encoding: .utf8) else { return }
+
+        // Normalize MAC: lease file uses no leading zeros (e.g. "2:0:0:0:0:23"
+        // instead of "02:00:00:00:00:23"). Compare as bytes.
+        let guestMACBytes = mac.split(separator: ":").compactMap { UInt8($0, radix: 16) }
+
+        let blocks = leaseText.components(separatedBy: "}\n")
+        for block in blocks {
+            var blockMAC: [UInt8] = []
+            var blockIP: String?
+            for line in block.split(separator: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("hw_address=1,") {
+                    let raw = String(trimmed.dropFirst(13))
+                    blockMAC = raw.split(separator: ":").compactMap { UInt8($0, radix: 16) }
+                } else if trimmed.hasPrefix("ip_address=") {
+                    blockIP = String(trimmed.dropFirst(11))
                 }
             }
-        } catch {}
-        // Every 12 probes (~1 min): remind user
-        if count % 12 == 1 && count > 1 {
-            logger.info("Still waiting for guest to boot... (checking ARP on bridge100)")
+            if blockMAC == guestMACBytes, let ip = blockIP, !ip.isEmpty {
+                if !guestReachableNotified {
+                    guestReachableNotified = true
+                    logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
+                    logger.info("  Web: http://\(ip):8123")
+                    logger.info("  SSH: ssh root@\(ip) -p 22222")
+                }
+                return
+            }
+        }
+
+        if !firstProbeDone {
+            firstProbeDone = true
+            logger.info("Waiting for guest DHCP lease (MAC \(mac))...")
         }
     }
 
