@@ -10,8 +10,8 @@ Apple's native [Virtualization framework][vz]. Download, resize, boot — one co
 - **USB passthrough** — auto-detects 15 known Zigbee/Z-Wave coordinators (requires
   paid Apple Developer account for the provisioning profile).
 - **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
-- **Graceful shutdown** — SIGTERM/SIGINT send ACPI shutdown with configurable force-stop
-  timeout.
+- **Graceful shutdown** — SSH-based: attempts `shutdown -h now` on port 22222 (debug SSH)
+  or `ha host shutdown` on port 22 (SSH add-on), with instant force-stop fallback.
 
 **Requires macOS 27 (Golden Gate) or later with Apple Silicon.**
 
@@ -67,13 +67,10 @@ ssh:
   authorized_keys: "~/.ssh/id_ed25519.pub"  # imports key into HA OS
 
 usb:
-  devices:                # additional USB devices to pass through
-    - vendor_id: "0x1CF1"
-      product_id: "0x0030"
-  auto_connect: true      # default: true — auto-detect known coordinators
+  enabled: true           # default: true — attach persisted USB accessories
 
 shutdown:
-  timeout_seconds: 30     # max wait for graceful ACPI shutdown
+  timeout_seconds: 10     # max wait for guest to stop after SSH shutdown
 ```
 
 ## Data Layout
@@ -94,15 +91,14 @@ shutdown:
 
 | Component | Choice | Reason |
 |-----------|--------|--------|
-| Boot | UEFI | Boots directly from the disk image |
+| Boot | UEFI (`VZEFIBootLoader`) | Boots directly from the GPT disk image |
 | CPU | 4 cores (configurable) | Sufficient for HA OS + add-ons |
-| Memory | 4 GiB (configurable), balloon enabled | macOS reclaims idle guest memory |
+| Memory | 4 GiB (configurable) | No balloon — keeps it simple |
 | Disk | 32 GiB raw image, VirtIO block | APFS sparse on disk (only ~6 GiB used after first boot) |
-| Network | NAT (default), Bridge opt-in | NAT works without extra entitlements |
-| USB | XHCI + `VZUSBPassthroughDevice` | Native macOS 27 passthrough |
-| Entropy | VirtIO entropy device | Hardware randomness for the guest |
+| Network | NAT with stable MAC | Works without extra entitlements |
+| CONFIG disk | USB mass storage (XHCI) | HA OS imports SSH keys from USB, not VirtIO |
 | NVRAM | Persisted EFI variable store | GRUB boot state survives reboots |
-| Graphics | None (headless) | Minimizes overhead |
+| Platform | `VZGenericPlatformConfiguration` | Stable machine ID → consistent MAC |
 
 ## USB Passthrough
 
@@ -138,8 +134,31 @@ ssh:
   authorized_keys: "~/.ssh/id_ed25519.pub"
 ```
 
-`havm` creates a small FAT16 disk image with volume label `CONFIG` containing
-your key. HA OS auto-imports it on boot.
+`havm` creates a small MBR + FAT16 disk image with volume label `CONFIG` and an
+`authorized_keys` file. HA OS auto-imports it on boot and starts `dropbear` on
+port 22222. Without this file, HA OS disables the debug SSH server.
+
+For the regular SSH add-on (Terminal & SSH or Advanced SSH & Web Terminal),
+install the add-on via the HA web UI — it listens on port 22.
+
+## Graceful Shutdown
+
+On SIGTERM or Ctrl+C, `havm` attempts a graceful shutdown via SSH before
+resorting to a force-stop:
+
+1. **Port 22222** — `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, direct host shutdown)
+2. **Port 22** — `ssh root@<ip> -p 22 ha host shutdown` (SSH add-on, via Supervisor)
+3. **Force-stop** — if both SSH attempts fail, the VM is stopped immediately
+
+SSH authentication uses your default `~/.ssh/id_*` keys with `BatchMode=yes`
+(no password prompts). The shutdown timeout is configurable:
+
+```yaml
+shutdown:
+  timeout_seconds: 10     # max wait for guest to halt (default: 10)
+```
+
+A second Ctrl+C during shutdown calls `_exit(1)` immediately.
 
 ## Homebrew Service
 

@@ -8,7 +8,7 @@
 
 ```bash
 ./scripts/build.sh release    # Build + ad-hoc sign with dev entitlements
-swift test                    # 5 tests in HavmCoreTests
+swift test                    # 8 tests in HavmCoreTests
 ./.build/release/havm run     # Run the VM (blocks; Ctrl+C to stop)
 ```
 
@@ -28,12 +28,13 @@ HavmCore (library)
 │                    machine identifier persistence, @MainActor on start()
 ├── USBManager       AccessoryAccess framework for USB passthrough
 ├── KnownCoordinators 15 Zigbee/Z-Wave coordinators (vendor/product IDs)
-├── CONFIGDiskBuilder Minimal FAT16 image with volume label "CONFIG"
+├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
+│                    authorized_keys file — HA OS auto-imports for SSH
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
 
 HavmRuntime
-└── ServiceRuntime   SIGTERM/SIGINT → ACPI shutdown → force-stop timeout,
-                     print boot instructions
+└── ServiceRuntime   SIGTERM/SIGINT → SSH shutdown (port 22222/22) →
+                     force-stop fallback, DHCP lease guest IP detection
 
 CXZ (C target)
 └── xz_decompress    dlopen liblzma for XZ decompression (no external tools)
@@ -47,7 +48,10 @@ CXZ (C target)
 - **APFS sparse files** — disk resize uses `ftruncate` (seek + write zero byte). APFS automatically hole-punches.
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
-- **SSH key import** — creates a 2 MB FAT16 disk with volume label "CONFIG" and `authorized_keys`. HA OS auto-imports on boot for root SSH on port 22222.
+- **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.
+- **SSH-based graceful shutdown** — on Ctrl+C/SIGTERM, tries SSH `shutdown -h now` (port 22222) then `ha host shutdown` (port 22), with instant force-stop fallback. ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
+- **Guest IP detection** — parses `/var/db/dhcpd_leases` by MAC address for instant, reliable IP discovery (no ping/ARP scanning).
+- **VFAT LFN** — the `0x40` (LAST_LONG_ENTRY) flag must be on the highest sequence number (end of filename), not the lowest (beginning). Getting this wrong causes both macOS and Linux to truncate the filename.
 
 ## Entitlements
 
@@ -109,3 +113,5 @@ The helper `havm-helper.app` satisfies this. The CLI alone cannot use the framew
 ## Known Issues
 
 - **macOS 27 beta**: `Data(count: 67108864)` crashes the process. Our CONFIG disk builder uses 2 MB instead of 64 MB to work around this.
+- **ACPI shutdown ignored**: HA OS on aarch64 uses PSCI, not ACPI. `VZVirtualMachine.requestStop()` (ACPI power button) is silently ignored. Use SSH-based shutdown instead.
+- **`ha host shutdown`**: Only works if the SSH add-on is installed and running on port 22. The debug SSH on port 22222 runs `shutdown -h now` directly as root on the host.
