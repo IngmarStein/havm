@@ -232,16 +232,33 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     // MARK: - Guest connectivity
 
-    /// Check whether the guest is reachable via NAT networking.
-    /// Reads the VZ DHCP lease file to find the guest's assigned IP by its MAC.
+    /// Discover the guest IP — method depends on network mode.
     private func checkGuestNetwork() {
-        guard config.effectiveNetworkType == .nat,
-              let mac = vmController.guestMAC else { return }
+        let ip: String?
+        switch config.effectiveNetworkType {
+        case .nat:
+            ip = discoverNATGuestIP()
+        case .bridge:
+            ip = discoverBridgeGuestIP()
+        }
 
-        // Read DHCP lease file: each lease is a plist blob with name, ip_address,
-        // hw_address (prefixed with "1," for Ethernet). Raw file is concatenated plists.
+        guard let ip, !ip.isEmpty, ip != guestIP else { return }
+        guestIP = ip
+
+        if !guestReachableNotified {
+            guestReachableNotified = true
+            logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
+            logger.info("  Web: http://\(ip):8123")
+            logger.info("  SSH: ssh root@\(ip) -p 22222")
+        }
+    }
+
+    /// NAT mode: parse the macOS DHCP lease file for the guest's assigned IP by MAC.
+    private func discoverNATGuestIP() -> String? {
+        guard let mac = vmController.guestMAC else { return nil }
+
         guard let leaseData = try? Data(contentsOf: URL(fileURLWithPath: "/var/db/dhcpd_leases")),
-              let leaseText = String(data: leaseData, encoding: .utf8) else { return }
+              let leaseText = String(data: leaseData, encoding: .utf8) else { return nil }
 
         // Normalize MAC: lease file uses no leading zeros (e.g. "2:0:0:0:0:23"
         // instead of "02:00:00:00:00:23"). Compare as bytes.
@@ -261,20 +278,39 @@ public final class ServiceRuntime: @unchecked Sendable {
                 }
             }
             if blockMAC == guestMACBytes, let ip = blockIP, !ip.isEmpty {
-                guestIP = ip
-                if !guestReachableNotified {
-                    guestReachableNotified = true
-                    logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
-                    logger.info("  Web: http://\(ip):8123")
-                    logger.info("  SSH: ssh root@\(ip) -p 22222")
-                }
-                return
+                return ip
             }
         }
 
         if !firstProbeDone {
             firstProbeDone = true
             logger.info("Waiting for guest DHCP lease (MAC \(mac))...")
+        }
+        return nil
+    }
+
+    /// Bridge mode: resolve the Home Assistant mDNS hostname.
+    /// HA OS advertises `homeassistant.local` via Avahi once booted.
+    private func discoverBridgeGuestIP() -> String? {
+        let hostname = "homeassistant.local"
+
+        var hints = addrinfo()
+        hints.ai_family = AF_INET
+        var result: UnsafeMutablePointer<addrinfo>?
+        defer { if let r = result { freeaddrinfo(r) } }
+
+        guard getaddrinfo(hostname, nil, &hints, &result) == 0, result != nil else {
+            if !firstProbeDone {
+                firstProbeDone = true
+                logger.info("Waiting for mDNS resolution of \(hostname)...")
+            }
+            return nil
+        }
+
+        return result!.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { addr in
+            var buf = [CChar](repeating: 0, count: 16) // INET_ADDRSTRLEN
+            inet_ntop(AF_INET, &addr.pointee.sin_addr, &buf, socklen_t(16))
+            return String(cString: buf)
         }
     }
 

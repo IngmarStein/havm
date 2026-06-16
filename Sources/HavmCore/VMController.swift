@@ -72,7 +72,7 @@ public final class VMController: NSObject, @unchecked Sendable {
 
         vmConfig.storageDevices = storageDevices
 
-        // Network: NAT with stable MAC for ARP-based IP discovery.
+        // Network: stable MAC for consistent DHCP leases across reboots.
         let net = VZVirtioNetworkDeviceConfiguration()
         let mid = loadOrCreateMachineIdentifier()
         let idBytes = mid.dataRepresentation
@@ -83,10 +83,31 @@ public final class VMController: NSObject, @unchecked Sendable {
             octet: (rawBytes[0], rawBytes[1], rawBytes[2], rawBytes[3], rawBytes[4], rawBytes[5])
         )
         net.macAddress = VZMACAddress(ethernetAddress: ether)
-        net.attachment = VZNATNetworkDeviceAttachment()
-        vmConfig.networkDevices = [net]
         self.guestMAC = net.macAddress.string
-        logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
+
+        switch config.effectiveNetworkType {
+        case .nat:
+            net.attachment = VZNATNetworkDeviceAttachment()
+            logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
+        case .bridge:
+            let bridgeInterface: VZBridgedNetworkInterface
+            if let ifaceName = config.network?.interface {
+                guard let iface = VZBridgedNetworkInterface.networkInterfaces
+                    .first(where: { $0.identifier == ifaceName }) else {
+                    throw VMConfigError.bridgeInterfaceNotFound(ifaceName)
+                }
+                bridgeInterface = iface
+            } else {
+                guard let primary = VZBridgedNetworkInterface.networkInterfaces.first else {
+                    throw VMConfigError.noNetworkInterfaces
+                }
+                bridgeInterface = primary
+            }
+            net.attachment = VZBridgedNetworkDeviceAttachment(interface: bridgeInterface)
+            logger.info("Network: Bridge (\(bridgeInterface.identifier), MAC \(self.guestMAC ?? "?"))")
+        }
+
+        vmConfig.networkDevices = [net]
 
         // Platform
         let platform = VZGenericPlatformConfiguration()
