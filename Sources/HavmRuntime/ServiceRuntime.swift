@@ -159,8 +159,9 @@ public final class ServiceRuntime: @unchecked Sendable {
     private func performGracefulShutdown() async {
         let timeout = config.effectiveShutdownTimeout
 
-        // Attempt SSH-based shutdown if we know the guest IP
-        if let ip = guestIP {
+        // Attempt SSH-based shutdown if SSH keys are configured and we know the guest IP.
+        // Without authorized_keys, HA OS keeps dropbear disabled — SSH won't work.
+        if config.effectiveSSHKeyPath != nil, let ip = guestIP {
             logger.info("Sending shutdown command via SSH to \(ip)...")
             if await sshShutdown(host: ip, timeout: timeout) {
                 // Wait for VM to stop
@@ -177,8 +178,10 @@ public final class ServiceRuntime: @unchecked Sendable {
             } else {
                 logger.warning("SSH shutdown failed — force-stopping...")
             }
-        } else {
+        } else if config.effectiveSSHKeyPath != nil {
             logger.warning("Guest IP unknown (network not ready) — force-stopping...")
+        } else {
+            logger.info("SSH not configured — force-stopping...")
         }
 
         do {
