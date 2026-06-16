@@ -157,9 +157,11 @@ public struct HavmConfig: Decodable, Sendable {
         haos?.releaseChannel ?? .stable
     }
 
-    /// Default shutdown timeout: 30 seconds.
+    /// Default shutdown timeout: 5 seconds.
+    /// HA OS on aarch64 uses PSCI, not ACPI power button, so `requestStop()`
+    /// is silently ignored. A short timeout keeps Ctrl+C responsive.
     public var effectiveShutdownTimeout: Int {
-        shutdown?.timeoutSeconds ?? 30
+        shutdown?.timeoutSeconds ?? 5
     }
 
     // MARK: - Init

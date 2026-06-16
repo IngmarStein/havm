@@ -88,20 +88,6 @@ public final class VMController: NSObject, @unchecked Sendable {
         self.guestMAC = net.macAddress.string
         logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
 
-        // Serial console — guest output to stdout
-        let serialPort = VZVirtioConsoleDeviceSerialPortConfiguration()
-        let pipe = Pipe()
-        serialPort.attachment = VZFileHandleSerialPortAttachment(
-            fileHandleForReading: nil,
-            fileHandleForWriting: pipe.fileHandleForWriting
-        )
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            FileHandle.standardOutput.write(data)
-        }
-        vmConfig.serialPorts = [serialPort]
-
         // Platform
         let platform = VZGenericPlatformConfiguration()
         platform.machineIdentifier = loadOrCreateMachineIdentifier()
