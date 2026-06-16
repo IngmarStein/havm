@@ -6,9 +6,12 @@ import Logging
 /// Manages the blocking service runtime: signal handling, VM lifecycle, graceful shutdown.
 ///
 /// On SIGTERM or SIGINT:
-///   1. Calls vm.requestStop() to send ACPI shutdown to the guest
+///   1. If guest IP is known, sends shutdown via SSH (ssh root@<ip> -p 22222 shutdown -h now)
 ///   2. Waits up to the configured timeout for the VM to stop
-///   3. If the VM hasn't stopped by then, calls vm.forceStop()
+///   3. If SSH fails or guest IP is unknown, calls vm.stop() immediately
+///
+/// ACPI power button (vm.requestStop()) is not used — HA OS on aarch64 uses
+/// PSCI for power management and ignores ACPI events entirely.
 public final class ServiceRuntime: @unchecked Sendable {
     private let config: HavmConfig
     private let vmController: VMController
@@ -17,6 +20,7 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var shutdownRequested = false
     private var guestReachableNotified = false
     private var firstProbeDone = false
+    private var guestIP: String?
     private var exitCode: Int32 = 0
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
@@ -153,21 +157,30 @@ public final class ServiceRuntime: @unchecked Sendable {
     }
 
     private func performGracefulShutdown() async {
-        logger.info("Sending ACPI shutdown request...")
-        do { try await vmController.requestStop() }
-        catch { logger.error("ACPI shutdown request failed: \(error)") }
         let timeout = config.effectiveShutdownTimeout
-        logger.info("Waiting up to \(timeout)s for guest to stop...")
-        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
-        while Date() < deadline {
-            if vmController.state == .stopped {
-                logger.info("VM stopped gracefully.")
-                fflush(stdout)
-                _exit(0)
+
+        // Attempt SSH-based shutdown if we know the guest IP
+        if let ip = guestIP {
+            logger.info("Sending shutdown command via SSH to \(ip)...")
+            if await sshShutdown(host: ip, timeout: timeout) {
+                // Wait for VM to stop
+                let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+                while Date() < deadline {
+                    if vmController.state == .stopped {
+                        logger.info("VM stopped gracefully.")
+                        fflush(stdout)
+                        _exit(0)
+                    }
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                logger.warning("Guest did not stop after SSH shutdown — force-stopping...")
+            } else {
+                logger.warning("SSH shutdown failed — force-stopping...")
             }
-            try? await Task.sleep(nanoseconds: 500_000_000)
+        } else {
+            logger.warning("Guest IP unknown (network not ready) — force-stopping...")
         }
-        logger.warning("Timed out after \(timeout)s — force-stopping...")
+
         do {
             try await vmController.forceStop()
             logger.info("Force stop completed.")
@@ -175,6 +188,35 @@ public final class ServiceRuntime: @unchecked Sendable {
         catch { logger.error("Force stop failed: \(error)") }
         fflush(stdout)
         _exit(0)
+    }
+
+    /// Send `shutdown -h now` to the guest via SSH.
+    /// - Returns: `true` if the SSH command succeeded (exit code 0).
+    private func sshShutdown(host: String, timeout: Int) async -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = [
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ConnectTimeout=\(min(timeout, 5))",
+            "-p", "22222",
+            "root@\(host)",
+            "shutdown -h now"
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        return await withCheckedContinuation { continuation in
+            process.terminationHandler = { proc in
+                continuation.resume(returning: proc.terminationStatus == 0)
+            }
+            do {
+                try process.run()
+            } catch {
+                logger.error("Failed to launch SSH: \(error)")
+                continuation.resume(returning: false)
+            }
+        }
     }
 
     // MARK: - Guest connectivity
@@ -208,6 +250,7 @@ public final class ServiceRuntime: @unchecked Sendable {
                 }
             }
             if blockMAC == guestMACBytes, let ip = blockIP, !ip.isEmpty {
+                guestIP = ip
                 if !guestReachableNotified {
                     guestReachableNotified = true
                     logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
@@ -238,14 +281,3 @@ public final class ServiceRuntime: @unchecked Sendable {
     }
 }
 
-// MARK: - Helpers
-
-private struct PollState: Sendable {
-    var tick = 0
-    var healthProbes = 0
-}
-
-private final class LockBox<T: Sendable>: @unchecked Sendable {
-    var value: T
-    init(_ value: T) { self.value = value }
-}
