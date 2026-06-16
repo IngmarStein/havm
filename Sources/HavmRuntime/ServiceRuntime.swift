@@ -159,29 +159,22 @@ public final class ServiceRuntime: @unchecked Sendable {
     private func performGracefulShutdown() async {
         let timeout = config.effectiveShutdownTimeout
 
-        // Attempt SSH-based shutdown if SSH keys are configured and we know the guest IP.
-        // Without authorized_keys, HA OS keeps dropbear disabled — SSH won't work.
-        if config.effectiveSSHKeyPath != nil, let ip = guestIP {
-            logger.info("Sending shutdown command via SSH to \(ip)...")
-            if await sshShutdown(host: ip, timeout: timeout) {
-                // Wait for VM to stop
-                let deadline = Date().addingTimeInterval(TimeInterval(timeout))
-                while Date() < deadline {
-                    if vmController.state == .stopped {
-                        logger.info("VM stopped gracefully.")
-                        fflush(stdout)
-                        _exit(0)
-                    }
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                }
-                logger.warning("Guest did not stop after SSH shutdown — force-stopping...")
-            } else {
-                logger.warning("SSH shutdown failed — force-stopping...")
+        if let ip = guestIP {
+            // 1. Debug SSH on port 22222 (root on host, direct shutdown)
+            logger.info("Attempting SSH shutdown via port 22222...")
+            if await sshShutdown(host: ip, port: 22222, command: "shutdown -h now", timeout: timeout),
+               await waitForStop(timeout: timeout) {
+                return
             }
-        } else if config.effectiveSSHKeyPath != nil {
-            logger.warning("Guest IP unknown (network not ready) — force-stopping...")
+            // 2. SSH add-on on port 22 (container, uses ha host shutdown)
+            logger.info("Attempting SSH shutdown via port 22...")
+            if await sshShutdown(host: ip, port: 22, command: "ha host shutdown", timeout: timeout),
+               await waitForStop(timeout: timeout) {
+                return
+            }
+            logger.warning("SSH shutdown failed — force-stopping...")
         } else {
-            logger.info("SSH not configured — force-stopping...")
+            logger.warning("Guest IP unknown (network not ready) — force-stopping...")
         }
 
         do {
@@ -193,18 +186,34 @@ public final class ServiceRuntime: @unchecked Sendable {
         _exit(0)
     }
 
-    /// Send `shutdown -h now` to the guest via SSH.
+    /// Wait for the VM to reach `.stopped` state.
+    /// - Returns: `true` if the VM stopped, `false` if timed out.
+    private func waitForStop(timeout: Int) async -> Bool {
+        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+        while Date() < deadline {
+            if vmController.state == .stopped {
+                logger.info("VM stopped gracefully.")
+                fflush(stdout)
+                _exit(0)
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return false
+    }
+
+    /// Send a shutdown command to the guest via SSH.
     /// - Returns: `true` if the SSH command succeeded (exit code 0).
-    private func sshShutdown(host: String, timeout: Int) async -> Bool {
+    private func sshShutdown(host: String, port: Int, command: String, timeout: Int) async -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = [
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
             "-o", "ConnectTimeout=\(min(timeout, 5))",
-            "-p", "22222",
+            "-o", "BatchMode=yes",
+            "-p", "\(port)",
             "root@\(host)",
-            "shutdown -h now"
+            command
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -216,7 +225,6 @@ public final class ServiceRuntime: @unchecked Sendable {
             do {
                 try process.run()
             } catch {
-                logger.error("Failed to launch SSH: \(error)")
                 continuation.resume(returning: false)
             }
         }
