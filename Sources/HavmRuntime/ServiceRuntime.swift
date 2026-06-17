@@ -232,9 +232,17 @@ public final class ServiceRuntime: @unchecked Sendable {
     }
 
     /// Send a shutdown command to the guest via the Home Assistant REST API.
-    /// Calls the `hassio.host_shutdown` service on port 8123 with a Bearer token.
+    /// Calls the `hassio.host_shutdown` service with a Bearer token.
+    /// Uses `shutdown.ha_url` if configured, otherwise defaults to
+    /// `http://<discovered-ip>:8123`.
     private func supervisorShutdown(host: String, token: String, timeout: Int) async -> RESTAPIResult {
-        guard let url = URL(string: "http://\(host):8123/api/services/hassio/host_shutdown") else {
+        let baseURL: String
+        if let configuredURL = config.effectiveHAURL {
+            baseURL = configuredURL
+        } else {
+            baseURL = "http://\(host):8123"
+        }
+        guard let url = URL(string: "\(baseURL)/api/services/hassio/host_shutdown") else {
             return .failed
         }
 

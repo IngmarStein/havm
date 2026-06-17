@@ -91,15 +91,21 @@ public struct HavmConfig: Decodable, Sendable {
         /// Create one at http://<ip>:8123/profile/security (or via
         /// /api/long_lived_access_token) in your HA user profile.
         public var apiToken: String?
+        /// Base URL of the Home Assistant REST API. Overrides the default
+        /// `http://<discovered-ip>:8123`. Use this if HA runs on a different
+        /// port or uses HTTPS, e.g. `https://homeassistant.local:443`.
+        public var haURL: String?
 
         enum CodingKeys: String, CodingKey {
             case timeoutSeconds = "timeout_seconds"
             case apiToken = "api_token"
+            case haURL = "ha_url"
         }
 
-        public init(timeoutSeconds: Int? = nil, apiToken: String? = nil) {
+        public init(timeoutSeconds: Int? = nil, apiToken: String? = nil, haURL: String? = nil) {
             self.timeoutSeconds = timeoutSeconds
             self.apiToken = apiToken
+            self.haURL = haURL
         }
     }
 
@@ -179,11 +185,17 @@ public struct HavmConfig: Decodable, Sendable {
         shutdown?.timeoutSeconds ?? 30
     }
 
-    /// Home Assistant long-lived access token for Supervisor API shutdown.
-    /// If set, havm tries `POST /api/hassio/host/shutdown` on port 8123 before
+    /// Home Assistant long-lived access token for REST API shutdown.
+    /// If set, havm calls `POST /api/services/hassio/host_shutdown` before
     /// falling back to SSH-based shutdown methods.
     public var effectiveShutdownAPIToken: String? {
         shutdown?.apiToken
+    }
+
+    /// Base URL for the Home Assistant REST API. If set, overrides the
+    /// auto-constructed `http://<discovered-ip>:8123`.
+    public var effectiveHAURL: String? {
+        shutdown?.haURL
     }
 
     // MARK: - Init

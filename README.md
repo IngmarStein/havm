@@ -79,7 +79,8 @@ logging:
 
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
-  api_token: "eyJ..."     # HA long-lived access token for Supervisor API shutdown
+  api_token: "eyJ..."     # HA long-lived access token for REST API shutdown
+  ha_url: "https://homeassistant.local:443"  # override default http://<ip>:8123
 ```
 
 ## Data Layout
@@ -188,7 +189,8 @@ The shutdown timeout is configurable:
 ```yaml
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
-  api_token: "eyJ..."     # HA long-lived access token (Supervisor API)
+  api_token: "eyJ..."     # HA long-lived access token
+  ha_url: "https://homeassistant.local:443"  # default: http://<ip>:8123
 ```
 
 A second Ctrl+C during shutdown calls `_exit(1)` immediately.
