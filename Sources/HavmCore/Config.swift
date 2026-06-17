@@ -29,10 +29,15 @@ public struct HavmConfig: Decodable, Sendable {
     public struct NetworkOverrides: Decodable, Sendable {
         public var type: NetworkType?
         public var interface: String?
+        /// Hostname or static IP for reaching the guest.
+        /// In bridge mode, defaults to `homeassistant.local` (mDNS).
+        /// Set this if you run multiple HA instances or use a static IP.
+        public var hostname: String?
 
-        public init(type: NetworkType? = nil, interface: String? = nil) {
+        public init(type: NetworkType? = nil, interface: String? = nil, hostname: String? = nil) {
             self.type = type
             self.interface = interface
+            self.hostname = hostname
         }
     }
 
@@ -192,6 +197,17 @@ public struct HavmConfig: Decodable, Sendable {
     /// SSH authorized keys path, if configured.
     public var effectiveSSHKeyPath: String? {
         ssh?.authorizedKeys
+    }
+
+    /// Hostname or IP for reaching the guest. In bridge mode, defaults to
+    /// `homeassistant.local`. Override via `network.hostname` if you run
+    /// multiple HA instances or use a static IP.
+    public var effectiveGuestHostname: String? {
+        if let hostname = network?.hostname { return hostname }
+        switch effectiveNetworkType {
+        case .bridge: return "homeassistant.local"
+        case .nat: return nil  // DHCP lease parsing works, no hostname needed
+        }
     }
 }
 

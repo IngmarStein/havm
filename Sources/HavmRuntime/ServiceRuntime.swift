@@ -232,14 +232,18 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     // MARK: - Guest connectivity
 
-    /// Discover the guest IP — method depends on network mode.
+    /// Discover the guest IP. If a hostname is configured (or defaults to
+    /// `homeassistant.local` in bridge mode), try mDNS resolution. Falls back
+    /// to DHCP lease parsing in NAT mode.
     private func checkGuestNetwork() {
         let ip: String?
-        switch config.effectiveNetworkType {
-        case .nat:
-            ip = discoverNATGuestIP()
-        case .bridge:
-            ip = discoverBridgeGuestIP()
+
+        if let hostname = config.effectiveGuestHostname {
+            // If it looks like an IP, use it directly; otherwise resolve via DNS/mDNS
+            ip = resolveOrUseIP(hostname)
+        } else {
+            // NAT mode without explicit hostname: parse DHCP lease file by MAC
+            ip = discoverViaDHCPLeases()
         }
 
         guard let ip, !ip.isEmpty, ip != guestIP else { return }
@@ -253,15 +257,43 @@ public final class ServiceRuntime: @unchecked Sendable {
         }
     }
 
-    /// NAT mode: parse the macOS DHCP lease file for the guest's assigned IP by MAC.
-    private func discoverNATGuestIP() -> String? {
+    /// If the string looks like an IPv4 address, return it as-is.
+    /// Otherwise, resolve it via getaddrinfo (which triggers mDNS for `.local` names).
+    private func resolveOrUseIP(_ hostname: String) -> String? {
+        // Quick check: if it's already an IP, use it
+        var sin = sockaddr_in()
+        if inet_pton(AF_INET, hostname, &sin.sin_addr) == 1 {
+            return hostname
+        }
+
+        var hints = addrinfo()
+        hints.ai_family = AF_INET
+        var result: UnsafeMutablePointer<addrinfo>?
+        defer { if let r = result { freeaddrinfo(r) } }
+
+        guard getaddrinfo(hostname, nil, &hints, &result) == 0, result != nil else {
+            if !firstProbeDone {
+                firstProbeDone = true
+                logger.info("Waiting for resolution of \(hostname)...")
+            }
+            return nil
+        }
+
+        return result!.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { addr in
+            var buf = [CChar](repeating: 0, count: 16)
+            inet_ntop(AF_INET, &addr.pointee.sin_addr, &buf, socklen_t(16))
+            return String(cString: buf)
+        }
+    }
+
+    /// Parse the macOS DHCP lease file to find the guest's IP by its MAC address.
+    /// Only works in NAT mode where macOS vmnet acts as the DHCP server.
+    private func discoverViaDHCPLeases() -> String? {
         guard let mac = vmController.guestMAC else { return nil }
 
         guard let leaseData = try? Data(contentsOf: URL(fileURLWithPath: "/var/db/dhcpd_leases")),
               let leaseText = String(data: leaseData, encoding: .utf8) else { return nil }
 
-        // Normalize MAC: lease file uses no leading zeros (e.g. "2:0:0:0:0:23"
-        // instead of "02:00:00:00:00:23"). Compare as bytes.
         let guestMACBytes = mac.split(separator: ":").compactMap { UInt8($0, radix: 16) }
 
         let blocks = leaseText.components(separatedBy: "}\n")
@@ -287,31 +319,6 @@ public final class ServiceRuntime: @unchecked Sendable {
             logger.info("Waiting for guest DHCP lease (MAC \(mac))...")
         }
         return nil
-    }
-
-    /// Bridge mode: resolve the Home Assistant mDNS hostname.
-    /// HA OS advertises `homeassistant.local` via Avahi once booted.
-    private func discoverBridgeGuestIP() -> String? {
-        let hostname = "homeassistant.local"
-
-        var hints = addrinfo()
-        hints.ai_family = AF_INET
-        var result: UnsafeMutablePointer<addrinfo>?
-        defer { if let r = result { freeaddrinfo(r) } }
-
-        guard getaddrinfo(hostname, nil, &hints, &result) == 0, result != nil else {
-            if !firstProbeDone {
-                firstProbeDone = true
-                logger.info("Waiting for mDNS resolution of \(hostname)...")
-            }
-            return nil
-        }
-
-        return result!.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { addr in
-            var buf = [CChar](repeating: 0, count: 16) // INET_ADDRSTRLEN
-            inet_ntop(AF_INET, &addr.pointee.sin_addr, &buf, socklen_t(16))
-            return String(cString: buf)
-        }
     }
 
     /// Human-readable VM state description.

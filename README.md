@@ -59,6 +59,7 @@ vm:
 network:
   type: bridge            # nat (default) or bridge
   interface: "en0"        # override auto-detected bridge interface
+  hostname: "homeassistant.local"  # mDNS hostname or static IP (default for bridge)
 
 haos:
   release_channel: "pre-release"  # stable (default) or pre-release
