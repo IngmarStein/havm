@@ -83,13 +83,10 @@ public final class ServiceRuntime: @unchecked Sendable {
             }
         }
 
-        // Block calling thread with a timeout — if the VM hasn't started after
-        // 120 seconds, bail out instead of hanging forever.
-        let timeoutResult = DispatchSemaphore(value: 0).wait(timeout: .now() + 120)
-        if timeoutResult == .timedOut {
-            logger.error("VM start timed out after 120 seconds.")
-            exit(1)
-        }
+        // Block calling thread. The semaphore is never signaled — all exit
+        // paths use _exit() from the main queue poll loop (VM stopped, signal
+        // received, or start failure via exit()).
+        DispatchSemaphore(value: 0).wait()
         return 0
     }
 
