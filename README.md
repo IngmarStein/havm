@@ -193,7 +193,7 @@ shutdown:
   ha_url: "https://homeassistant.local:443"  # default: http://<ip>:8123
 ```
 
-A second Ctrl+C during shutdown calls `_exit(1)` immediately.
+Press Ctrl+C twice to skip the graceful shutdown and stop the VM immediately.
 
 ## Homebrew Service
 
