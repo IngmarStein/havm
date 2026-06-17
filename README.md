@@ -7,8 +7,8 @@ Apple's native [Virtualization framework][vz]. Download, resize, boot — one co
 - **Persistent** — all HA OS data (configs, add-ons, history) lives on a resizable
   raw disk image. NVRAM and MAC address persist across reboots.
 - **Headless** — designed to run as a `launchd` background service via Homebrew.
-- **USB passthrough** — auto-detects 15 known Zigbee/Z-Wave coordinators (requires
-  paid Apple Developer account for the provisioning profile).
+- **USB passthrough** — attach Zigbee/Z-Wave coordinators via the havm-helper app
+  (requires paid Apple Developer account + provisioning profile).
 - **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
 - **Graceful shutdown** — SSH-based: attempts `shutdown -h now` on port 22222 (debug SSH)
   or `ha host shutdown` on port 22 (SSH add-on), with instant force-stop fallback.
@@ -42,7 +42,7 @@ Subsequent runs skip straight to boot.
 |---------|-------------|
 | `havm run` | Start the VM — auto-downloads HA OS on first run |
 | `havm run --config <path>` | Use a non-default config file |
-| `havm list-usb` | List USB devices with known coordinator detection |
+| `havm list-usb` | List USB devices persisted by havm-helper |
 | `havm version` | Print version and system info |
 
 ## Configuration
@@ -103,27 +103,16 @@ shutdown:
 
 ## USB Passthrough
 
-Known coordinators are auto-detected and passed through to the VM:
+USB passthrough requires the **havm-helper** companion app — a Dock application
+that discovers and selects USB devices for the VM. The CLI alone cannot use the
+AccessoryAccess framework.
 
-| Device | Protocol |
-|--------|----------|
-| ConBee II / ConBee III | Zigbee |
-| Home Assistant Connect ZBT-1 / ZBT-2 / SkyConnect | Zigbee |
-| Sonoff Zigbee 3.0 Plus (Dongle-E / Dongle-P) | Zigbee |
-| SMLIGHT SLZB-06 | Zigbee |
-| Tube's ZB Gateway / ZigStar UZG-01 | Zigbee |
-| ITead Zigbee 3.0 | Zigbee |
-| Aeotec Z-Stick Gen5 / Gen7 | Z-Wave |
-| Zooz ZST10 / ZST39 | Z-Wave |
-| Z-Wave.Me Z-Station | Z-Wave |
-| Nortek GoControl HUSBZB-1 | Zigbee + Z-Wave |
-| Home Assistant Yellow | Zigbee + Z-Wave |
+**Requirements:**
+- Paid Apple Developer account (for `com.apple.developer.accessory-access.usb`)
+- Provisioning profile with the USB passthrough entitlement
+- `havm-helper.app` — companion app that persists device selections
 
-Use `havm list-usb` to see what's connected.
-
-**USB passthrough requires a paid Apple Developer account.** The
-`com.apple.developer.accessory-access.usb` entitlement needs a provisioning
-profile. The VM itself runs fine without it — only USB passthrough is affected.
+The VM runs fine without USB passthrough — only coordinator attachment is affected.
 
 ## SSH Access
 

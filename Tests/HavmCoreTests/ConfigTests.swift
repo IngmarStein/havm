@@ -22,7 +22,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.effectiveDiskSize, 32 * 1024 * 1024 * 1024)
         XCTAssertEqual(config.effectiveNetworkType, .nat)
         XCTAssertEqual(config.effectiveReleaseChannel, .stable)
-        XCTAssertEqual(config.effectiveShutdownTimeout, 30)
+        XCTAssertEqual(config.effectiveShutdownTimeout, 10)
     }
 
     func testKnownCoordinatorsNotEmpty() {
