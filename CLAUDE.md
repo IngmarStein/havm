@@ -90,28 +90,38 @@ USB passthrough is fully implemented but **gated by Apple**. Cannot be activated
 - `havm-helper` Xcode project at `havm-helper/` — SwiftUI app that discovers USB devices
   via `AAUSBAccessoryManager`, persists selection via `NSKeyedArchiver` to
   `~/Library/Application Support/havm/usb/<registryID>.accessory`
-- `USBManager.buildPassthroughConfigurations()` reads persisted files, creates
-  `VZUSBPassthroughDeviceConfiguration` objects
+- `USBManager.buildPassthroughConfigurations()` reads persisted `AAUSBAccessory`
+  files, creates `VZUSBPassthroughDeviceConfiguration(device:)` objects
 - `KnownCoordinators` database (15 devices) provides display hints in UI and `list-usb`
 - `CONFIGDiskBuilder` creates minimal FAT16 disk with `authorized_keys` for SSH import
   (separate feature, works without USB entitlement)
+
+**Architecture:**
+- `AAUSBAccessory` conforms to `NSSecureCoding` — it's a transferable descriptor
+  designed for cross-process persistence (also has XPC transport methods).
+- `havm-helper.app` discovers devices via `AAUSBAccessoryManager` (requires Dock app /
+  NSApplication) and persists `AAUSBAccessory` objects via `NSKeyedArchiver`.
+- The CLI links `AccessoryAccess.framework` for the `AAUSBAccessory` type and
+  unarchives the persisted files with `ofClass: AAUSBAccessory.self`. It does NOT
+  use `AAUSBAccessoryManager` — only the helper needs NSApplication.
+- `VZUSBPassthroughDeviceConfiguration` has exactly one designated initializer:
+  `initWithDevice:(AAUSBAccessory *)device`. The persisted `AAUSBAccessory` is
+  passed directly to it.
 
 **Blocker:** `com.apple.developer.accessory-access.usb` — Xcode's provisioning system
 rejects it: *"not found and could not be included in profile."* Requires explicit
 Apple approval. `com.apple.security.device.usb` is also needed (standard Hardened
 Runtime entitlement, but insufficient alone).
 
-**Also required:** `AAUSBAccessoryManager` demands a Dock application (NSApplication).
-The helper `havm-helper.app` satisfies this. The CLI alone cannot use the framework.
-
 **To resume work:**
 1. Get `com.apple.developer.accessory-access.usb` approved for a developer account
 2. Build `havm-helper.app` from the Xcode project at `havm-helper/`
 3. Configure it with Personal Team signing + "Accessory Access" capability
-4. The CLI (`USBManager`) already reads persisted accessory files — no changes needed
+4. Select devices in havm-helper → persisted to `~/Library/Application Support/havm/usb/`
+5. `havm run` reads them and attaches passthrough configs to the VM
 
 ## Known Issues
 
-- **macOS 27 beta**: `Data(count: 67108864)` crashes the process. Our CONFIG disk builder uses 2 MB instead of 64 MB to work around this.
+- **macOS 27**: `Data(count: 67108864)` crashes the process. Our CONFIG disk builder uses 2 MB instead of 64 MB to work around this.
 - **ACPI shutdown ignored**: HA OS on aarch64 uses PSCI, not ACPI. `VZVirtualMachine.requestStop()` (ACPI power button) is silently ignored. Use SSH-based shutdown instead.
 - **`ha host shutdown`**: Only works if the SSH add-on is installed and running on port 22. The debug SSH on port 22222 runs `shutdown -h now` directly as root on the host.

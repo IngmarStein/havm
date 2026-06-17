@@ -31,6 +31,9 @@ let package = Package(
                 "CXZ",
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "Logging", package: "swift-log"),
+            ],
+            linkerSettings: [
+                .linkedFramework("AccessoryAccess"),
             ]
         ),
         .target(
