@@ -162,11 +162,11 @@ public struct HavmConfig: Decodable, Sendable {
         haos?.releaseChannel ?? .stable
     }
 
-    /// Default shutdown timeout: 10 seconds.
+    /// Default shutdown timeout: 30 seconds.
     /// SSH-based shutdown sends `shutdown -h now` or `ha host shutdown` to the
     /// guest, then waits this long for systemd to stop services and halt.
     public var effectiveShutdownTimeout: Int {
-        shutdown?.timeoutSeconds ?? 10
+        shutdown?.timeoutSeconds ?? 30
     }
 
     // MARK: - Init
