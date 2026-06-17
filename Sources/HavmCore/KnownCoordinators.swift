@@ -24,6 +24,7 @@ public struct KnownCoordinator: Sendable {
         KnownCoordinator(name: "ConBee II", vendorId: 0x1CF1, productId: 0x0030, protocolType: .zigbee),
         KnownCoordinator(name: "ConBee III", vendorId: 0x1CF1, productId: 0x0031, protocolType: .zigbee),
         KnownCoordinator(name: "Home Assistant Connect ZBT-1 / SkyConnect", vendorId: 0x10C4, productId: 0xEA60, protocolType: .zigbee),
+        // ZBT-2 shares VID/PID with ZBT-1 — both use the same Silicon Labs EFR32MG21 chip.
         KnownCoordinator(name: "Home Assistant Connect ZBT-2", vendorId: 0x10C4, productId: 0xEA60, protocolType: .zigbee),
         KnownCoordinator(name: "Sonoff Zigbee 3.0 Plus (Dongle-E)", vendorId: 0x10C4, productId: 0xEA60, protocolType: .zigbee),
         KnownCoordinator(name: "Sonoff Zigbee 3.0 Plus (Dongle-P)", vendorId: 0x1A86, productId: 0x7523, protocolType: .zigbee),

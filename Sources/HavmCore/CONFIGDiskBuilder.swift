@@ -11,6 +11,9 @@ enum CONFIGDiskBuilder {
     /// - Parameter keyData: The SSH public key text (one key per line, LF-separated).
     /// - Returns: Raw disk image data (MBR + FAT16 partition, volume label "CONFIG").
     static func build(authorizedKey keyData: Data) -> Data {
+        // 2 MB disk size — Data(count: 67108864) crashes the process on
+        // macOS 27, so we use a minimal allocation. HA OS only needs a
+        // few hundred bytes for authorized_keys, so 2 MB is plenty.
         let diskSize = 2 * 1024 * 1024  // 2 MB
         let sectorSize = 512
         let mbrSectors = 1

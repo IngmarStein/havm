@@ -106,7 +106,6 @@ final class ConfigTests: XCTestCase {
         let cluster2 = disk[dataRegionOffset..<(dataRegionOffset + keyData.count)]
         XCTAssertEqual(String(data: cluster2, encoding: .utf8), keyContent, "Key content at cluster 2 should match")
     }
-}
 
     func testCONFIGDiskRawDirectory() throws {
         let keyData = Data("ssh-ed25519 test\n".utf8)
@@ -142,3 +141,4 @@ final class ConfigTests: XCTestCase {
         let shortExt = String(bytes: disk[rootDir+96+8..<rootDir+96+11], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? ""
         print("Short name: '\(shortName).\(shortExt)'")
     }
+}

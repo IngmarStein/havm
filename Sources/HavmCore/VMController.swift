@@ -45,7 +45,7 @@ public final class VMController: NSObject, @unchecked Sendable {
             readOnly: false
         )
         // Storage: main HA OS disk
-        var storageDevices: [VZStorageDeviceConfiguration] = [
+        let storageDevices: [VZStorageDeviceConfiguration] = [
             VZVirtioBlockDeviceConfiguration(attachment: mainDisk)
         ]
 
@@ -216,36 +216,9 @@ public final class VMController: NSObject, @unchecked Sendable {
 
     // MARK: - Lifecycle
 
-    /// Start the VM. Must be called from the main actor (VZ requires main queue).
-    @MainActor
-    public func start(usbManager: USBManager? = nil) async throws {
-        guard state == .stopped else {
-            logger.warning("VM already in state \(state)")
-            return
-        }
-
-        if let usb = usbManager { prepareUSB(usbManager: usb) }
-
-        let vmConfig = try createConfiguration()
-        let virtualMachine = VZVirtualMachine(configuration: vmConfig)
-        virtualMachine.delegate = self
-        self.vm = virtualMachine
-
-        logger.info("Starting VM...")
-        try await withCheckedThrowingContinuation { continuation in
-            virtualMachine.start { result in
-                switch result {
-                case .success:
-                    self.logger.info("VM started successfully")
-                    continuation.resume()
-                case .failure(let error):
-                    self.logger.error("VM start failed: \(error.localizedDescription)")
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-
+    /// Request ACPI shutdown. Note: HA OS on aarch64 uses PSCI and ignores ACPI
+    /// power button events, so this typically does not work. Use SSH-based
+    /// shutdown (ServiceRuntime) instead.
     @MainActor
     public func requestStop() throws {
         guard let vm = vm else { return }
@@ -289,12 +262,6 @@ extension VMController: VZVirtualMachineDelegate {
 }
 
 // MARK: - Errors
-
-/// Thread-safe box for cross-dispatch-closure state.
-private final class LockBox<T: Sendable>: @unchecked Sendable {
-    var value: T
-    init(_ value: T) { self.value = value }
-}
 
 public enum VMConfigError: Error, CustomStringConvertible {
     case bridgeInterfaceNotFound(String)

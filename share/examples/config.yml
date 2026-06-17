@@ -4,32 +4,31 @@
 
 # Virtual machine resource limits
 vm:
-  cpu_count: 4                # default: host cores - 1 (min 2)
+  cpu_count: 4                # default: 4
   memory_size: "4 GiB"        # default: 4 GiB
   disk_size: "32 GiB"         # default: 32 GiB
 
 # Network configuration
 network:
-  # bridge: VM gets its own IP on your LAN (default).
-  # nat:    VM is behind NAT (use if bridge doesn't work).
-  type: bridge
-  # interface: override auto-detected primary network interface
+  # bridge: VM gets its own IP on your LAN (requires paid developer account).
+  # nat:    VM is behind NAT (default, works without extra entitlements).
+  type: nat
+  # interface: override auto-detected bridge interface
   # interface: "en0"
+  # hostname: "homeassistant.local"  # mDNS hostname or static IP for reaching the guest
 
 # Home Assistant OS release channel
 haos:
   # stable (default) or pre-release
   release_channel: stable
 
-# USB device passthrough
+# SSH key import (HA OS imports authorized_keys on boot for root SSH on port 22222)
+ssh:
+  authorized_keys: "~/.ssh/id_ed25519.pub"
+
+# USB device passthrough (requires paid developer account + provisioning profile)
 usb:
-  # Known Zigbee/Z-Wave coordinators are auto-detected.
-  # Add additional devices here:
-  # devices:
-  #   - vendor_id: "0x1CF1"
-  #     product_id: "0x0030"
-  #     name: "ConBee II"
-  auto_connect: true          # auto-detect known coordinators (default: true)
+  enabled: true               # attach persisted USB accessories (default: true)
 
 # Logging
 logging:
@@ -40,4 +39,4 @@ logging:
 
 # Shutdown behavior on SIGTERM/SIGINT
 shutdown:
-  timeout_seconds: 30         # max wait for graceful ACPI shutdown
+  timeout_seconds: 10         # max wait for guest to halt after SSH shutdown (default: 10)

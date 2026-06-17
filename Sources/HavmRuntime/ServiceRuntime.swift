@@ -36,6 +36,9 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     /// Run the VM, blocking the calling thread until the VM exits or a signal is received.
     public func runBlocking(usbManager: USBManager? = nil) -> Int32 {
+        // Write PID file for external tooling (Homebrew services, monitoring).
+        writePIDFile()
+
         DispatchQueue.main.async {
             self.setupSignalHandlers()
 
@@ -60,9 +63,9 @@ public final class ServiceRuntime: @unchecked Sendable {
                         }
                         if self.vmController.state == .stopped {
                             self.logger.info("VM stopped.")
+                            self.removePIDFile()
                             fflush(stdout)
                             _exit(0)
-                            return
                         }
 
                         // Drain CFRunLoop — VZVirtualMachine uses XPC which
@@ -80,8 +83,13 @@ public final class ServiceRuntime: @unchecked Sendable {
             }
         }
 
-        // Block calling thread.
-        DispatchSemaphore(value: 0).wait()
+        // Block calling thread with a timeout — if the VM hasn't started after
+        // 120 seconds, bail out instead of hanging forever.
+        let timeoutResult = DispatchSemaphore(value: 0).wait(timeout: .now() + 120)
+        if timeoutResult == .timedOut {
+            logger.error("VM start timed out after 120 seconds.")
+            exit(1)
+        }
         return 0
     }
 
@@ -182,6 +190,7 @@ public final class ServiceRuntime: @unchecked Sendable {
             logger.info("Force stop completed.")
         }
         catch { logger.error("Force stop failed: \(error)") }
+        removePIDFile()
         fflush(stdout)
         _exit(0)
     }
@@ -193,6 +202,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         while Date() < deadline {
             if vmController.state == .stopped {
                 logger.info("VM stopped gracefully.")
+                removePIDFile()
                 fflush(stdout)
                 _exit(0)
             }
@@ -215,12 +225,25 @@ public final class ServiceRuntime: @unchecked Sendable {
             "root@\(host)",
             command
         ]
+
+        // Capture stderr so we can log why SSH failed (key issues, connection
+        // refused, etc.). This helps users troubleshoot SSH shutdown problems.
+        let stderrPipe = Pipe()
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        process.standardError = stderrPipe
 
         return await withCheckedContinuation { continuation in
             process.terminationHandler = { proc in
-                continuation.resume(returning: proc.terminationStatus == 0)
+                let succeeded = proc.terminationStatus == 0
+                if !succeeded {
+                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stderrText = String(data: stderrData, encoding: .utf8)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !stderrText.isEmpty {
+                        Logger(label: "havm.runtime").debug("SSH (port \(port)) stderr: \(stderrText)")
+                    }
+                }
+                continuation.resume(returning: succeeded)
             }
             do {
                 try process.run()
@@ -282,7 +305,9 @@ public final class ServiceRuntime: @unchecked Sendable {
         return result!.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { addr in
             var buf = [CChar](repeating: 0, count: 16)
             inet_ntop(AF_INET, &addr.pointee.sin_addr, &buf, socklen_t(16))
-            return String(cString: buf)
+            let nullTerm = buf.firstIndex(of: 0) ?? buf.count
+            let utf8Bytes = buf[0..<nullTerm].map { UInt8(bitPattern: $0) }
+            return String(decoding: utf8Bytes, as: UTF8.self)
         }
     }
 
@@ -321,6 +346,20 @@ public final class ServiceRuntime: @unchecked Sendable {
         return nil
     }
 
+    // MARK: - PID file
+
+    private func writePIDFile() {
+        let pidPath = HavmConfig.pidFilePath
+        let pidDir = (pidPath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: pidDir, withIntermediateDirectories: true)
+        let pidString = "\(getpid())\n"
+        try? pidString.write(toFile: pidPath, atomically: true, encoding: .utf8)
+    }
+
+    private func removePIDFile() {
+        try? FileManager.default.removeItem(atPath: HavmConfig.pidFilePath)
+    }
+
     /// Human-readable VM state description.
     private static func stateDescription(_ state: VZVirtualMachine.State) -> String {
         switch state.rawValue {
@@ -334,4 +373,3 @@ public final class ServiceRuntime: @unchecked Sendable {
         }
     }
 }
-

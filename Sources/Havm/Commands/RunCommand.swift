@@ -18,6 +18,14 @@ struct RunCommand: AsyncParsableCommand {
             help: "Log format: 'text' (default) or 'json' (NDJSON, one object per line). Overrides config file setting.")
     var logFormat: HavmConfig.LoggingOverrides.LogFormat?
 
+    @Flag(name: [.long, .customShort("j")],
+          help: "Shorthand for --log-format json.")
+    var json: Bool = false
+
+    @Flag(name: [.long, .customShort("v")],
+          help: "Shorthand for --log-level debug.")
+    var verbose: Bool = false
+
     func run() async throws {
         // 1. Load config (or use defaults) — must happen before LoggingSystem bootstrap
         //    so we know the configured log format. Errors at this stage go to stderr.
@@ -31,17 +39,20 @@ struct RunCommand: AsyncParsableCommand {
 
         // 2. Bootstrap the logging system based on the effective format.
         //    CLI flag overrides config file, which defaults to .text.
-        let format = logFormat ?? havmConfig.effectiveLogFormat
+        //    --json (-j) is a shorthand; explicit --log-format wins.
+        let format = logFormat ?? (json ? .json : havmConfig.effectiveLogFormat)
+        let effectiveLogLevel: Logger.Level = verbose ? .debug : havmConfig.effectiveLogLevel
+
         if format == .json {
             LoggingSystem.bootstrap { label in
                 var handler = JSONLogHandler(label: label, stream: FileHandle.standardOutput)
-                handler.logLevel = havmConfig.effectiveLogLevel
+                handler.logLevel = effectiveLogLevel
                 return handler
             }
         }
 
         var logger = Logger(label: "havm.run")
-        logger.logLevel = havmConfig.effectiveLogLevel
+        logger.logLevel = effectiveLogLevel
 
         logger.info(
             "Config loaded: CPU=\(havmConfig.effectiveCPUCount) Memory=\(MemorySize(bytes: havmConfig.effectiveMemorySize)) Network=\(havmConfig.effectiveNetworkType) Log=\(format.rawValue)"
@@ -63,10 +74,8 @@ struct RunCommand: AsyncParsableCommand {
         let vmController = VMController(config: havmConfig, logger: logger)
         let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, logger: logger)
 
-        // Prepare USB passthrough before starting (reads persisted accessory files)
-        vmController.prepareUSB(usbManager: usbManager)
-
         // runBlocking dispatches to the main thread and blocks via CFRunLoopRun().
+        // USB passthrough is prepared inside startVMBlocking.
         let exitCode = runtime.runBlocking(usbManager: usbManager)
 
         if exitCode != 0 {

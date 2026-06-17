@@ -7,6 +7,11 @@ import Logging
 /// ```json
 /// {"timestamp":"2026-06-15T21:30:00Z","level":"info","label":"havm.run","message":"VM started"}
 /// ```
+///
+/// Metadata values are converted to JSON-safe representations:
+/// - `.string` → JSON string
+/// - `.stringConvertible` → JSON string via `.description`
+/// - `.dictionary` → JSON object (recursively converted)
 public struct JSONLogHandler: LogHandler {
     private let stream: FileHandle
 
@@ -25,6 +30,10 @@ public struct JSONLogHandler: LogHandler {
         set { metadata[key] = newValue }
     }
 
+    public func log(event: Logging.LogEvent) {
+        writeEntry(level: event.level, message: event.message, metadata: event.metadata)
+    }
+
     public func log(level: Logger.Level,
                     message: Logger.Message,
                     metadata: Logger.Metadata?,
@@ -32,36 +41,67 @@ public struct JSONLogHandler: LogHandler {
                     file: String,
                     function: String,
                     line: UInt) {
-        var entry: [String: EncodableValue] = [
-            "timestamp": .string(ISO8601DateFormatter().string(from: Date())),
-            "level": .string(level.rawValue),
-            "label": .string(self.label),
-            "message": .string(message.description),
+        writeEntry(level: level, message: message, metadata: metadata)
+    }
+
+    private func writeEntry(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?) {
+        var entry: [String: Any] = [
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "level": level.rawValue,
+            "label": self.label,
+            "message": message.description,
         ]
         if let metadata {
             for (k, v) in metadata {
-                entry[k] = .string(v.description)
+                entry[k] = convertMetadataValue(v)
             }
         }
-        // Write JSON line
-        if let data = try? JSONSerialization.data(withJSONObject: entry.mapValues(\.rawValue)),
+        // encodeJSON never fails because we pre-convert all values to
+        // JSON-safe representations.
+        if let data = encodeJSON(entry),
            var line = String(data: data, encoding: .utf8) {
             line.append("\n")
             if let encoded = line.data(using: .utf8) {
                 try? stream.write(contentsOf: encoded)
                 try? stream.synchronize()
             }
+        } else {
+            // Fallback: write a log line that is still valid JSON, so log
+            // parsers don't choke. This should never happen with the
+            // pre-conversion above, but we guard anyway.
+            let fallback = #"{"timestamp":"\#(ISO8601DateFormatter().string(from: Date()))","level":"error","label":"\#(self.label)","message":"Log serialization failed"}"#
+            if var line = String(data: Data(fallback.utf8), encoding: .utf8) {
+                line.append("\n")
+                try? stream.write(contentsOf: line.data(using: .utf8) ?? Data())
+            }
         }
     }
 }
 
-/// Helper to bridge Logger.Metadata.Value → JSON-compatible raw values.
-private enum EncodableValue {
-    case string(String)
+// MARK: - Metadata → JSON conversion
 
-    var rawValue: Any {
-        switch self {
-        case .string(let s): s
+/// Recursively convert a `Logger.Metadata.Value` to a JSON-safe type
+/// (String, [String: Any], or NSNull).
+private func convertMetadataValue(_ value: Logger.Metadata.Value) -> Any {
+    switch value {
+    case .string(let s):
+        return s
+    case .stringConvertible(let c):
+        return c.description
+    case .dictionary(let d):
+        var result: [String: Any] = [:]
+        for (k, v) in d {
+            result[k] = convertMetadataValue(v)
         }
+        return result
+    case .array(let a):
+        return a.map { convertMetadataValue($0) }
     }
+}
+
+/// Encode a dictionary to JSON data. Only fails if values are not
+/// JSON-serializable — callers must pre-convert to safe types.
+private func encodeJSON(_ dict: [String: Any]) -> Data? {
+    guard JSONSerialization.isValidJSONObject(dict) else { return nil }
+    return try? JSONSerialization.data(withJSONObject: dict)
 }

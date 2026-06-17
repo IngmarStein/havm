@@ -371,4 +371,9 @@ extension HavmConfig {
     public static var usbPersistenceDirectory: String {
         (dataDirectory as NSString).appendingPathComponent("usb")
     }
+
+    /// Path to the PID file for the running VM process.
+    public static var pidFilePath: String {
+        (vmDirectory as NSString).appendingPathComponent("havm.pid")
+    }
 }

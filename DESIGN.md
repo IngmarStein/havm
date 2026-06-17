@@ -9,8 +9,8 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 ┌─────────────────────────────────────────────────┐
 │  Havm (CLI, AsyncParsableCommand)               │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐         │
-│  │ run      │ │ setup    │ │ list-usb │         │
-│  │ (async)  │ │ (async)  │ │          │         │
+│  │ run      │ │ list-usb │ │ version  │         │
+│  │ (async)  │ │          │ │          │         │
 │  └────┬─────┘ └────┬─────┘ └────┬─────┘         │
 ├───────┼────────────┼────────────┼───────────────┤
 │       ▼            ▼            ▼               │
@@ -18,13 +18,21 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 │  │  HavmCore                                │   │
 │  │  ┌────────┐ ┌────────────┐ ┌──────────┐ │   │
 │  │  │ Config │ │ HAOSSetup  │ │ VMControl │ │   │
-│  │  │(YAML)  │ │Download/   │ │ ler (VZ)  │ │   │
-│  │  │        │ │Extract/Disk│ │           │ │   │
+│  │  │(YAML)  │ │Download/XZ │ │ ler (VZ)  │ │   │
+│  │  │        │ │Decompress  │ │           │ │   │
 │  │  └────────┘ └────────────┘ └──────────┘ │   │
+│  │  ┌───────────────────────┐               │   │
+│  │  │ CONFIGDiskBuilder     │               │   │
+│  │  │ (MBR + FAT16 LFN)     │               │   │
+│  │  └───────────────────────┘               │   │
 │  │  ┌──────────────┐ ┌──────────────────┐  │   │
 │  │  │ KnownCoordi- │ │ USBManager       │  │   │
-│  │  │ nators (DB)  │ │ (IOKit, VZUSB)   │  │   │
+│  │  │ nators (DB)  │ │ (persisted acc)  │  │   │
 │  │  └──────────────┘ └──────────────────┘  │   │
+│  │  ┌──────────────────────────────────┐   │   │
+│  │  │ JSONLogHandler (NDJSON to        │   │   │
+│  │  │ stdout or file)                  │   │   │
+│  │  └──────────────────────────────────┘   │   │
 │  └──────────────────────────────────────────┘   │
 ├───────┬─────────────────────────────────────────┤
 │       ▼                                          │
@@ -32,8 +40,9 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 │  │  HavmRuntime                             │   │
 │  │  ┌──────────────────────────────────┐    │   │
 │  │  │ ServiceRuntime                   │    │   │
-│  │  │ SIGTERM/SIGINT → ACPI → timeout  │    │   │
-│  │  │ → forceStop                      │    │   │
+│  │  │ SIGTERM/SIGINT → SSH shutdown    │    │   │
+│  │  │ (port 22222, then port 22)       │    │   │
+│  │  │ → waitForStop → forceStop        │    │   │
 │  │  └──────────────────────────────────┘    │   │
 │  └──────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────┘
@@ -44,17 +53,17 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 1. Load config (optional, defaults if absent)
 2. `HAOSSetupManager.setupIfNeeded()`:
    a. Fetch latest release from GitHub (stable or pre-release channel)
-   b. Download `haos_generic-aarch64-<version>.img.xz` if not cached
-   c. Decompress with `/usr/bin/xz`
-   d. `hdiutil attach` → auto-mount FAT32 EFI partition
-   e. Extract `Image` (kernel) and `uInitrd` (initrd)
-   f. Copy disk image to persistent location
-   g. Resize disk image to configured size via `truncate`
+   b. Download `haos_generic-aarch64-<version>.img.xz` if not cached (streaming)
+   c. Verify SHA256 checksum if available
+   d. Decompress with `liblzma` via `CXZ` (no external tools)
+   e. Copy disk image to persistent location
+   f. Resize disk image to configured size via APFS sparse (ftruncate)
 3. `VMController.createConfiguration()`:
-   - `VZLinuxBootLoader` with kernel + initrd + command line
+   - `VZEFIBootLoader` with persisted EFI variable store
    - `VZVirtioBlockDeviceConfiguration` with persistent disk
-   - `VZBridgedNetworkDeviceAttachment` (auto-detect primary interface) or NAT
-   - `VZVirtioEntropyDeviceConfiguration`
+   - Optional CONFIG disk as USB mass storage (XHCI) for SSH key import
+   - `VZNATNetworkDeviceAttachment` (default) or `VZBridgedNetworkDeviceAttachment`
+   - Stable MAC address derived from persisted `VZGenericMachineIdentifier`
    - No graphics (headless)
 4. `vm.start()` → `ServiceRuntime.runBlocking()`
 5. Block until SIGTERM/SIGINT or VM exit
@@ -63,37 +72,47 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 
 ```
 SIGTERM / SIGINT
-  → ServiceRuntime.handleShutdownSignal()
-    → vm.requestStop()           # ACPI shutdown
-    → poll state (up to timeout)
-      → VM stopped → exit 0
-      → timeout → vm.forceStop() → exit 1
-  → Second signal → immediate forceStop()
+  → ServiceRuntime.signalShutdown()
+    → SSH root@<ip> -p 22222 shutdown -h now    # Debug SSH (host, direct)
+    → waitForStop(timeout)
+    → SSH root@<ip> -p 22 ha host shutdown       # SSH add-on (container)
+    → waitForStop(timeout)
+    → vm.forceStop()                              # Fallback: immediate stop
+  → Second signal → _exit(1)
 ```
+
+ACPI power button (`vm.requestStop()`) is **not used**. HA OS on aarch64 uses
+PSCI for power management and ignores ACPI events entirely. SSH-based shutdown
+is the only reliable method.
 
 ## Data Layout
 
 ```
 ~/.config/havm/config.yml                           # Optional config
 ~/Library/Application Support/havm/
-  vm/haos.img                                       # Persistent disk (raw, VirtIO)
-  vm/Image                                          # Extracted kernel
-  vm/uInitrd                                        # Extracted initrd
-  vm/MachineIdentifier                              # Stable machine ID
+  vm/haos.img                                       # Persistent disk (raw, GPT, VirtIO)
+  vm/NVRAM                                          # EFI variable store (boot state)
+  vm/MachineIdentifier                              # Stable machine ID (consistent MAC)
+  vm/config.img                                     # SSH key import disk (CONFIG label)
+  vm/havm.pid                                       # Process PID for external tooling
+  usb/                                              # Persisted USB accessory data (havm-helper)
 ~/Library/Caches/havm/
-  haos_generic-aarch64-<version>.img.xz             # Cached downloads
+  haos_generic-aarch64-<version>.img.xz             # Cached download
+  haos_generic-aarch64-<version>.img                # Decompressed cache
 ```
 
 ## VM Hardware Decisions
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
-| Storage | VirtIO block, raw image | HA OS ships VirtIO drivers; NVMe would need kernel config audit |
-| Network | Bridged, primary interface | LAN-reachable IP needed for HomeKit/Matter/web UI |
+| Boot | UEFI (`VZEFIBootLoader`) | Boots directly from GPT disk — no kernel extraction |
+| Storage | VirtIO block, raw image | HA OS ships VirtIO drivers; APFS sparse for efficiency |
+| Network | NAT (default) or Bridge | NAT works without extra entitlements; bridge gets LAN IP |
 | Machine ID | Persisted `VZGenericMachineIdentifier` | Stable MAC across reboots |
+| NVRAM | Persisted EFI variable store | GRUB boot state survives reboots |
 | Graphics | None (headless) | Minimizes overhead, not needed for HA OS |
-| USB | XHCI + VZUSBPassthroughDevice | macOS 27 AccessoryAccess framework |
-| Entropy | VirtIO entropy device | Standard for Linux guests |
+| USB | XHCI controller + mass storage | CONFIG disk via USB (HA OS imports SSH keys from USB) |
+| CONFIG disk | MBR + FAT16 with VFAT LFN | 2 MB image with "CONFIG" label — HA OS auto-imports |
 
 ## Homebrew Service
 
@@ -111,7 +130,8 @@ end
 
 | Package | Use |
 |---------|-----|
-| `Virtualization.framework` | VZVirtualMachine, VZLinuxBootLoader, VZUSBPassThroughDevice |
+| `Virtualization.framework` | VZVirtualMachine, VZEFIBootLoader, VZUSBDeviceConfiguration |
 | `swift-argument-parser` | CLI |
 | `Yams` | YAML config parsing |
 | `swift-log` | Structured logging |
+| `CryptoKit` | SHA256 checksum verification |
