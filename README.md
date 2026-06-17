@@ -10,8 +10,8 @@ Apple's native [Virtualization framework][vz]. Download, resize, boot — one co
 - **USB passthrough** — attach Zigbee/Z-Wave coordinators via the havm-helper app
   (requires paid Apple Developer account + provisioning profile).
 - **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
-- **Graceful shutdown** — SSH-based: attempts `shutdown -h now` on port 22222 (debug SSH)
-  or `ha host shutdown` on port 22 (SSH add-on), with instant force-stop fallback.
+- **Graceful shutdown** — tries Supervisor API, then SSH (port 22222/22),
+  with instant force-stop fallback.
 
 **Requires macOS 27 (Golden Gate) or later with Apple Silicon.**
 
@@ -41,7 +41,9 @@ Subsequent runs skip straight to boot.
 | Command | Description |
 |---------|-------------|
 | `havm run` | Start the VM — auto-downloads HA OS on first run |
-| `havm run --config <path>` | Use a non-default config file |
+| `havm run -c <path>` | Use a non-default config file |
+| `havm run -j` | JSON log output (shorthand for `--log-format json`) |
+| `havm run -v` | Verbose output (shorthand for `--log-level debug`) |
 | `havm list-usb` | List USB devices persisted by havm-helper |
 | `havm version` | Print version and system info |
 
@@ -57,21 +59,27 @@ vm:
   disk_size: "32 GiB"     # default: 32 GiB
 
 network:
-  type: bridge            # nat (default) or bridge
+  type: nat               # nat (default) or bridge
   interface: "en0"        # override auto-detected bridge interface
-  hostname: "homeassistant.local"  # mDNS hostname or static IP (default for bridge)
+  hostname: "homeassistant.local"  # mDNS hostname or static IP
 
 haos:
   release_channel: "pre-release"  # stable (default) or pre-release
 
 ssh:
-  authorized_keys: "~/.ssh/id_ed25519.pub"  # imports key into HA OS
+  authorized_keys: "~/.ssh/id_ed25519.pub"  # imported into HA OS for port 22222
 
 usb:
   enabled: true           # default: true — attach persisted USB accessories
 
+logging:
+  format: text            # text (default) or json (NDJSON, one object per line)
+  level: debug            # debug, info (default), warning, error
+  file: "/var/log/havm.log"  # write logs to a file instead of stdout
+
 shutdown:
-  timeout_seconds: 10     # max wait for guest to stop after SSH shutdown
+  timeout_seconds: 30     # max wait for guest to halt (default: 30)
+  api_token: "eyJ..."     # HA long-lived access token for Supervisor API shutdown
 ```
 
 ## Data Layout
@@ -86,6 +94,8 @@ shutdown:
   vm/NVRAM                                # EFI variable store (boot state)
   vm/MachineIdentifier                    # Stable machine ID (consistent MAC)
   vm/config.img                           # SSH key import disk (if configured)
+  vm/havm.pid                             # Process PID (while running)
+  usb/<id>.accessory                      # Persisted USB accessories (havm-helper)
 ```
 
 ## VM Hardware
@@ -104,8 +114,14 @@ shutdown:
 ## USB Passthrough
 
 USB passthrough requires the **havm-helper** companion app — a Dock application
-that discovers and selects USB devices for the VM. The CLI alone cannot use the
-AccessoryAccess framework.
+that discovers and selects USB devices for the VM.
+
+**Architecture:**
+- `havm-helper.app` discovers devices via `AAUSBAccessoryManager` (needs Dock app)
+  and persists `AAUSBAccessory` objects to `~/Library/Application Support/havm/usb/`
+- `havm run` links `AccessoryAccess.framework` to unarchive the persisted objects
+  and create `VZUSBPassthroughDeviceConfiguration` for the VM
+- `AAUSBAccessory` conforms to `NSSecureCoding` — it's designed for cross-process transfer
 
 **Requirements:**
 - Paid Apple Developer account (for `com.apple.developer.accessory-access.usb`)
@@ -113,6 +129,29 @@ AccessoryAccess framework.
 - `havm-helper.app` — companion app that persists device selections
 
 The VM runs fine without USB passthrough — only coordinator attachment is affected.
+
+## Logging
+
+`havm` logs to stdout by default. The format and level are configurable both
+in the config file and via CLI flags:
+
+```bash
+havm run -v                    # debug level (shorthand for --log-level debug)
+havm run -j                    # NDJSON output (shorthand for --log-format json)
+havm run --log-format json --log-level debug
+```
+
+For launchd/Homebrew services, JSON logging to a file is recommended:
+
+```yaml
+logging:
+  format: json
+  level: info
+  file: "/opt/homebrew/var/log/havm.log"
+```
+
+With `logging.file`, the process still logs to stdout (launchd captures it),
+but also writes a structured NDJSON log file for monitoring and debugging.
 
 ## SSH Access
 
@@ -133,19 +172,23 @@ install the add-on via the HA web UI — it listens on port 22.
 
 ## Graceful Shutdown
 
-On SIGTERM or Ctrl+C, `havm` attempts a graceful shutdown via SSH before
-resorting to a force-stop:
+On SIGTERM or Ctrl+C, `havm` tries these shutdown methods in order, falling
+through to the next if one fails:
 
-1. **Port 22222** — `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, direct host shutdown)
-2. **Port 22** — `ssh root@<ip> -p 22 ha host shutdown` (SSH add-on, via Supervisor)
-3. **Force-stop** — if both SSH attempts fail, the VM is stopped immediately
+1. **HA REST API** — `POST http://<ip>:8123/api/services/hassio/host_shutdown`
+   (requires a [long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile) in `shutdown.api_token`)
+2. **Debug SSH (port 22222)** — `ssh root@<ip> -p 22222 shutdown -h now`
+   (requires `ssh.authorized_keys` for CONFIG disk import)
+3. **SSH add-on (port 22)** — `ssh root@<ip> -p 22 ha host shutdown`
+   (requires the SSH add-on installed in HA)
+4. **Force-stop** — if all above fail, the VM is stopped immediately
 
-SSH authentication uses your default `~/.ssh/id_*` keys with `BatchMode=yes`
-(no password prompts). The shutdown timeout is configurable:
+The shutdown timeout is configurable:
 
 ```yaml
 shutdown:
-  timeout_seconds: 10     # max wait for guest to halt (default: 10)
+  timeout_seconds: 30     # max wait for guest to halt (default: 30)
+  api_token: "eyJ..."     # HA long-lived access token (Supervisor API)
 ```
 
 A second Ctrl+C during shutdown calls `_exit(1)` immediately.

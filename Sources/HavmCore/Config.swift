@@ -87,9 +87,19 @@ public struct HavmConfig: Decodable, Sendable {
 
     public struct ShutdownOverrides: Decodable, Sendable {
         public var timeoutSeconds: Int?
+        /// Home Assistant long-lived access token for Supervisor API shutdown.
+        /// Create one at http://<ip>:8123/profile/security (or via
+        /// /api/long_lived_access_token) in your HA user profile.
+        public var apiToken: String?
 
-        public init(timeoutSeconds: Int? = nil) {
+        enum CodingKeys: String, CodingKey {
+            case timeoutSeconds = "timeout_seconds"
+            case apiToken = "api_token"
+        }
+
+        public init(timeoutSeconds: Int? = nil, apiToken: String? = nil) {
             self.timeoutSeconds = timeoutSeconds
+            self.apiToken = apiToken
         }
     }
 
@@ -167,6 +177,13 @@ public struct HavmConfig: Decodable, Sendable {
     /// guest, then waits this long for systemd to stop services and halt.
     public var effectiveShutdownTimeout: Int {
         shutdown?.timeoutSeconds ?? 30
+    }
+
+    /// Home Assistant long-lived access token for Supervisor API shutdown.
+    /// If set, havm tries `POST /api/hassio/host/shutdown` on port 8123 before
+    /// falling back to SSH-based shutdown methods.
+    public var effectiveShutdownAPIToken: String? {
+        shutdown?.apiToken
     }
 
     // MARK: - Init

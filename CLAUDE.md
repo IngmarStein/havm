@@ -49,7 +49,12 @@ CXZ (C target)
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.
-- **SSH-based graceful shutdown** — on Ctrl+C/SIGTERM, tries SSH `shutdown -h now` (port 22222) then `ha host shutdown` (port 22), with instant force-stop fallback. ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
+- **Graceful shutdown chain** — on Ctrl+C/SIGTERM:
+  1. `POST /api/services/hassio/host_shutdown` on port 8123 (REST API service call, requires `shutdown.api_token`)
+  2. `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, requires `ssh.authorized_keys`)
+  3. `ssh root@<ip> -p 22 ha host shutdown` (SSH add-on)
+  4. `vm.stop()` — force-stop fallback
+  ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
 - **Guest IP detection** — parses `/var/db/dhcpd_leases` by MAC address for instant, reliable IP discovery (no ping/ARP scanning).
 - **VFAT LFN** — the `0x40` (LAST_LONG_ENTRY) flag must be on the highest sequence number (end of filename), not the lowest (beginning). Getting this wrong causes both macOS and Linux to truncate the filename.
 

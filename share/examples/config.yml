@@ -39,4 +39,8 @@ logging:
 
 # Shutdown behavior on SIGTERM/SIGINT
 shutdown:
-  timeout_seconds: 10         # max wait for guest to halt after SSH shutdown (default: 10)
+  timeout_seconds: 30         # max wait for guest to halt (default: 30)
+  # Home Assistant long-lived access token for REST API service shutdown.
+  # havm calls POST /api/services/hassio/host_shutdown on port 8123 before SSH methods.
+  # Create one at: http://<your-ha-ip>:8123/profile/security
+  # api_token: "eyJ..."

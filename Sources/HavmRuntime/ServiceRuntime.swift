@@ -165,19 +165,35 @@ public final class ServiceRuntime: @unchecked Sendable {
         let timeout = config.effectiveShutdownTimeout
 
         if let ip = guestIP {
-            // 1. Debug SSH on port 22222 (root on host, direct shutdown)
+            // 1. HA REST API on port 8123 (if api_token is configured)
+            if let token = config.effectiveShutdownAPIToken {
+                logger.info("Attempting shutdown via REST API (port 8123)...")
+                let result = await supervisorShutdown(host: ip, token: token, timeout: timeout)
+                switch result {
+                case .success:
+                    if await waitForStop(timeout: timeout) { return }
+                case .timedOut:
+                    // Request sent but host may be shutting down — response
+                    // didn't come back. Wait for the VM to stop anyway.
+                    logger.debug("REST API timed out — host may already be shutting down.")
+                    if await waitForStop(timeout: timeout) { return }
+                case .failed:
+                    break // fall through to SSH
+                }
+            }
+            // 2. Debug SSH on port 22222 (root on host, direct shutdown)
             logger.info("Attempting SSH shutdown via port 22222...")
             if await sshShutdown(host: ip, port: 22222, command: "shutdown -h now", timeout: timeout),
                await waitForStop(timeout: timeout) {
                 return
             }
-            // 2. SSH add-on on port 22 (container, uses ha host shutdown)
+            // 3. SSH add-on on port 22 (container, uses ha host shutdown)
             logger.info("Attempting SSH shutdown via port 22...")
             if await sshShutdown(host: ip, port: 22, command: "ha host shutdown", timeout: timeout),
                await waitForStop(timeout: timeout) {
                 return
             }
-            logger.warning("SSH shutdown failed — force-stopping...")
+            logger.warning("All shutdown methods failed — force-stopping...")
         } else {
             logger.warning("Guest IP unknown (network not ready) — force-stopping...")
         }
@@ -206,6 +222,51 @@ public final class ServiceRuntime: @unchecked Sendable {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
         return false
+    }
+
+    /// Result of a REST API shutdown call.
+    private enum RESTAPIResult {
+        case success   // HTTP 200 — shutdown accepted
+        case timedOut  // Request timed out — host may be shutting down
+        case failed    // Definitive failure — fall through to next method
+    }
+
+    /// Send a shutdown command to the guest via the Home Assistant REST API.
+    /// Calls the `hassio.host_shutdown` service on port 8123 with a Bearer token.
+    private func supervisorShutdown(host: String, token: String, timeout: Int) async -> RESTAPIResult {
+        guard let url = URL(string: "http://\(host):8123/api/services/hassio/host_shutdown") else {
+            return .failed
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        request.timeoutInterval = TimeInterval(min(timeout, 10))
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .failed
+            }
+            if httpResponse.statusCode == 200 {
+                logger.info("REST API shutdown accepted.")
+                return .success
+            }
+            // 401/403: token is wrong or expired — user needs to know.
+            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+                logger.warning("REST API: HTTP \(httpResponse.statusCode) — check shutdown.api_token in config.")
+            } else {
+                logger.info("REST API: HTTP \(httpResponse.statusCode) — falling through to SSH.")
+            }
+            return .failed
+        } catch let error as URLError where error.code == .timedOut {
+            return .timedOut
+        } catch {
+            logger.info("REST API unavailable (\(error.localizedDescription)) — falling through to SSH.")
+            return .failed
+        }
     }
 
     /// Send a shutdown command to the guest via SSH.
