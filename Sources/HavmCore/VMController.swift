@@ -79,10 +79,9 @@ public final class VMController: NSObject, @unchecked Sendable {
         var rawBytes = Array(idBytes.suffix(6))
         while rawBytes.count < 6 { rawBytes.append(0) }
         rawBytes[0] = (rawBytes[0] & 0xFC) | 0x02  // locally-administered unicast
-        let ether = ether_addr_t(
-            octet: (rawBytes[0], rawBytes[1], rawBytes[2], rawBytes[3], rawBytes[4], rawBytes[5])
-        )
-        net.macAddress = VZMACAddress(ethernetAddress: ether)
+        let macString = rawBytes.map { String(format: "%02x", $0) }.joined(separator: ":")
+        // Force-unwrap safe: we construct the string ourselves from 6 valid hex bytes.
+        net.macAddress = VZMACAddress(string: macString)!
         self.guestMAC = net.macAddress.string
 
         switch config.effectiveNetworkType {

@@ -11,9 +11,9 @@ let package = Package(
         .library(name: "HavmCore", targets: ["HavmCore"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.6.0"),
-        .package(url: "https://github.com/jpsim/Yams.git", from: "5.3.0"),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.8.2"),
+        .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2"),
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.13.2"),
     ],
     targets: [
         .executableTarget(

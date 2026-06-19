@@ -109,11 +109,9 @@ final class USBDeviceModel: ObservableObject {
 
     static func parseDescriptor(_ data: Data) -> (UInt16, UInt16) {
         guard data.count >= 18 else { return (0, 0) }
-        return data.withUnsafeBytes { ptr in
-            let raw = ptr.bindMemory(to: UInt8.self)
-            return (UInt16(raw[8]) | (UInt16(raw[9]) << 8),
-                    UInt16(raw[10]) | (UInt16(raw[11]) << 8))
-        }
+        let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
+        let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
+        return (vid, pid)
     }
 }
 

@@ -12,7 +12,11 @@ import Logging
 /// - `.string` → JSON string
 /// - `.stringConvertible` → JSON string via `.description`
 /// - `.dictionary` → JSON object (recursively converted)
-public struct JSONLogHandler: LogHandler {
+public struct JSONLogHandler: LogHandler, Sendable {
+    /// Thread-safe since macOS 10.12 (per docs), but Foundation hasn't
+    /// adopted Sendable annotations for it yet.
+    private nonisolated(unsafe) static let isoFormatter = ISO8601DateFormatter()
+
     private let stream: FileHandle
 
     public var metadata: Logger.Metadata = [:]
@@ -34,19 +38,9 @@ public struct JSONLogHandler: LogHandler {
         writeEntry(level: event.level, message: event.message, metadata: event.metadata)
     }
 
-    public func log(level: Logger.Level,
-                    message: Logger.Message,
-                    metadata: Logger.Metadata?,
-                    source: String,
-                    file: String,
-                    function: String,
-                    line: UInt) {
-        writeEntry(level: level, message: message, metadata: metadata)
-    }
-
     private func writeEntry(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?) {
         var entry: [String: Any] = [
-            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "timestamp": Self.isoFormatter.string(from: Date()),
             "level": level.rawValue,
             "label": self.label,
             "message": message.description,
@@ -69,7 +63,7 @@ public struct JSONLogHandler: LogHandler {
             // Fallback: write a log line that is still valid JSON, so log
             // parsers don't choke. This should never happen with the
             // pre-conversion above, but we guard anyway.
-            let fallback = #"{"timestamp":"\#(ISO8601DateFormatter().string(from: Date()))","level":"error","label":"\#(self.label)","message":"Log serialization failed"}"#
+            let fallback = #"{"timestamp":"\#(Self.isoFormatter.string(from: Date()))","level":"error","label":"\#(self.label)","message":"Log serialization failed"}"#
             if var line = String(data: Data(fallback.utf8), encoding: .utf8) {
                 line.append("\n")
                 try? stream.write(contentsOf: line.data(using: .utf8) ?? Data())

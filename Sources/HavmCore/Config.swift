@@ -323,7 +323,7 @@ public enum ConfigError: Error, CustomStringConvertible {
 public func loadConfig(path: String? = nil) throws -> HavmConfig {
     let configPath: String
     if let path = path {
-        configPath = (path as NSString).standardizingPath
+        configPath = URL(fileURLWithPath: path).standardizedFileURL.path
     } else {
         configPath = HavmConfig.defaultConfigPath
     }
@@ -349,8 +349,9 @@ public func loadConfig(path: String? = nil) throws -> HavmConfig {
 extension HavmConfig {
     /// Default config location: ~/.config/havm/config.yml
     public static var defaultConfigPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return (home as NSString).appendingPathComponent(".config/havm/config.yml")
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/havm/config.yml")
+            .path
     }
 
     /// Base directory for havm persistent data: ~/Library/Application Support/havm/
@@ -359,7 +360,9 @@ extension HavmConfig {
             .applicationSupportDirectory, .userDomainMask, true
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support").path
-        return (appSupport as NSString).appendingPathComponent("havm")
+        return URL(fileURLWithPath: appSupport)
+            .appendingPathComponent("havm")
+            .path
     }
 
     /// Directory for cached HA OS images: ~/Library/Caches/havm/
@@ -368,41 +371,57 @@ extension HavmConfig {
             .cachesDirectory, .userDomainMask, true
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Caches").path
-        return (caches as NSString).appendingPathComponent("havm")
+        return URL(fileURLWithPath: caches)
+            .appendingPathComponent("havm")
+            .path
     }
 
     /// Directory for persistent VM data.
     public static var vmDirectory: String {
-        (dataDirectory as NSString).appendingPathComponent("vm")
+        URL(fileURLWithPath: dataDirectory)
+            .appendingPathComponent("vm")
+            .path
     }
 
     /// Path to the persistent disk image.
     public static var persistentDiskPath: String {
-        (vmDirectory as NSString).appendingPathComponent("haos.img")
+        URL(fileURLWithPath: vmDirectory)
+            .appendingPathComponent("haos.img")
+            .path
     }
 
     /// Path to the persisted machine identifier (stable MAC addresses across reboots).
     public static var machineIdentifierPath: String {
-        (vmDirectory as NSString).appendingPathComponent("MachineIdentifier")
+        URL(fileURLWithPath: vmDirectory)
+            .appendingPathComponent("MachineIdentifier")
+            .path
     }
 
     /// Path to the EFI NVRAM variable store.
     public static var nvramPath: String {
-        (vmDirectory as NSString).appendingPathComponent("NVRAM")
+        URL(fileURLWithPath: vmDirectory)
+            .appendingPathComponent("NVRAM")
+            .path
     }
 
     /// Path to the SSH key import disk (FAT16 with volume label CONFIG).
     public static var configDiskPath: String {
-        (vmDirectory as NSString).appendingPathComponent("config.img")
+        URL(fileURLWithPath: vmDirectory)
+            .appendingPathComponent("config.img")
+            .path
     }
 
     /// Directory for persisted USB accessory data (from havm-helper).
     public static var usbPersistenceDirectory: String {
-        (dataDirectory as NSString).appendingPathComponent("usb")
+        URL(fileURLWithPath: dataDirectory)
+            .appendingPathComponent("usb")
+            .path
     }
 
     /// Path to the PID file for the running VM process.
     public static var pidFilePath: String {
-        (vmDirectory as NSString).appendingPathComponent("havm.pid")
+        URL(fileURLWithPath: vmDirectory)
+            .appendingPathComponent("havm.pid")
+            .path
     }
 }

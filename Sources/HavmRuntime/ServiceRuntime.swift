@@ -22,6 +22,8 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var firstProbeDone = false
     private var guestIP: String?
     private var exitCode: Int32 = 0
+    private var signalSourceTerm: DispatchSourceSignal?
+    private var signalSourceInt: DispatchSourceSignal?
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -51,16 +53,10 @@ public final class ServiceRuntime: @unchecked Sendable {
                 self.logger.info("VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.")
                 self.printBootingInstructions()
 
-                // Mutable poll state, accessed only from the main queue.
-                nonisolated(unsafe) var tick = 0
-                func poll() {
+                func poll(tick: Int = 0) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
-                        let sig = Self.signalFlag
-                        if sig != 0 {
-                            Self.signalFlag = 0
-                            self.signalShutdown(name: sig == SIGTERM ? "SIGTERM" : "SIGINT")
-                            return
-                        }
+                        guard !self.shutdownRequested else { return }
+
                         if self.vmController.state == .stopped {
                             self.logger.info("VM stopped.")
                             self.removePIDFile()
@@ -72,11 +68,11 @@ public final class ServiceRuntime: @unchecked Sendable {
                         // requires the run loop for Mach port event delivery.
                         RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
 
-                        tick += 1
-                        if tick % 20 == 0, !self.guestReachableNotified {
+                        let newTick = tick + 1
+                        if newTick % 20 == 0, !self.guestReachableNotified {
                             self.checkGuestNetwork()
                         }
-                        poll()
+                        poll(tick: newTick)
                     }
                 }
                 poll()
@@ -129,25 +125,26 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     // MARK: - Signal handling
 
-    private static nonisolated(unsafe) var signalFlag: Int32 = 0
-
+    /// Register DispatchSource signal monitors. Signals are delivered as GCD
+    /// events on the main queue via kqueue, avoiding the async-signal-safety
+    /// constraints of raw `signal()` handlers. A second signal during shutdown
+    /// triggers immediate exit (matching the legacy double-SIGTERM behavior).
     private func setupSignalHandlers() {
-        // First signal → set flag for poll loop to pick up
-        // Repeated signal → _exit immediately (graceful shutdown already in progress)
-        signal(SIGTERM) { _ in
-            if ServiceRuntime.signalFlag == 0 {
-                ServiceRuntime.signalFlag = SIGTERM
-            } else {
-                _exit(1)
-            }
+        // Block default signal behavior — DispatchSource monitors via kqueue.
+        signal(SIGTERM, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+
+        signalSourceTerm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        signalSourceTerm?.setEventHandler { [weak self] in
+            self?.signalShutdown(name: "SIGTERM")
         }
-        signal(SIGINT) { _ in
-            if ServiceRuntime.signalFlag == 0 {
-                ServiceRuntime.signalFlag = SIGINT
-            } else {
-                _exit(1)
-            }
+        signalSourceTerm?.resume()
+
+        signalSourceInt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        signalSourceInt?.setEventHandler { [weak self] in
+            self?.signalShutdown(name: "SIGINT")
         }
+        signalSourceInt?.resume()
     }
 
     private func signalShutdown(name: String) {
@@ -428,14 +425,14 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     /// Human-readable VM state description.
     private static func stateDescription(_ state: VZVirtualMachine.State) -> String {
-        switch state.rawValue {
-        case 0: "stopped"
-        case 1: "running"
-        case 2: "paused"
-        case 3: "starting"
-        case 4: "saving"
-        case 5: "restoring"
-        default: "unknown (\(state.rawValue))"
+        switch state {
+        case .stopped:   "stopped"
+        case .running:   "running"
+        case .paused:    "paused"
+        case .starting:  "starting"
+        case .saving:    "saving"
+        case .restoring: "restoring"
+        default:         "unknown (\(state.rawValue))"
         }
     }
 }
