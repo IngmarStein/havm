@@ -7,7 +7,7 @@ Apple's native [Virtualization framework][vz]. Download, resize, boot — one co
 - **Persistent** — all HA OS data (configs, add-ons, history) lives on a resizable
   raw disk image. NVRAM and MAC address persist across reboots.
 - **Headless** — designed to run as a `launchd` background service via Homebrew.
-- **USB accessories** — attach Zigbee/Z-Wave coordinators via HAVM Connect
+- **USB accessories** — attach coordinators and other USB devices via HAVM Connect
   (requires paid Apple Developer account + provisioning profile).
 - **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
 - **Graceful shutdown** — tries Supervisor API, then SSH (port 22222/22),
@@ -114,9 +114,8 @@ shutdown:
 
 ## USB Accessories
 
-To attach a Zigbee or Z-Wave coordinator to the VM, use the **HAVM Connect** app.
-Open it, select your coordinator, and click Save & Reload. The change takes effect
-the next time you start the VM.
+To attach a USB accessory to the VM, open **HAVM Connect**, select it,
+and click Save. The change takes effect the next time you start the VM.
 
 ```
 HAVM Connect → select devices → Save & Reload → havm run

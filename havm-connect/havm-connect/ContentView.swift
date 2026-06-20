@@ -131,15 +131,6 @@ final class USBDeviceModel {
                 try? data.write(to: URL(fileURLWithPath: path))
             }
         }
-        signalCLI()
-    }
-
-    private func signalCLI() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        task.arguments = ["-HUP", "havm"]
-        task.standardOutput = Pipe(); task.standardError = Pipe()
-        try? task.run()
     }
 
     static func loadPersistedIDs() -> Set<UInt64> {
@@ -213,7 +204,7 @@ struct ContentView: View {
                 Button("Refresh") { model.refresh() }
                 Spacer()
                 Button("Cancel") { NSApp.terminate(nil) }.keyboardShortcut(.cancelAction)
-                Button("Save & Reload") { model.persist(); NSApp.terminate(nil) }
+                Button("Save") { model.persist(); NSApp.terminate(nil) }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
             }
         }
