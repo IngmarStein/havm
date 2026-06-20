@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Generate Havm Connect app icon (.icns) using external USB trident SVG.
 
-Requires: ImageMagick (`magick`) for SVG rasterization, Python Pillow for compositing.
+Requires: ImageMagick (`magick`) for SVG rasterization + compositing.
+No Python dependencies beyond stdlib.
 """
 
 import subprocess
 import tempfile
 from pathlib import Path
-
-from PIL import Image, ImageDraw
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SVG_PATH = PROJECT_ROOT / "resources" / "usb-symbol.svg"
@@ -19,86 +18,50 @@ ICON_SIZES = [16, 32, 64, 128, 256, 512, 1024]
 # Colors
 BG_TOP = (30, 95, 200)
 BG_BOTTOM = (8, 48, 125)
-RING_COLOR = (180, 210, 255, 100)
 
 
-def squircle_background(size: int) -> Image.Image:
-    """Draw the blue squircle with gradient and inner ring."""
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    margin = int(size * 0.04)
-    r = int(size * 0.222)
+def make_icon(size: int, tmpdir: Path) -> Path:
+    """Generate one icon PNG using ImageMagick.
 
-    # Gradient fill inside the rounded rect
-    for y in range(size):
-        t = y / size
-        red = int(BG_TOP[0] + (BG_BOTTOM[0] - BG_TOP[0]) * t)
-        green = int(BG_TOP[1] + (BG_BOTTOM[1] - BG_TOP[1]) * t)
-        blue = int(BG_TOP[2] + (BG_BOTTOM[2] - BG_TOP[2]) * t)
-        for x in range(size):
-            if _in_rounded_rect(x, y, margin, margin,
-                                size - margin - 1, size - margin - 1, r):
-                img.putpixel((x, y), (red, green, blue, 255))
-
-    # Inner ring
-    draw = ImageDraw.Draw(img)
-    ring_r = int(size * 0.222) - margin
-    inner_margin = margin + int(size * 0.02)
-    draw.rounded_rectangle(
-        [inner_margin, inner_margin,
-         size - inner_margin - 1, size - inner_margin - 1],
-        ring_r,
-        outline=RING_COLOR,
-        width=max(1, int(size * 0.012)),
-    )
-    return img
-
-
-def _in_rounded_rect(x: float, y: float,
-                     left: float, top: float, right: float, bottom: float,
-                     r: float) -> bool:
-    if left <= x <= right and top + r <= y <= bottom - r:
-        return True
-    if top <= y <= bottom and left + r <= x <= right - r:
-        return True
-    for cx, cy in [(left + r, top + r), (right - r, top + r),
-                   (left + r, bottom - r), (right - r, bottom - r)]:
-        if (x - cx) ** 2 + (y - cy) ** 2 <= r ** 2:
-            return True
-    return False
-
-
-def rasterize_svg(size: int, tmpdir: Path) -> Image.Image:
-    """Rasterize the USB SVG to white-on-transparent PNG at the given size.
-
-    The logo is sized to occupy ~55% of the icon area, same as the previous
-    hand-drawn USB symbol.
+    Steps:
+      1. Create blue rounded-rect background (macOS applies squircle mask at runtime)
+      2. Rasterize SVG to black-on-transparent, then recolor black → white
+      3. Composite logo centered onto background
     """
-    logo_px = int(size * 0.55)
-    png_path = tmpdir / f"usb_{size}.png"
+    bg_path = tmpdir / f"bg_{size}.png"
+    logo_path = tmpdir / f"logo_{size}.png"
+    out_path = tmpdir / f"icon_{size}.png"
 
+    r = int(size * 0.185)  # corner radius
+
+    # 1. Background: blue gradient rounded rectangle
     subprocess.run([
-        "magick", "-background", "none",
-        "-density", "300",
-        str(SVG_PATH),
-        "-fuzz", "100%", "-fill", "white", "-opaque", "black",
-        "-resize", f"{logo_px}x{logo_px}",
-        str(png_path),
+        "magick", "-size", f"{size}x{size}",
+        "xc:transparent",
+        "-fill", f"rgb({BG_TOP[0]},{BG_TOP[1]},{BG_TOP[2]})",
+        "-draw", f"roundrectangle 0,0,{size-1},{size-1},{r},{r}",
+        str(bg_path),
     ], check=True)
 
-    return Image.open(png_path)
+    # 2. Logo: rasterize SVG, recolor black → white, size to 55% of icon
+    logo_px = int(size * 0.55)
+    subprocess.run([
+        "magick", "-background", "none", "-density", "400",
+        str(SVG_PATH),
+        "-fill", "white", "-colorize", "100",
+        "-resize", f"{logo_px}x{logo_px}",
+        str(logo_path),
+    ], check=True)
 
+    # 3. Composite logo centered on background
+    subprocess.run([
+        "magick", str(bg_path), str(logo_path),
+        "-gravity", "center",
+        "-composite",
+        str(out_path),
+    ], check=True)
 
-def composite_icon(size: int, tmpdir: Path) -> Image.Image:
-    """Layer the USB logo centered onto the squircle background."""
-    bg = squircle_background(size)
-    logo = rasterize_svg(size, tmpdir)
-
-    # Center the logo on the background
-    offset_x = (size - logo.width) // 2
-    offset_y = (size - logo.height) // 2 + int(size * 0.01)  # slight nudge down
-
-    bg.paste(logo, (offset_x, offset_y), logo)
-    return bg
+    return out_path
 
 
 def generate_iconset(pngs: dict[int, Path], out_dir: Path) -> Path:
@@ -141,10 +104,8 @@ def main():
         pngs: dict[int, Path] = {}
 
         for size in ICON_SIZES:
-            img = composite_icon(size, tmpdir)
-            png_path = tmpdir / f"icon_{size}.png"
-            img.save(png_path, "PNG")
-            pngs[size] = png_path
+            out = make_icon(size, tmpdir)
+            pngs[size] = out
             print(f"  Generated {size}x{size}")
 
         iconset = generate_iconset(pngs, tmpdir)
@@ -153,6 +114,11 @@ def main():
             check=True,
         )
         print(f"\nCreated {ICNS_OUT} ({ICNS_OUT.stat().st_size:,} bytes)")
+
+        # Preview
+        preview = PROJECT_ROOT / "scripts" / "icon_preview.png"
+        preview.write_bytes(pngs[1024].read_bytes())
+        print(f"Preview: {preview}")
 
 
 if __name__ == "__main__":
