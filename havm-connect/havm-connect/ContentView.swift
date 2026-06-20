@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AccessoryAccess
+import Combine
 
 // MARK: - Shared paths (must match CLI: USBPath.persistence)
 
