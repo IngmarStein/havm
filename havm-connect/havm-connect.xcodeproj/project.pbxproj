@@ -97,7 +97,7 @@
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				95354A352FDEDBFB006A2634 /* XCLocalSwiftPackageReference "../../av-cli" */,
+				95354A352FDEDBFB006A2634 /* XCLocalSwiftPackageReference ".." */,
 			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
@@ -402,9 +402,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		95354A352FDEDBFB006A2634 /* XCLocalSwiftPackageReference "../../av-cli" */ = {
+		95354A352FDEDBFB006A2634 /* XCLocalSwiftPackageReference ".." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../av-cli";
+			relativePath = "..";
 		};
 /* End XCLocalSwiftPackageReference section */
 
