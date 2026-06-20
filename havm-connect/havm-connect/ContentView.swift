@@ -212,7 +212,7 @@ struct ContentView: View {
                 Button("Refresh") { model.refresh() }
                 Spacer()
                 Button("Cancel") { NSApp.terminate(nil) }.keyboardShortcut(.cancelAction)
-                Button("Save && Reload") { model.persist(); NSApp.terminate(nil) }
+                Button("Save & Reload") { model.persist(); NSApp.terminate(nil) }
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
             }
         }
