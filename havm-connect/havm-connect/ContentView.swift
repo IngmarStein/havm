@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 import AccessoryAccess
-import Combine
+import Observation
 
 // MARK: - Shared paths (must match CLI: USBPath.persistence)
 
@@ -71,9 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Model
 
 @MainActor
-final class USBDeviceModel: ObservableObject {
-    @Published var devices: [DiscoveredDevice] = []
-    @Published var errorMessage: String?
+@Observable
+final class USBDeviceModel {
+    var devices: [DiscoveredDevice] = []
+    var errorMessage: String?
 
     struct DiscoveredDevice: Identifiable {
         let id: UInt64
@@ -167,7 +168,7 @@ private final class OneShotListener: NSObject, AAUSBAccessoryListener, @unchecke
 // MARK: - Views
 
 struct DeviceRow: View {
-    @ObservedObject var model: USBDeviceModel
+    let model: USBDeviceModel
     let device: USBDeviceModel.DiscoveredDevice
 
     var body: some View {
@@ -192,7 +193,7 @@ struct DeviceRow: View {
 }
 
 struct ContentView: View {
-    @StateObject private var model = USBDeviceModel()
+    @State private var model = USBDeviceModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
