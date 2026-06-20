@@ -6,10 +6,6 @@
 	objectVersion = 90;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		95354A372FDEDBFB006A2634 /* HavmCore in Frameworks */ = {isa = PBXBuildFile; productRef = 95354A362FDEDBFB006A2634 /* HavmCore */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* havm-connect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "havm-connect.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -26,7 +22,6 @@
 		000000000000000130000000 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				95354A372FDEDBFB006A2634 /* HavmCore in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -65,9 +60,6 @@
 				000000000000000000000010 /* havm-connect */,
 			);
 			name = "havm-connect";
-			packageProductDependencies = (
-				95354A362FDEDBFB006A2634 /* HavmCore */,
-			);
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* havm-connect.app */;
 			productType = "com.apple.product-type.application";
@@ -405,13 +397,6 @@
 			relativePath = ..;
 		};
 /* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		95354A362FDEDBFB006A2634 /* HavmCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = HavmCore;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 000000000000000000000000 /* Project object */;
 }
