@@ -24,6 +24,7 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var exitCode: Int32 = 0
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
+    private var signalSourceHUP: DispatchSourceSignal?
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -133,6 +134,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         // Block default signal behavior — DispatchSource monitors via kqueue.
         signal(SIGTERM, SIG_IGN)
         signal(SIGINT, SIG_IGN)
+        signal(SIGHUP, SIG_IGN)
 
         signalSourceTerm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         signalSourceTerm?.setEventHandler { [weak self] in
@@ -145,6 +147,13 @@ public final class ServiceRuntime: @unchecked Sendable {
             self?.signalShutdown(name: "SIGINT")
         }
         signalSourceInt?.resume()
+
+        let hupSource = DispatchSource.makeSignalSource(signal: SIGHUP, queue: .main)
+        hupSource.setEventHandler { [weak self] in
+            self?.logger.info("SIGHUP received — USB accessories may have changed")
+        }
+        hupSource.resume()
+        signalSourceHUP = hupSource
     }
 
     private func signalShutdown(name: String) {

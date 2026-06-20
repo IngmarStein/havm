@@ -115,8 +115,8 @@ shutdown:
 ## USB Accessories
 
 To attach a Zigbee or Z-Wave coordinator to the VM, use the **HAVM Connect** app.
-Open it, select your coordinator, and click Save & Reload — `havm run` picks up
-the selection on next start.
+Open it, select your coordinator, and click Save & Reload. The change takes effect
+the next time you start the VM.
 
 ```
 HAVM Connect → select devices → Save & Reload → havm run
