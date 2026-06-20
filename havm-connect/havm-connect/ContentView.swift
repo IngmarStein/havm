@@ -6,7 +6,7 @@ import HavmCore
 // MARK: - App Entry
 
 @main
-struct HelperApp: App {
+struct HavmConnectApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
@@ -149,7 +149,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("USB Passthrough").font(.title2).bold()
+            Text("HAVM Connect").font(.title2).bold()
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .foregroundColor(.yellow).font(.callout)

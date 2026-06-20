@@ -7,7 +7,7 @@ Apple's native [Virtualization framework][vz]. Download, resize, boot — one co
 - **Persistent** — all HA OS data (configs, add-ons, history) lives on a resizable
   raw disk image. NVRAM and MAC address persist across reboots.
 - **Headless** — designed to run as a `launchd` background service via Homebrew.
-- **USB passthrough** — attach Zigbee/Z-Wave coordinators via the havm-helper app
+- **USB passthrough** — attach Zigbee/Z-Wave coordinators via the havm-connect app
   (requires paid Apple Developer account + provisioning profile).
 - **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
 - **Graceful shutdown** — tries Supervisor API, then SSH (port 22222/22),
@@ -44,7 +44,7 @@ Subsequent runs skip straight to boot.
 | `havm run -c <path>` | Use a non-default config file |
 | `havm run -j` | JSON log output (shorthand for `--log-format json`) |
 | `havm run -v` | Verbose output (shorthand for `--log-level debug`) |
-| `havm list-usb` | List USB devices persisted by havm-helper |
+| `havm list-usb` | List USB devices persisted by havm-connect |
 | `havm version` | Print version and system info |
 
 ## Configuration
@@ -96,7 +96,7 @@ shutdown:
   vm/MachineIdentifier                    # Stable machine ID (consistent MAC)
   vm/config.img                           # SSH key import disk (if configured)
   vm/havm.pid                             # Process PID (while running)
-  usb/<id>.accessory                      # Persisted USB accessories (havm-helper)
+  usb/<id>.accessory                      # Persisted USB accessories (havm-connect)
 ```
 
 ## VM Hardware
@@ -114,11 +114,11 @@ shutdown:
 
 ## USB Passthrough
 
-USB passthrough requires the **havm-helper** companion app — a Dock application
+USB passthrough requires the **havm-connect** companion app — a Dock application
 that discovers and selects USB devices for the VM.
 
 **Architecture:**
-- `havm-helper.app` discovers devices via `AAUSBAccessoryManager` (needs Dock app)
+- `havm-connect.app` discovers devices via `AAUSBAccessoryManager` (needs Dock app)
   and persists `AAUSBAccessory` objects to `~/Library/Application Support/havm/usb/`
 - `havm run` links `AccessoryAccess.framework` to unarchive the persisted objects
   and create `VZUSBPassthroughDeviceConfiguration` for the VM
@@ -127,7 +127,7 @@ that discovers and selects USB devices for the VM.
 **Requirements:**
 - Paid Apple Developer account (for `com.apple.developer.accessory-access.usb`)
 - Provisioning profile with the USB passthrough entitlement
-- `havm-helper.app` — companion app that persists device selections
+- `havm-connect.app` — companion app that persists device selections
 
 The VM runs fine without USB passthrough — only coordinator attachment is affected.
 

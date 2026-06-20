@@ -5,11 +5,11 @@ import Logging
 
 // MARK: - USB Manager
 
-/// Reads persisted USB accessory files (written by havm-helper) and creates
+/// Reads persisted USB accessory files (written by havm-connect) and creates
 /// VZUSBPassthroughDeviceConfiguration objects for the VM.
 ///
-/// USB passthrough requires the havm-helper app:
-///   1. havm-helper  — discovers devices via AAUSBAccessoryManager (needs
+/// USB passthrough requires the havm-connect app:
+///   1. havm-connect  — discovers devices via AAUSBAccessoryManager (needs
 ///                     Dock app), persists AAUSBAccessory objects to
 ///                     ~/Library/Application Support/havm/usb/
 ///   2. havm run     — reads persisted files, creates passthrough configs
@@ -32,7 +32,7 @@ public final class USBManager: @unchecked Sendable {
 
     // MARK: - Persisted accessory listing
 
-    /// List persisted accessories from havm-helper.
+    /// List persisted accessories from havm-connect.
     public static func listPersistedAccessories() -> [(registryID: UInt64, vendorId: UInt16, productId: UInt16)] {
         let accessories = loadPersistedAccessories()
         return accessories.map { acc in

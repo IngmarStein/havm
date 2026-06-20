@@ -92,7 +92,7 @@ CXZ (C target)
 USB passthrough is fully implemented but **gated by Apple**. Cannot be activated without special approval.
 
 **Architecture (ready, waiting on entitlement):**
-- `havm-helper` Xcode project at `havm-helper/` — SwiftUI app that discovers USB devices
+- `havm-connect` Xcode project at `havm-connect/` — SwiftUI app that discovers USB devices
   via `AAUSBAccessoryManager`, persists selection via `NSKeyedArchiver` to
   `~/Library/Application Support/havm/usb/<registryID>.accessory`
 - `USBManager.buildPassthroughConfigurations()` reads persisted `AAUSBAccessory`
@@ -104,7 +104,7 @@ USB passthrough is fully implemented but **gated by Apple**. Cannot be activated
 **Architecture:**
 - `AAUSBAccessory` conforms to `NSSecureCoding` — it's a transferable descriptor
   designed for cross-process persistence (also has XPC transport methods).
-- `havm-helper.app` discovers devices via `AAUSBAccessoryManager` (requires Dock app /
+- `havm-connect.app` discovers devices via `AAUSBAccessoryManager` (requires Dock app /
   NSApplication) and persists `AAUSBAccessory` objects via `NSKeyedArchiver`.
 - The CLI links `AccessoryAccess.framework` for the `AAUSBAccessory` type and
   unarchives the persisted files with `ofClass: AAUSBAccessory.self`. It does NOT
@@ -120,9 +120,9 @@ Runtime entitlement, but insufficient alone).
 
 **To resume work:**
 1. Get `com.apple.developer.accessory-access.usb` approved for a developer account
-2. Build `havm-helper.app` from the Xcode project at `havm-helper/`
+2. Build `havm-connect.app` from the Xcode project at `havm-connect/`
 3. Configure it with Personal Team signing + "Accessory Access" capability
-4. Select devices in havm-helper → persisted to `~/Library/Application Support/havm/usb/`
+4. Select devices in havm-connect → persisted to `~/Library/Application Support/havm/usb/`
 5. `havm run` reads them and attaches passthrough configs to the VM
 
 ## Known Issues

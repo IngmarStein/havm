@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build havm-helper.app bundle from the SPM target.
+# Build havm-connect.app bundle from the SPM target.
 # Signs with ad-hoc or provisioning profile.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -7,17 +7,17 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
 SIGN_MODE="${2:-dev}"
 
-echo "==> Building havm-helper ($CONFIG)..."
+echo "==> Building havm-connect ($CONFIG)..."
 
 if [ "$CONFIG" = "release" ]; then
-    swift build -c release --product havm-helper
-    BINARY=".build/release/havm-helper"
+    swift build -c release --product havm-connect
+    BINARY=".build/release/havm-connect"
 else
-    swift build --product havm-helper
-    BINARY=".build/debug/havm-helper"
+    swift build --product havm-connect
+    BINARY=".build/debug/havm-connect"
 fi
 
-APP_DIR=".build/havm-helper.app"
+APP_DIR=".build/havm-connect.app"
 rm -rf "$APP_DIR"
 
 # Create .app bundle structure
@@ -25,7 +25,7 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 # Copy binary
-cp "$BINARY" "$APP_DIR/Contents/MacOS/havm-helper"
+cp "$BINARY" "$APP_DIR/Contents/MacOS/havm-connect"
 
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
@@ -34,11 +34,11 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>havm-helper</string>
+    <string>havm-connect</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.havm.helper</string>
+    <string>dev.havm.connect</string>
     <key>CFBundleName</key>
-    <string>havm-helper</string>
+    <string>havm-connect</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
@@ -60,7 +60,7 @@ if [ "$SIGN_MODE" = "provisioning" ]; then
     echo "==> Signing with provisioning profile..."
     # Use the provisioning profile from Xcode's managed profiles
     # xcodebuild can sign it if the entitlement is granted
-    xcodebuild -scheme havm-helper \
+    xcodebuild -scheme havm-connect \
         -workspace .swiftpm/xcode/package.xcworkspace 2>/dev/null && true
     ENTITLEMENTS="resources/entitlements-helper.plist"
 else
@@ -79,6 +79,6 @@ echo "    com.apple.developer.accessory-access.usb. Ad-hoc signing cannot"
 echo "    include this restricted entitlement."
 echo ""
 echo "    To build with a provisioning profile, open Package.swift in"
-echo "    Xcode, configure the havm-helper target with Personal Team"
+echo "    Xcode, configure the havm-connect target with Personal Team"
 echo "    signing and the Accessory Access capability, then build from"
 echo "    Xcode. Copy the resulting .app from DerivedData."
