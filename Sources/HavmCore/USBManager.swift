@@ -51,7 +51,7 @@ public final class USBManager: @unchecked Sendable {
         let accessories = Self.loadPersistedAccessories()
         guard !accessories.isEmpty else { return [] }
 
-        logger.info("USB: Attaching \(accessories.count) passthrough device(s)")
+        logger.info("USB: Attaching \(accessories.count) paired device(s)")
         return accessories.map { acc in
             VZUSBPassthroughDeviceConfiguration(device: acc)
         }

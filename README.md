@@ -7,7 +7,7 @@ Apple's native [Virtualization framework][vz]. Download, resize, boot — one co
 - **Persistent** — all HA OS data (configs, add-ons, history) lives on a resizable
   raw disk image. NVRAM and MAC address persist across reboots.
 - **Headless** — designed to run as a `launchd` background service via Homebrew.
-- **USB passthrough** — attach Zigbee/Z-Wave coordinators via the havm-connect app
+- **USB accessories** — attach Zigbee/Z-Wave coordinators via HAVM Connect
   (requires paid Apple Developer account + provisioning profile).
 - **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
 - **Graceful shutdown** — tries Supervisor API, then SSH (port 22222/22),
@@ -44,7 +44,7 @@ Subsequent runs skip straight to boot.
 | `havm run -c <path>` | Use a non-default config file |
 | `havm run -j` | JSON log output (shorthand for `--log-format json`) |
 | `havm run -v` | Verbose output (shorthand for `--log-level debug`) |
-| `havm list-usb` | List USB devices persisted by havm-connect |
+| `havm list-usb` | List USB devices paired in HAVM Connect |
 | `havm version` | Print version and system info |
 
 ## Configuration
@@ -70,7 +70,7 @@ ssh:
   authorized_keys: "~/.ssh/id_ed25519.pub"  # imported into HA OS for port 22222
 
 usb:
-  enabled: true           # default: true — attach persisted USB accessories
+  enabled: true           # default: true — attach paired USB accessories
 
 logging:
   format: text            # text (default) or json (NDJSON, one object per line)
@@ -96,7 +96,7 @@ shutdown:
   vm/MachineIdentifier                    # Stable machine ID (consistent MAC)
   vm/config.img                           # SSH key import disk (if configured)
   vm/havm.pid                             # Process PID (while running)
-  usb/<id>.accessory                      # Persisted USB accessories (havm-connect)
+  usb/<id>.accessory                      # Paired USB accessories (HAVM Connect)
 ```
 
 ## VM Hardware
@@ -112,24 +112,22 @@ shutdown:
 | NVRAM | Persisted EFI variable store | GRUB boot state survives reboots |
 | Platform | `VZGenericPlatformConfiguration` | Stable machine ID → consistent MAC |
 
-## USB Passthrough
+## USB Accessories
 
-USB passthrough requires the **havm-connect** companion app — a Dock application
-that discovers and selects USB devices for the VM.
+To attach a Zigbee or Z-Wave coordinator to the VM, use the **HAVM Connect** app.
+Open it, select your coordinator, and click Save & Reload — `havm run` picks up
+the selection on next start.
 
-**Architecture:**
-- `havm-connect.app` discovers devices via `AAUSBAccessoryManager` (needs Dock app)
-  and persists `AAUSBAccessory` objects to `~/Library/Application Support/havm/usb/`
-- `havm run` links `AccessoryAccess.framework` to unarchive the persisted objects
-  and create `VZUSBPassthroughDeviceConfiguration` for the VM
-- `AAUSBAccessory` conforms to `NSSecureCoding` — it's designed for cross-process transfer
+```
+HAVM Connect → select devices → Save & Reload → havm run
+```
 
 **Requirements:**
-- Paid Apple Developer account (for `com.apple.developer.accessory-access.usb`)
-- Provisioning profile with the USB passthrough entitlement
-- `havm-connect.app` — companion app that persists device selections
+- Paid Apple Developer account (Apple gates the USB accessory entitlement)
+- Provisioning profile with `com.apple.developer.accessory-access.usb`
 
-The VM runs fine without USB passthrough — only coordinator attachment is affected.
+The VM runs fine without any USB accessories — this is only needed for
+coordinator attachment.
 
 ## Logging
 
@@ -220,7 +218,7 @@ cd havm
 
 **Entitlements:** Two plists are provided:
 - `resources/entitlements-dev.plist` — Virtualization + Hypervisor (ad-hoc signing, no paid account)
-- `resources/entitlements.plist` — Above + USB passthrough (requires paid account + provisioning profile)
+- `resources/entitlements.plist` — Above + USB accessories (requires paid account + provisioning profile)
 
 ## License
 
