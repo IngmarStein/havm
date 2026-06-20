@@ -206,8 +206,9 @@ struct ContentView: View {
                 Text("No USB devices found.").foregroundColor(.secondary).padding(.vertical)
             } else {
                 List { ForEach(model.devices) { DeviceRow(model: model, device: $0) } }
-                    .listStyle(.inset).frame(minHeight: 200)
+                    .listStyle(.inset)
             }
+            Spacer()
             HStack {
                 Button("Refresh") { model.refresh() }
                 Spacer()
