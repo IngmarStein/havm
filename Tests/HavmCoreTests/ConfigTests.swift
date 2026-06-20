@@ -25,17 +25,6 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(config.effectiveShutdownTimeout, 30)
     }
 
-    func testKnownCoordinatorsNotEmpty() {
-        XCTAssertFalse(KnownCoordinator.all.isEmpty)
-    }
-
-    func testKnownCoordinatorsHaveValidIDs() {
-        for coordinator in KnownCoordinator.all {
-            XCTAssertGreaterThan(coordinator.vendorId, 0, "\(coordinator.name) should have non-zero vendorId")
-            XCTAssertGreaterThan(coordinator.productId, 0, "\(coordinator.name) should have non-zero productId")
-        }
-    }
-
     func testCONFIGDiskBuilder() throws {
         let key = Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test".utf8)
         let disk = CONFIGDiskBuilder.build(authorizedKey: key)

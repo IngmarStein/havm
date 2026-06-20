@@ -1,7 +1,53 @@
 import SwiftUI
 import AppKit
 import AccessoryAccess
-import HavmCore
+
+// MARK: - Shared paths (must match CLI: USBPath.persistence)
+
+enum USBPath {
+    /// ~/Library/Application Support/havm/usb/ — shared with the `havm` CLI.
+    static var persistence: String {
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        return appSupport
+            .appendingPathComponent("havm/usb")
+            .path
+    }
+}
+
+// MARK: - Known coordinators
+
+/// Well-known Zigbee and Z-Wave coordinator USB devices.
+private struct KnownCoordinator {
+    let name: String
+    let vendorId: UInt16
+    let productId: UInt16
+    let protocolType: String  // "zigbee", "z-wave", or "multi"
+
+    static let all: [KnownCoordinator] = [
+        // Zigbee
+        .init(name: "ConBee II", vendorId: 0x1CF1, productId: 0x0030, protocolType: "zigbee"),
+        .init(name: "ConBee III", vendorId: 0x1CF1, productId: 0x0031, protocolType: "zigbee"),
+        .init(name: "Home Assistant Connect ZBT-1 / SkyConnect", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
+        .init(name: "Home Assistant Connect ZBT-2", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
+        .init(name: "Sonoff Zigbee 3.0 Plus (Dongle-E)", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
+        .init(name: "Sonoff Zigbee 3.0 Plus (Dongle-P)", vendorId: 0x1A86, productId: 0x7523, protocolType: "zigbee"),
+        .init(name: "SMLIGHT SLZB-06", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
+        .init(name: "Tube's ZB Gateway", vendorId: 0x1A86, productId: 0x7523, protocolType: "zigbee"),
+        .init(name: "ZigStar UZG-01", vendorId: 0x1A86, productId: 0x7523, protocolType: "zigbee"),
+        .init(name: "ITead Zigbee 3.0", vendorId: 0x1A86, productId: 0x55D4, protocolType: "zigbee"),
+        // Z-Wave
+        .init(name: "Aeotec Z-Stick Gen5", vendorId: 0x0658, productId: 0x0200, protocolType: "z-wave"),
+        .init(name: "Aeotec Z-Stick Gen7", vendorId: 0x0658, productId: 0x0201, protocolType: "z-wave"),
+        .init(name: "Zooz ZST10 / ZST39", vendorId: 0x10C4, productId: 0xEA60, protocolType: "z-wave"),
+        .init(name: "Z-Wave.Me Z-Station", vendorId: 0x1A86, productId: 0x55D4, protocolType: "z-wave"),
+        // Multi-protocol
+        .init(name: "Nortek GoControl HUSBZB-1", vendorId: 0x10C4, productId: 0x8A2A, protocolType: "multi"),
+        .init(name: "Home Assistant Yellow", vendorId: 0x10C4, productId: 0x8A2A, protocolType: "multi"),
+    ]
+}
 
 // MARK: - App Entry
 
@@ -68,7 +114,7 @@ final class USBDeviceModel: ObservableObject {
     }
 
     func persist() {
-        let usbDir = HavmConfig.usbPersistenceDirectory
+        let usbDir = USBPath.persistence
         try? FileManager.default.createDirectory(atPath: usbDir, withIntermediateDirectories: true)
         if let existing = try? FileManager.default.contentsOfDirectory(atPath: usbDir) {
             for file in existing where file.hasSuffix(".accessory") {
@@ -96,7 +142,7 @@ final class USBDeviceModel: ObservableObject {
 
     static func loadPersistedIDs() -> Set<UInt64> {
         guard let files = try? FileManager.default.contentsOfDirectory(
-            atPath: HavmConfig.usbPersistenceDirectory
+            atPath: USBPath.persistence
         ) else { return [] }
         var ids = Set<UInt64>()
         for file in files where file.hasSuffix(".accessory") {
@@ -134,7 +180,7 @@ struct DeviceRow: View {
                             $0.vendorId == device.vendorId && $0.productId == device.productId
                         }) {
                             Text("→ \(known.name)").foregroundColor(.secondary)
-                            Text(known.protocolType.rawValue)
+                            Text(known.protocolType)
                                 .font(.caption).foregroundColor(.blue)
                         }
                     }
