@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AccessoryAccess
 import Observation
+import ServiceManagement
 
 // MARK: - Shared paths (must match CLI: USBPath.persistence)
 
@@ -64,7 +65,22 @@ struct HavmConnectApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) {}
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let isLoginLaunch = CommandLine.arguments.contains("--login")
+
+        // In login mode, auto-persist authorized accessories and exit immediately.
+        // The window is never shown — this is purely a background refresh.
+        if isLoginLaunch {
+            let model = USBDeviceModel()
+            model.refresh()
+
+            // Wait up to 5 seconds for the discovery callback, then exit.
+            DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(5)) {
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 }
 
@@ -216,6 +232,7 @@ struct DeviceRow: View {
 
 struct ContentView: View {
     @State private var model = USBDeviceModel()
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -232,7 +249,19 @@ struct ContentView: View {
             }
             Spacer()
             HStack {
-                Button("Refresh") { model.refresh() }
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { enabled in
+                        do {
+                            if enabled {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                        } catch {
+                            launchAtLogin = SMAppService.mainApp.status == .enabled
+                        }
+                    }
+                    .toggleStyle(.checkbox)
                 Spacer()
                 Button("Cancel") { NSApp.terminate(nil) }.keyboardShortcut(.cancelAction)
                 Button("Save") { model.persist(); NSApp.terminate(nil) }
