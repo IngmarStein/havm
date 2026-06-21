@@ -215,7 +215,8 @@ cd havm
 
 **Entitlements:** Two plists are provided:
 - `resources/entitlements-dev.plist` — Virtualization + Hypervisor (ad-hoc signing, no paid account)
-- `resources/entitlements.plist` — Above + USB accessories (requires paid account + provisioning profile)
+- `resources/entitlements-base.plist` — Baseline (virt + hypervisor), always present
+- Restricted entitlements are added at build time via `plutil` based on feature flags
 
 ## License
 

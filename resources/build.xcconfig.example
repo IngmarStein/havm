@@ -1,23 +1,19 @@
 // havm build configuration
-// Copy this file to resources/build.xcconfig and edit for your environment.
+// Copy this file to resources/build.xcconfig and set your team ID:
 //
-// All settings can also be overridden via environment variables:
-//   DEVELOPMENT_TEAM=ABCDE12345 ./scripts/build.sh release
+//   cp resources/build.xcconfig.example resources/build.xcconfig
 
 // Your Apple Developer Team ID (find at https://developer.apple.com/account)
-// Leave empty for ad-hoc signing (no paid account needed).
+// Leave empty for ad-hoc signing.
 DEVELOPMENT_TEAM =
 
 // Code signing identity:
-//   "-"                  — ad-hoc signing (unrestricted entitlements only)
-//   "Apple Development"  — requires DEVELOPMENT_TEAM (for restricted entitlements)
+//   "-"                  — ad-hoc signing
+//   "Apple Development"  — requires DEVELOPMENT_TEAM
 CODE_SIGN_IDENTITY = -
 
-// Bundle identifier for the wrapper .app
-// Only needed when restricted entitlements are enabled.
-BUNDLE_IDENTIFIER = ch.ingmar.havm
-
-// Restricted entitlements — each requires a paid account + provisioning profile.
-// Set to YES to enable:
-ENABLE_USB_ACCESSORY = NO        // com.apple.developer.accessory-access.usb
-ENABLE_BRIDGE_NETWORKING = NO    // com.apple.vm.networking
+// Entitlement tier:
+//   1 — Free account (VM + hypervisor only, no USB, no bridge)
+//   2 — Paid account (adds USB accessory passthrough)
+//   3 — Paid + Apple approval (adds bridged networking)
+ENTITLEMENTS_TIER = 1
