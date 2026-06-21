@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AccessoryAccess
 import Observation
+import ServiceManagement
 
 // MARK: - Shared paths (must match CLI: USBPath.persistence)
 
@@ -231,7 +232,7 @@ struct DeviceRow: View {
 
 struct ContentView: View {
     @State private var model = USBDeviceModel()
-    @State private var launchAtLogin = LoginItemManager.isEnabled
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -250,8 +251,15 @@ struct ContentView: View {
             HStack {
                 Toggle("Launch at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { enabled in
-                        if enabled { LoginItemManager.enable() }
-                        else       { LoginItemManager.disable() }
+                        do {
+                            if enabled {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                        } catch {
+                            launchAtLogin = SMAppService.mainApp.status == .enabled
+                        }
                     }
                     .toggleStyle(.checkbox)
                 Spacer()
@@ -262,46 +270,5 @@ struct ContentView: View {
         }
         .padding().frame(minWidth: 480, idealWidth: 480, minHeight: 300)
         .onAppear { model.refresh() }
-    }
-}
-
-// MARK: - Login item management (LaunchAgent)
-
-enum LoginItemManager {
-    private static let label = "dev.havm.connect"
-    private static var plistPath: String {
-        (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Library/LaunchAgents/\(label).plist")
-    }
-
-    static var isEnabled: Bool {
-        FileManager.default.fileExists(atPath: plistPath)
-    }
-
-    static func enable() {
-        let agentDir = (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Library/LaunchAgents")
-        try? FileManager.default.createDirectory(atPath: agentDir,
-                                                  withIntermediateDirectories: true)
-
-        let plist: [String: Any] = [
-            "Label": label,
-            "ProgramArguments": [
-                Bundle.main.executablePath ?? "",
-                "--login",
-            ],
-            "RunAtLoad": true,
-            "LimitLoadToSessionType": "Aqua",
-        ]
-
-        // Write using the plist format understood by launchd.
-        let data = try? PropertyListSerialization.data(
-            fromPropertyList: plist, format: .xml, options: 0
-        )
-        try? data?.write(to: URL(fileURLWithPath: plistPath))
-    }
-
-    static func disable() {
-        try? FileManager.default.removeItem(atPath: plistPath)
     }
 }
