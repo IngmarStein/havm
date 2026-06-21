@@ -174,11 +174,13 @@ final class USBDeviceModel {
     }
 
     private func signalCLI() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        task.arguments = ["-HUP", "havm"]
-        task.standardOutput = Pipe(); task.standardError = Pipe()
-        try? task.run()
+        // Read the PID file written by havm to send SIGHUP directly.
+        let pidPath = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Library/Application Support/havm/vm/havm.pid")
+        guard let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
+              let pid = pid_t(pidString.trimmingCharacters(in: .whitespacesAndNewlines)),
+              pid > 0 else { return }
+        kill(pid, SIGHUP)
     }
 
     static func loadPersistedIDs() -> Set<UInt64> {
