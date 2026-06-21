@@ -20,33 +20,29 @@ enum USBPath {
 
 // MARK: - Known coordinators
 
-/// Well-known Zigbee and Z-Wave coordinator USB devices.
+/// Well-known coordinator USB devices.
 private struct KnownCoordinator {
     let name: String
     let vendorId: UInt16
     let productId: UInt16
-    let protocolType: String  // "zigbee", "z-wave", or "multi"
 
     static let all: [KnownCoordinator] = [
-        // Zigbee
-        .init(name: "ConBee II", vendorId: 0x1CF1, productId: 0x0030, protocolType: "zigbee"),
-        .init(name: "ConBee III", vendorId: 0x1CF1, productId: 0x0031, protocolType: "zigbee"),
-        .init(name: "Home Assistant Connect ZBT-1 / SkyConnect", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
-        .init(name: "Home Assistant Connect ZBT-2", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
-        .init(name: "Sonoff Zigbee 3.0 Plus (Dongle-E)", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
-        .init(name: "Sonoff Zigbee 3.0 Plus (Dongle-P)", vendorId: 0x1A86, productId: 0x7523, protocolType: "zigbee"),
-        .init(name: "SMLIGHT SLZB-06", vendorId: 0x10C4, productId: 0xEA60, protocolType: "zigbee"),
-        .init(name: "Tube's ZB Gateway", vendorId: 0x1A86, productId: 0x7523, protocolType: "zigbee"),
-        .init(name: "ZigStar UZG-01", vendorId: 0x1A86, productId: 0x7523, protocolType: "zigbee"),
-        .init(name: "ITead Zigbee 3.0", vendorId: 0x1A86, productId: 0x55D4, protocolType: "zigbee"),
-        // Z-Wave
-        .init(name: "Aeotec Z-Stick Gen5", vendorId: 0x0658, productId: 0x0200, protocolType: "z-wave"),
-        .init(name: "Aeotec Z-Stick Gen7", vendorId: 0x0658, productId: 0x0201, protocolType: "z-wave"),
-        .init(name: "Zooz ZST10 / ZST39", vendorId: 0x10C4, productId: 0xEA60, protocolType: "z-wave"),
-        .init(name: "Z-Wave.Me Z-Station", vendorId: 0x1A86, productId: 0x55D4, protocolType: "z-wave"),
-        // Multi-protocol
-        .init(name: "Nortek GoControl HUSBZB-1", vendorId: 0x10C4, productId: 0x8A2A, protocolType: "multi"),
-        .init(name: "Home Assistant Yellow", vendorId: 0x10C4, productId: 0x8A2A, protocolType: "multi"),
+        .init(name: "ConBee II", vendorId: 0x1CF1, productId: 0x0030),
+        .init(name: "ConBee III", vendorId: 0x1CF1, productId: 0x0031),
+        .init(name: "Home Assistant Connect ZBT-1 / SkyConnect", vendorId: 0x10C4, productId: 0xEA60),
+        .init(name: "Home Assistant Connect ZBT-2", vendorId: 0x10C4, productId: 0xEA60),
+        .init(name: "Sonoff Zigbee 3.0 Plus (Dongle-E)", vendorId: 0x10C4, productId: 0xEA60),
+        .init(name: "Sonoff Zigbee 3.0 Plus (Dongle-P)", vendorId: 0x1A86, productId: 0x7523),
+        .init(name: "SMLIGHT SLZB-06", vendorId: 0x10C4, productId: 0xEA60),
+        .init(name: "Tube's ZB Gateway", vendorId: 0x1A86, productId: 0x7523),
+        .init(name: "ZigStar UZG-01", vendorId: 0x1A86, productId: 0x7523),
+        .init(name: "ITead Zigbee 3.0", vendorId: 0x1A86, productId: 0x55D4),
+        .init(name: "Aeotec Z-Stick Gen5", vendorId: 0x0658, productId: 0x0200),
+        .init(name: "Aeotec Z-Stick Gen7", vendorId: 0x0658, productId: 0x0201),
+        .init(name: "Zooz ZST10 / ZST39", vendorId: 0x10C4, productId: 0xEA60),
+        .init(name: "Z-Wave.Me Z-Station", vendorId: 0x1A86, productId: 0x55D4),
+        .init(name: "Nortek GoControl HUSBZB-1", vendorId: 0x10C4, productId: 0x8A2A),
+        .init(name: "Home Assistant Yellow", vendorId: 0x10C4, productId: 0x8A2A),
     ]
 }
 
@@ -173,8 +169,6 @@ struct DeviceRow: View {
                             $0.vendorId == device.vendorId && $0.productId == device.productId
                         }) {
                             Text("→ \(known.name)").foregroundColor(.secondary)
-                            Text(known.protocolType)
-                                .font(.caption).foregroundColor(.blue)
                         }
                     }
                 }
