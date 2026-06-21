@@ -412,12 +412,8 @@ extension HavmConfig {
     }
 
     /// Directory for persisted USB accessory data (from HAVM Connect).
-    /// Uses the ch.ingmar.havm app group container so the sandboxed
-    /// helper app and the non-sandboxed CLI can share files.
     public static var usbPersistenceDirectory: String {
-        FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "ch.ingmar.havm"
-        )!
+        URL(fileURLWithPath: dataDirectory)
             .appendingPathComponent("usb")
             .path
     }

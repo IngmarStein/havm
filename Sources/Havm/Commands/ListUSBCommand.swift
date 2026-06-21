@@ -15,9 +15,7 @@ struct ListUSBCommand: AsyncParsableCommand {
             print("No paired USB devices.")
             print("")
             print("Open HAVM Connect to select which USB accessories")
-            print("to attach to the VM:")
-            print("")
-            print("  HAVM Connect.app")
+            print("to attach to the VM.")
             return
         }
 

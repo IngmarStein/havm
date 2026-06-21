@@ -6,9 +6,5 @@
 	<true/>
 	<key>com.apple.security.device.usb</key>
 	<true/>
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>ch.ingmar.havm</string>
-	</array>
 </dict>
 </plist>

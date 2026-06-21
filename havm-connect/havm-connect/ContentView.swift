@@ -7,13 +7,14 @@ import os
 // MARK: - Shared paths (must match CLI: USBPath.persistence)
 
 enum USBPath {
-    /// Shared app group container — HA VM Connect (sandboxed) and havm CLI
-    /// both access this path via the ch.ingmar.havm group.
+    /// ~/Library/Application Support/havm/usb/ — shared with the `havm` CLI.
     static var persistence: String {
-        FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "ch.ingmar.havm"
-        )!
-            .appendingPathComponent("usb")
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support")
+        return appSupport
+            .appendingPathComponent("havm/usb")
             .path
     }
 }
