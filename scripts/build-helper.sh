@@ -36,7 +36,7 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <key>CFBundleExecutable</key>
     <string>havm-connect</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.havm.connect</string>
+    <string>ch.ingmar.havm-connect</string>
     <key>CFBundleName</key>
     <string>havm-connect</string>
     <key>CFBundlePackageType</key>
