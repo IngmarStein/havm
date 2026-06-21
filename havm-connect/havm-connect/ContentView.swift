@@ -82,27 +82,52 @@ final class USBDeviceModel {
 
     func refresh() {
         errorMessage = nil
-        let listener = OneShotListener()
+        Self.registerOnce(model: self)
+    }
+
+    private static var listenerRegistered = false
+    private static let accessoryListener = AccessoryListener()
+
+    private static func registerOnce(model: USBDeviceModel) {
+        guard !listenerRegistered else { return }
+        listenerRegistered = true
+
+        accessoryListener.onConnect = { [weak model] acc in
+            model?.addDevice(acc)
+        }
+        accessoryListener.onDisconnect = { [weak model] acc in
+            model?.removeDevice(acc)
+        }
+
         AAUSBAccessoryManager.shared.registerListener(
-            listener, matchingCriteria: [],
-            completionHandler: { [weak self] accessories, error in
-                guard let self else { return }
+            accessoryListener, matchingCriteria: [],
+            completionHandler: { accessories, error in
                 Task { @MainActor in
                     if let error = error {
-                        self.errorMessage = error.localizedDescription
+                        NSLog("AAUSBAccessoryManager registration error: \(error)")
                         return
                     }
-                    let savedIDs = Self.loadPersistedIDs()
-                    self.devices = accessories.map { acc in
-                        let (vid, pid) = Self.parseDescriptor(acc.deviceDescriptorData)
-                        return DiscoveredDevice(
-                            id: acc.registryID, vendorId: vid, productId: pid,
-                            accessory: acc, enabled: savedIDs.contains(acc.registryID)
-                        )
+                    for acc in accessories {
+                        model?.addDevice(acc)
                     }
                 }
             }
         )
+    }
+
+    private func addDevice(_ acc: AAUSBAccessory) {
+        let (vid, pid) = Self.parseDescriptor(acc.deviceDescriptorData)
+        let savedIDs = Self.loadPersistedIDs()
+        if !devices.contains(where: { $0.id == acc.registryID }) {
+            devices.append(DiscoveredDevice(
+                id: acc.registryID, vendorId: vid, productId: pid,
+                accessory: acc, enabled: savedIDs.contains(acc.registryID)
+            ))
+        }
+    }
+
+    private func removeDevice(_ acc: AAUSBAccessory) {
+        devices.removeAll { $0.id == acc.registryID }
     }
 
     func toggle(_ device: DiscoveredDevice) {
@@ -150,7 +175,29 @@ final class USBDeviceModel {
     }
 }
 
-private final class OneShotListener: NSObject, AAUSBAccessoryListener, @unchecked Sendable {}
+@MainActor
+private final class AccessoryListener: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
+    var onConnect: ((AAUSBAccessory) -> Void)?
+    var onDisconnect: ((AAUSBAccessory) -> Void)?
+
+    func updateDevices(_ accessories: [AAUSBAccessory]) {
+        // Called once on initial registration with currently-connected devices.
+        // The model uses this to seed its list; subsequent changes come via
+        // usbAccessoryDidConnect/disconnect.
+    }
+
+    func usbAccessoryDidConnect(_ usbAccessory: AAUSBAccessory) {
+        Task { @MainActor in
+            onConnect?(usbAccessory)
+        }
+    }
+
+    func usbAccessoryDidDisconnect(_ usbAccessory: AAUSBAccessory) {
+        Task { @MainActor in
+            onDisconnect?(usbAccessory)
+        }
+    }
+}
 
 // MARK: - Views
 
