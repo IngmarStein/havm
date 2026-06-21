@@ -170,17 +170,6 @@ final class USBDeviceModel {
                 try? data.write(to: URL(fileURLWithPath: path))
             }
         }
-        signalCLI()
-    }
-
-    private func signalCLI() {
-        // Read the PID file written by havm to send SIGHUP directly.
-        let pidPath = (NSHomeDirectory() as NSString)
-            .appendingPathComponent("Library/Application Support/havm/vm/havm.pid")
-        guard let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
-              let pid = pid_t(pidString.trimmingCharacters(in: .whitespacesAndNewlines)),
-              pid > 0 else { return }
-        kill(pid, SIGHUP)
     }
 
     static func loadPersistedIDs() -> Set<UInt64> {
