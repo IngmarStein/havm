@@ -19,3 +19,4 @@ default.profraw
 # Xcode user-specific data (ignore everywhere)
 **/xcuserdata/
 __pycache__/
+resources/build.xcconfig
