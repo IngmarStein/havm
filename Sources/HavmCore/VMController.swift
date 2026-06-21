@@ -229,13 +229,15 @@ public final class VMController: NSObject, @unchecked Sendable {
             logger.warning("USB: Cannot attach — no USB controller on running VM")
             return
         }
-        vm.queue.async {
+        let queue = vm.queue
+        nonisolated(unsafe) let ctl = controller
+        queue.async {
             let config = VZUSBPassthroughDeviceConfiguration(device: accessory)
             guard let device = try? VZUSBPassthroughDevice(configuration: config) else {
                 Logger(label: "havm.vm").warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryID)")
                 return
             }
-            controller.attach(device: device) { error in
+            ctl.attach(device: device) { error in
                 if let error {
                     Logger(label: "havm.vm").warning("USB: Attach failed: \(error.localizedDescription)")
                 } else {
