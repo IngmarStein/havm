@@ -97,22 +97,19 @@ final class USBDeviceModel {
                         return
                     }
                     let authorized = Self.loadAuthorizedPairs()
-                    var didAutoPersist = false
                     self.devices = accessories.map { acc in
                         let (vid, pid) = Self.parseDescriptor(acc.deviceDescriptorData)
                         let pair = "\(vid):\(pid)"
                         let isAuthorized = authorized.contains(pair)
                         if isAuthorized {
+                            // Auto-persist fresh AAUSBAccessory so the CLI always
+                            // sees current registryIDs — no manual save needed.
                             Self.writeAccessory(acc, vid: vid, pid: pid)
-                            didAutoPersist = true
                         }
                         return DiscoveredDevice(
                             id: acc.registryID, vendorId: vid, productId: pid,
                             accessory: acc, enabled: isAuthorized
                         )
-                    }
-                    if didAutoPersist {
-                        Self.markReady()
                     }
                 }
             }
@@ -126,10 +123,10 @@ final class USBDeviceModel {
     }
 
     func persist() {
-        let dir = USBPath.persistence
         // Clear all existing accessory files.
+        let dir = USBPath.persistence
         if let existing = try? FileManager.default.contentsOfDirectory(atPath: dir) {
-            for file in existing where file.hasSuffix(".accessory") || file == "ready" {
+            for file in existing where file.hasSuffix(".accessory") {
                 try? FileManager.default.removeItem(atPath: (dir as NSString).appendingPathComponent(file))
             }
         }
@@ -137,9 +134,6 @@ final class USBDeviceModel {
         for device in devices where device.enabled {
             Self.writeAccessory(device.accessory, vid: device.vendorId, pid: device.productId)
         }
-        // Signal that the USB directory is current — havm waits for this.
-        let readyPath = (dir as NSString).appendingPathComponent("ready")
-        try? Data("\(Date().timeIntervalSince1970)".utf8).write(to: URL(fileURLWithPath: readyPath))
     }
 
     /// Persist a single AAUSBAccessory to the shared USB directory.
@@ -153,15 +147,6 @@ final class USBDeviceModel {
         ) {
             try? data.write(to: URL(fileURLWithPath: path))
         }
-    }
-
-    /// Write a ready marker so the CLI knows the accessory files are current.
-    static func markReady() {
-        let dir = USBPath.persistence
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let readyPath = (dir as NSString).appendingPathComponent("ready")
-        try? Data("\(Date().timeIntervalSince1970)".utf8)
-            .write(to: URL(fileURLWithPath: readyPath))
     }
 
     /// VID:PID pairs that the user previously authorized.

@@ -45,14 +45,8 @@ public final class USBManager: @unchecked Sendable {
 
     /// Create passthrough configurations from persisted accessory files.
     /// Each persisted AAUSBAccessory is wrapped in a VZUSBPassthroughDeviceConfiguration.
-    ///
-    /// When USB is enabled, waits briefly for HAVM Connect to finish its
-    /// discovery pass at login (up to 3 seconds) so the `.accessory` files
-    /// are fresh before the VM starts.
     public func buildPassthroughConfigurations() -> [any VZUSBDeviceConfiguration] {
         guard config.effectiveUSBEnabled else { return [] }
-
-        waitForReady()
 
         let accessories = Self.loadPersistedAccessories()
         guard !accessories.isEmpty else { return [] }
@@ -61,23 +55,6 @@ public final class USBManager: @unchecked Sendable {
         return accessories.map { acc in
             VZUSBPassthroughDeviceConfiguration(device: acc)
         }
-    }
-
-    private func waitForReady() {
-        let readyPath = (HavmConfig.usbPersistenceDirectory as NSString)
-            .appendingPathComponent("ready")
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: readyPath),
-               let modDate = attrs[.modificationDate] as? Date,
-               Date().timeIntervalSince(modDate) < 120 {
-                return
-            }
-            // Drain the run loop — called from main queue, so we can't
-            // Thread.sleep without blocking signal delivery.
-            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.25))
-        }
-        logger.debug("USB: No fresh ready marker from HAVM Connect — proceeding anyway")
     }
 
     // MARK: - Persistence
