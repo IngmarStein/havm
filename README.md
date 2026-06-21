@@ -7,7 +7,7 @@ Apple's native [Virtualization framework][vz]. Download, resize, boot — one co
 - **Persistent** — all HA OS data (configs, add-ons, history) lives on a resizable
   raw disk image. NVRAM and MAC address persist across reboots.
 - **Headless** — designed to run as a `launchd` background service via Homebrew.
-- **USB accessories** — attach coordinators and other USB devices via HAVM Connect
+- **USB accessories** — attach coordinators and other USB devices via the menu bar item
   (requires paid Apple Developer account + provisioning profile).
 - **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
 - **Graceful shutdown** — tries Supervisor API, then SSH (port 22222/22),
@@ -44,7 +44,7 @@ Subsequent runs skip straight to boot.
 | `havm run -c <path>` | Use a non-default config file |
 | `havm run -j` | JSON log output (shorthand for `--log-format json`) |
 | `havm run -v` | Verbose output (shorthand for `--log-level debug`) |
-| `havm list-usb` | List USB devices paired in HAVM Connect |
+| `havm list-usb` | List paired USB devices |
 | `havm version` | Print version and system info |
 
 ## Configuration
@@ -96,7 +96,7 @@ shutdown:
   vm/MachineIdentifier                    # Stable machine ID (consistent MAC)
   vm/config.img                           # SSH key import disk (if configured)
   vm/havm.pid                             # Process PID (while running)
-  usb/<id>.accessory                      # Paired USB accessories (HAVM Connect)
+  usb/<id>.accessory                      # Paired USB accessories
 ```
 
 ## VM Hardware
@@ -114,13 +114,10 @@ shutdown:
 
 ## USB Accessories
 
-To attach a USB accessory to the VM, open **HAVM Connect**, select it,
-and click Save. If the VM is already running, the accessory is attached
-immediately via hot-plug. No restart needed.
-
-```
-HAVM Connect → select devices → Save & Reload → havm run
-```
+To attach a USB accessory while the VM is running, use the menu bar item
+that appears when `havm run` starts. Select a device to attach it — it
+is persisted and will be re-attached automatically on next boot. No
+restart needed.
 
 **Requirements:**
 - Paid Apple Developer account (Apple gates the USB accessory entitlement)

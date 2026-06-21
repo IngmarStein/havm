@@ -87,43 +87,31 @@ CXZ (C target)
 ~/.config/havm/config.yml        Optional overrides
 ```
 
-## USB Passthrough (parked)
+## USB Accessories
 
-USB passthrough is fully implemented but **gated by Apple**. Cannot be activated without special approval.
-
-**Architecture (ready, waiting on entitlement):**
-- `havm-connect` Xcode project at `havm-connect/` — SwiftUI app that discovers USB devices
-  via `AAUSBAccessoryManager`, persists selection via `NSKeyedArchiver` to
-  `~/Library/Application Support/havm/usb/<registryID>.accessory`
-- `USBManager.buildPassthroughConfigurations()` reads persisted `AAUSBAccessory`
-  files, creates `VZUSBPassthroughDeviceConfiguration(device:)` objects
-- `KnownCoordinators` database (15 devices) provides display hints in UI and `list-usb`
-- `CONFIGDiskBuilder` creates minimal FAT16 disk with `authorized_keys` for SSH import
-  (separate feature, works without USB entitlement)
+USB accessory passthrough uses `AAUSBAccessoryManager` (macOS 27). When `havm run`
+starts with `ENABLE_USB_ACCESSORY=YES`, it registers a listener and macOS shows
+a menu bar item. The user selects which devices to attach — they are persisted
+and hot-attached to the running VM via `VZUSBPassthroughDevice`.
 
 **Architecture:**
-- `AAUSBAccessory` conforms to `NSSecureCoding` — it's a transferable descriptor
-  designed for cross-process persistence (also has XPC transport methods).
-- `havm-connect.app` discovers devices via `AAUSBAccessoryManager` (requires Dock app /
-  NSApplication) and persists `AAUSBAccessory` objects via `NSKeyedArchiver`.
-- The CLI links `AccessoryAccess.framework` for the `AAUSBAccessory` type and
-  unarchives the persisted files with `ofClass: AAUSBAccessory.self`. It does NOT
-  use `AAUSBAccessoryManager` — only the helper needs NSApplication.
-- `VZUSBPassthroughDeviceConfiguration` has exactly one designated initializer:
-  `initWithDevice:(AAUSBAccessory *)device`. The persisted `AAUSBAccessory` is
-  passed directly to it.
+- `ServiceRuntime.setupUSBDiscovery()` boots `NSApplication.accessory`, registers
+  `AAUSBAccessoryListener`. The menu bar item is the user's selection UI.
+- On connect: listener persists `AAUSBAccessory` via `NSKeyedArchiver` to
+  `~/Library/Application Support/havm/usb/<registryID>.accessory`, then
+  hot-attaches via `VZUSBPassthroughDevice` + `usbControllers.first?.attach(device:)`.
+- On boot: persisted accessories are loaded and attached during VM configuration.
+- The CLI builds as a minimal `Havm.app` bundle so Xcode's provisioning profile
+  covers the restricted `accessory-access.usb` entitlement.
 
-**Blocker:** `com.apple.developer.accessory-access.usb` — Xcode's provisioning system
-rejects it: *"not found and could not be included in profile."* Requires explicit
-Apple approval. `com.apple.security.device.usb` is also needed (standard Hardened
-Runtime entitlement, but insufficient alone).
+**Entitlements:**
+- `com.apple.security.device.usb` — standard Hardened Runtime entitlement
+- `com.apple.developer.accessory-access.usb` — restricted, requires provisioning profile
 
-**To resume work:**
-1. Get `com.apple.developer.accessory-access.usb` approved for a developer account
-2. Build `havm-connect.app` from the Xcode project at `havm-connect/`
-3. Configure it with Personal Team signing + "Accessory Access" capability
-4. Select devices in havm-connect → persisted to `~/Library/Application Support/havm/usb/`
-5. `havm run` reads them and attaches passthrough configs to the VM
+**HAVM Connect** (at `havm-connect/`) is a minimal Xcode project whose sole purpose
+is to generate a provisioning profile for `ch.ingmar.havm`. Build it once in Xcode,
+then `scripts/build.sh` picks up the profile automatically. The app itself does
+nothing — it just needs to exist as an Xcode target with the USB entitlement.
 
 ## Known Issues
 

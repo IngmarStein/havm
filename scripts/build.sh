@@ -88,7 +88,8 @@ if $has_restricted; then
     done
     if [ ! -f "$APP_DIR/Contents/embedded.provisionprofile" ]; then
         echo "    Warning: no provisioning profile found for $BUNDLE_IDENTIFIER."
-        echo "    Build HAVM Connect in Xcode once (with your team) to generate one."
+        echo "    Open havm-connect.xcodeproj in Xcode, build once with your"
+        echo "    team, and the profile will be generated automatically."
     fi
 
     cat > "$APP_DIR/Contents/Info.plist" << EOF
