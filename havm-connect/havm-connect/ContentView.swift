@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AccessoryAccess
 import Observation
+import os
 
 // MARK: - Shared paths (must match CLI: USBPath.persistence)
 
@@ -64,6 +65,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 }
 
+// MARK: - Helpers
+
+/// Extract vendor and product IDs from a USB device descriptor.
+/// Descriptor format: VID at bytes 8-9, PID at bytes 10-11 (little-endian).
+func parseDescriptor(_ data: Data) -> (UInt16, UInt16) {
+    guard data.count >= 18 else { return (0, 0) }
+    let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
+    let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
+    return (vid, pid)
+}
+
 // MARK: - Model
 
 @MainActor
@@ -92,7 +104,7 @@ final class USBDeviceModel {
         guard !listenerRegistered else { return }
         listenerRegistered = true
 
-        NSLog("havm-connect: registering AAUSBAccessoryListener with matchingCriteria: []")
+        os_log("registering AAUSBAccessoryListener with matchingCriteria: []")
 
         accessoryListener.onConnect = { [weak model] acc in
             model?.addDevice(acc)
@@ -106,14 +118,14 @@ final class USBDeviceModel {
             completionHandler: { accessories, error in
                 Task { @MainActor in
                     if let error = error {
-                        NSLog("havm-connect: AAUSBAccessoryManager registration error: \(error)")
+                        os_log("AAUSBAccessoryManager registration error: \(error)")
                         model.errorMessage = error.localizedDescription
                         return
                     }
-                    NSLog("havm-connect: AAUSBAccessoryManager registered — \(accessories.count) currently connected")
+                    os_log("AAUSBAccessoryManager registered — \(accessories.count) currently connected")
                     for (i, acc) in accessories.enumerated() {
-                        let (vid, pid) = Self.parseDescriptor(acc.deviceDescriptorData)
-                        NSLog("havm-connect:   [\(i)] registryID=\(acc.registryID) vid=0x\(String(vid, radix: 16)) pid=0x\(String(pid, radix: 16))")
+                        let (vid, pid) = parseDescriptor(acc.deviceDescriptorData)
+                        os_log("  [\(i)] registryID=\(acc.registryID) vid=0x\(String(vid, radix: 16)) pid=0x\(String(pid, radix: 16))")
                         model.addDevice(acc)
                     }
                 }
@@ -122,7 +134,7 @@ final class USBDeviceModel {
     }
 
     private func addDevice(_ acc: AAUSBAccessory) {
-        let (vid, pid) = Self.parseDescriptor(acc.deviceDescriptorData)
+        let (vid, pid) = parseDescriptor(acc.deviceDescriptorData)
         let savedIDs = Self.loadPersistedIDs()
         if !devices.contains(where: { $0.id == acc.registryID }) {
             devices.append(DiscoveredDevice(
@@ -173,31 +185,22 @@ final class USBDeviceModel {
         return ids
     }
 
-    static func parseDescriptor(_ data: Data) -> (UInt16, UInt16) {
-        guard data.count >= 18 else { return (0, 0) }
-        let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
-        let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
-        return (vid, pid)
-    }
 }
 
-private final class AccessoryListener: NSObject, @preconcurrency AAUSBAccessoryListener, @unchecked Sendable {
+private final class AccessoryListener: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
     var onConnect: ((AAUSBAccessory) -> Void)?
     var onDisconnect: ((AAUSBAccessory) -> Void)?
 
-    func updateDevices(_ accessories: [AAUSBAccessory]) {
-    }
-
     func usbAccessoryDidConnect(_ usbAccessory: AAUSBAccessory) {
-        let (vid, pid) = USBDeviceModel.parseDescriptor(usbAccessory.deviceDescriptorData)
-        NSLog("havm-connect: usbAccessoryDidConnect registryID=\(usbAccessory.registryID) vid=0x\(String(vid, radix: 16)) pid=0x\(String(pid, radix: 16))")
+        let (vid, pid) = parseDescriptor(usbAccessory.deviceDescriptorData)
+        os_log("usbAccessoryDidConnect registryID=\(usbAccessory.registryID) vid=0x\(String(vid, radix: 16)) pid=0x\(String(pid, radix: 16))")
         Task { @MainActor in
             onConnect?(usbAccessory)
         }
     }
 
     func usbAccessoryDidDisconnect(_ usbAccessory: AAUSBAccessory) {
-        NSLog("havm-connect: usbAccessoryDidDisconnect registryID=\(usbAccessory.registryID)")
+        os_log("usbAccessoryDidDisconnect registryID=\(usbAccessory.registryID)")
         Task { @MainActor in
             onDisconnect?(usbAccessory)
         }
