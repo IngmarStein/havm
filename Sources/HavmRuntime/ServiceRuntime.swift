@@ -171,13 +171,13 @@ public final class ServiceRuntime: @unchecked Sendable {
         } as Void
 
         usbListener = USBListener { [weak self] accessory in
-            self?.logger.info("USB: Accessory connected — registryID=\(accessory.registryID)")
-            // Persist for next boot.
+            let (vid, pid) = accessory.vendorProductID
+            self?.logger.info("USB: Accessory connected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
             USBListener.persistAccessory(accessory)
-            // Hot-attach to running VM.
             self?.vmController.attachAccessory(accessory)
         } onDisconnect: { [weak self] accessory in
-            self?.logger.info("USB: Accessory disconnected — registryID=\(accessory.registryID)")
+            let (vid, pid) = accessory.vendorProductID
+            self?.logger.info("USB: Accessory disconnected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
             USBListener.removePersistedAccessory(accessory)
         }
 

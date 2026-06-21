@@ -92,3 +92,16 @@ public final class USBManager: @unchecked Sendable {
         return (vid, pid)
     }
 }
+
+// MARK: - AAUSBAccessory convenience
+
+extension AAUSBAccessory {
+    /// Extract vendor and product ID from the USB device descriptor.
+    public var vendorProductID: (UInt16, UInt16) {
+        let data = deviceDescriptorData
+        guard data.count >= 18 else { return (0, 0) }
+        let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
+        let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
+        return (vid, pid)
+    }
+}

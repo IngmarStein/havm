@@ -239,7 +239,8 @@ public final class VMController: NSObject, @unchecked Sendable {
                 if let error {
                     Logger(label: "havm.vm").warning("USB: Attach failed: \(error.localizedDescription)")
                 } else {
-                    Logger(label: "havm.vm").info("USB: Attached device registryID=\(accessory.registryID)")
+                    let (vid, pid) = accessory.vendorProductID
+                    Logger(label: "havm.vm").info("USB: Attached 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
                 }
             }
         }
