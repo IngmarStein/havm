@@ -76,8 +76,8 @@ Three tiers map to account types. Select via `ENTITLEMENTS_TIER` in `build.xccon
 | `com.apple.developer.accessory-access.usb` | Restricted — provisioning profile required. Works with Personal Team. |
 | `com.apple.vm.networking` | Restricted — requires Apple approval. Tier 3 only. |
 
-`havm-connect/entitlements-helper.plist` has `device.usb` + `accessory-access.usb`.
-Build HAVM Connect in Xcode once to generate the provisioning profile
+`havm-profile/entitlements-helper.plist` has `device.usb` + `accessory-access.usb`.
+Open `havm.xcodeproj` and build once to generate the provisioning profile
 for `ch.ingmar.havm` — the CLI build script picks it up automatically.
 
 ## Data Layout
@@ -113,10 +113,9 @@ and hot-attached to the running VM via `VZUSBPassthroughDevice`.
 - `com.apple.security.device.usb` — standard Hardened Runtime entitlement
 - `com.apple.developer.accessory-access.usb` — restricted, requires provisioning profile
 
-**HAVM Connect** (at `havm-connect/`) is a minimal Xcode project whose sole purpose
-is to generate a provisioning profile for `ch.ingmar.havm`. Build it once in Xcode,
-then `scripts/build.sh` picks up the profile automatically. The app itself does
-nothing — it just needs to exist as an Xcode target with the USB entitlement.
+`havm.xcodeproj` is a minimal command-line tool target whose sole purpose is
+to generate a provisioning profile for `ch.ingmar.havm`. Build once (⌘B),
+then `scripts/build.sh` picks up the profile automatically.
 
 ## Known Issues
 

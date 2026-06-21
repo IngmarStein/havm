@@ -62,9 +62,9 @@ if [ "$SIGN_MODE" = "provisioning" ]; then
     # xcodebuild can sign it if the entitlement is granted
     xcodebuild -scheme havm-connect \
         -workspace .swiftpm/xcode/package.xcworkspace 2>/dev/null && true
-    ENTITLEMENTS="havm-connect/entitlements-helper.plist"
+    ENTITLEMENTS="havm-profile/entitlements-helper.plist"
 else
-    ENTITLEMENTS="havm-connect/entitlements-helper.plist"
+    ENTITLEMENTS="havm-profile/entitlements-helper.plist"
     echo "==> Ad-hoc signing (USB passthrough will not work)..."
 fi
 
