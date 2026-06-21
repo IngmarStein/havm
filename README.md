@@ -115,7 +115,8 @@ shutdown:
 ## USB Accessories
 
 To attach a USB accessory to the VM, open **HAVM Connect**, select it,
-and click Save. The change takes effect the next time you start the VM.
+and click Save. If the VM is already running, the accessory is attached
+immediately via hot-plug. No restart needed.
 
 ```
 HAVM Connect → select devices → Save & Reload → havm run

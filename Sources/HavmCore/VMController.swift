@@ -1,6 +1,7 @@
 import Foundation
 import Virtualization
 import Logging
+import AccessoryAccess
 
 // MARK: - VM Controller
 
@@ -49,7 +50,9 @@ public final class VMController: NSObject, @unchecked Sendable {
             VZVirtioBlockDeviceConfiguration(attachment: mainDisk)
         ]
 
-        // Optional: SSH CONFIG disk as USB mass storage (HA OS imports from USB)
+        // USB: always provision the XHCI controller when USB is enabled so
+        // devices can be hot-attached later. Static devices (CONFIG disk,
+        // persisted passthrough) are added at boot.
         var usbDevices: [VZUSBDeviceConfiguration] = []
         let configDiskPath = HavmConfig.configDiskPath
         if FileManager.default.fileExists(atPath: configDiskPath) {
@@ -63,7 +66,7 @@ public final class VMController: NSObject, @unchecked Sendable {
         if !usbPassthroughConfigs.isEmpty {
             usbDevices.append(contentsOf: usbPassthroughConfigs)
         }
-        if !usbDevices.isEmpty {
+        if config.effectiveUSBEnabled {
             let xhci = VZXHCIControllerConfiguration()
             xhci.usbDevices = usbDevices
             vmConfig.usbControllers = [xhci]
@@ -211,6 +214,35 @@ public final class VMController: NSObject, @unchecked Sendable {
             logger.warning("Failed to persist machine identifier: \(error)")
         }
         return id
+    }
+
+    // MARK: - USB hot-plug
+
+    /// Attach an accessory to the running VM via the XHCI controller.
+    /// Uses the new `VZUSBPassthroughDevice` / `attach(device:)` API (macOS 27).
+    public func attachAccessory(_ accessory: AAUSBAccessory) {
+        guard let vm, state == .running else {
+            logger.debug("USB: Skipping attach — VM not running")
+            return
+        }
+        guard let controller = vm.usbControllers.first else {
+            logger.warning("USB: Cannot attach — no USB controller on running VM")
+            return
+        }
+        vm.queue.async {
+            let config = VZUSBPassthroughDeviceConfiguration(device: accessory)
+            guard let device = try? VZUSBPassthroughDevice(configuration: config) else {
+                Logger(label: "havm.vm").warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryID)")
+                return
+            }
+            controller.attach(device: device) { error in
+                if let error {
+                    Logger(label: "havm.vm").warning("USB: Attach failed: \(error.localizedDescription)")
+                } else {
+                    Logger(label: "havm.vm").info("USB: Attached device registryID=\(accessory.registryID)")
+                }
+            }
+        }
     }
 
     // MARK: - Lifecycle

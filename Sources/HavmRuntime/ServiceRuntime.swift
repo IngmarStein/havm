@@ -24,6 +24,7 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var exitCode: Int32 = 0
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
+    private var signalSourceHUP: DispatchSourceSignal?
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -38,6 +39,7 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     /// Run the VM, blocking the calling thread until the VM exits or a signal is received.
     public func runBlocking(usbManager: USBManager? = nil) -> Int32 {
+        self.usbManager = usbManager
         // Write PID file for external tooling (Homebrew services, monitoring).
         writePIDFile()
 
@@ -133,6 +135,8 @@ public final class ServiceRuntime: @unchecked Sendable {
         // Block default signal behavior — DispatchSource monitors via kqueue.
         signal(SIGTERM, SIG_IGN)
         signal(SIGINT, SIG_IGN)
+        signal(SIGHUP, SIG_IGN)
+
         signalSourceTerm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         signalSourceTerm?.setEventHandler { [weak self] in
             self?.signalShutdown(name: "SIGTERM")
@@ -145,6 +149,11 @@ public final class ServiceRuntime: @unchecked Sendable {
         }
         signalSourceInt?.resume()
 
+        signalSourceHUP = DispatchSource.makeSignalSource(signal: SIGHUP, queue: .main)
+        signalSourceHUP?.setEventHandler { [weak self] in
+            self?.reloadUSB()
+        }
+        signalSourceHUP?.resume()
     }
 
     private func signalShutdown(name: String) {
@@ -408,6 +417,26 @@ public final class ServiceRuntime: @unchecked Sendable {
         }
         return nil
     }
+
+    // MARK: - USB hot-reload
+
+    private func reloadUSB() {
+        guard usbManager != nil else {
+            logger.debug("USB: Not enabled — ignoring SIGHUP")
+            return
+        }
+        logger.info("SIGHUP received — reloading USB accessories...")
+        let accessories = USBManager.loadPersistedAccessories()
+        guard !accessories.isEmpty else {
+            logger.debug("USB: No persisted accessories found")
+            return
+        }
+        for acc in accessories {
+            vmController.attachAccessory(acc)
+        }
+    }
+
+    private weak var usbManager: USBManager?
 
     // MARK: - PID file
 

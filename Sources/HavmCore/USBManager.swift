@@ -62,7 +62,7 @@ public final class USBManager: @unchecked Sendable {
     /// Load persisted AAUSBAccessory objects from disk.
     /// AAUSBAccessory conforms to NSSecureCoding, making it safe for
     /// cross-process persistence via NSKeyedArchiver/NSKeyedUnarchiver.
-    private static func loadPersistedAccessories() -> [AAUSBAccessory] {
+    public static func loadPersistedAccessories() -> [AAUSBAccessory] {
         var result: [AAUSBAccessory] = []
         let usbDir = HavmConfig.usbPersistenceDirectory
 

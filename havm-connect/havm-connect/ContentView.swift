@@ -170,6 +170,15 @@ final class USBDeviceModel {
                 try? data.write(to: URL(fileURLWithPath: path))
             }
         }
+        signalCLI()
+    }
+
+    private func signalCLI() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        task.arguments = ["-HUP", "havm"]
+        task.standardOutput = Pipe(); task.standardError = Pipe()
+        try? task.run()
     }
 
     static func loadPersistedIDs() -> Set<UInt64> {
