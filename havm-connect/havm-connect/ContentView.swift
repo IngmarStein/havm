@@ -96,19 +96,12 @@ final class USBDeviceModel {
                         self.errorMessage = error.localizedDescription
                         return
                     }
-                    let authorized = Self.loadAuthorizedPairs()
+                    let savedIDs = Self.loadPersistedIDs()
                     self.devices = accessories.map { acc in
                         let (vid, pid) = Self.parseDescriptor(acc.deviceDescriptorData)
-                        let pair = "\(vid):\(pid)"
-                        let isAuthorized = authorized.contains(pair)
-                        if isAuthorized {
-                            // Auto-persist fresh AAUSBAccessory so the CLI always
-                            // sees current registryIDs — no manual save needed.
-                            Self.writeAccessory(acc, vid: vid, pid: pid)
-                        }
                         return DiscoveredDevice(
                             id: acc.registryID, vendorId: vid, productId: pid,
-                            accessory: acc, enabled: isAuthorized
+                            accessory: acc, enabled: savedIDs.contains(acc.registryID)
                         )
                     }
                 }
@@ -123,43 +116,34 @@ final class USBDeviceModel {
     }
 
     func persist() {
-        // Clear all existing accessory files.
-        let dir = USBPath.persistence
-        if let existing = try? FileManager.default.contentsOfDirectory(atPath: dir) {
+        let usbDir = USBPath.persistence
+        try? FileManager.default.createDirectory(atPath: usbDir, withIntermediateDirectories: true)
+        if let existing = try? FileManager.default.contentsOfDirectory(atPath: usbDir) {
             for file in existing where file.hasSuffix(".accessory") {
-                try? FileManager.default.removeItem(atPath: (dir as NSString).appendingPathComponent(file))
+                try? FileManager.default.removeItem(atPath: (usbDir as NSString).appendingPathComponent(file))
             }
         }
-        // Re-write enabled devices with fresh AAUSBAccessory data.
         for device in devices where device.enabled {
-            Self.writeAccessory(device.accessory, vid: device.vendorId, pid: device.productId)
+            let path = (usbDir as NSString).appendingPathComponent("\(device.id).accessory")
+            if let data = try? NSKeyedArchiver.archivedData(
+                withRootObject: device.accessory, requiringSecureCoding: true
+            ) {
+                try? data.write(to: URL(fileURLWithPath: path))
+            }
         }
     }
 
-    /// Persist a single AAUSBAccessory to the shared USB directory.
-    static func writeAccessory(_ acc: AAUSBAccessory, vid: UInt16, pid: UInt16) {
-        let dir = USBPath.persistence
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let filename = "\(vid):\(pid).accessory"
-        let path = (dir as NSString).appendingPathComponent(filename)
-        if let data = try? NSKeyedArchiver.archivedData(
-            withRootObject: acc, requiringSecureCoding: true
-        ) {
-            try? data.write(to: URL(fileURLWithPath: path))
-        }
-    }
-
-    /// VID:PID pairs that the user previously authorized.
-    static func loadAuthorizedPairs() -> Set<String> {
+    static func loadPersistedIDs() -> Set<UInt64> {
         guard let files = try? FileManager.default.contentsOfDirectory(
             atPath: USBPath.persistence
         ) else { return [] }
-        var pairs = Set<String>()
+        var ids = Set<UInt64>()
         for file in files where file.hasSuffix(".accessory") {
-            let pair = file.replacingOccurrences(of: ".accessory", with: "")
-            pairs.insert(pair)
+            if let id = UInt64(file.replacingOccurrences(of: ".accessory", with: "")) {
+                ids.insert(id)
+            }
         }
-        return pairs
+        return ids
     }
 
     static func parseDescriptor(_ data: Data) -> (UInt16, UInt16) {
