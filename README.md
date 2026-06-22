@@ -56,9 +56,9 @@ Place overrides in `~/.config/havm/config.yml`:
 
 ```yaml
 vm:
-  cpu_count: 4            # default: 4
-  memory_size: "4 GiB"    # default: 4 GiB
-  disk_size: "32 GiB"     # default: 32 GiB
+  cpu_count: 4            # default: 4 — takes effect on next boot
+  memory_size: "4 GiB"    # default: 4 GiB — takes effect on next boot
+  disk_size: "32 GiB"     # default: 32 GiB — can be increased (not shrunk)
 
 network:
   type: nat               # nat (default) or bridge

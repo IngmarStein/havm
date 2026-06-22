@@ -86,7 +86,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
     public func setupIfNeeded() async throws {
         if isSetupComplete {
             logger.info("VM already set up, skipping download.")
-            // Still update SSH CONFIG disk in case config changed
+            try ensureDiskSize()
             try setupSSHConfigDisk()
             return
         }
@@ -128,19 +128,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
         logger.info("Copied disk image to \(HavmConfig.persistentDiskPath)")
 
         // 4. Resize disk image if needed
-        // GPT repair is complex; deferring until we verify basic EFI boot works.
-        let targetSize = config.effectiveDiskSize
-        let attrs = try fileManager.attributesOfItem(atPath: HavmConfig.persistentDiskPath)
-        let currentSize = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
-        if currentSize < targetSize {
-            logger.info("Resizing disk from \(MemorySize(bytes: currentSize)) to \(MemorySize(bytes: targetSize))...")
-            let fh = try FileHandle(forWritingTo: URL(fileURLWithPath: HavmConfig.persistentDiskPath))
-            defer { try? fh.close() }
-            try fh.seek(toOffset: targetSize - 1)
-            try fh.write(contentsOf: Data([0]))
-            try fh.synchronize()
-            logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
-        }
+        try ensureDiskSize()
 
         // 5. Create SSH CONFIG disk if authorized_keys is configured
         try setupSSHConfigDisk()
@@ -354,6 +342,23 @@ public final class HAOSSetupManager: @unchecked Sendable {
     }
 
     // MARK: - Disk image
+
+    /// Ensure the persistent disk is at least the configured size.
+    /// Runs on every boot — if the user increased `disk_size` in config,
+    /// the file is extended. Shrinking is not supported.
+    private func ensureDiskSize() throws {
+        let targetSize = config.effectiveDiskSize
+        let attrs = try fileManager.attributesOfItem(atPath: HavmConfig.persistentDiskPath)
+        let currentSize = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
+        guard currentSize < targetSize else { return }
+        logger.info("Resizing disk from \(MemorySize(bytes: currentSize)) to \(MemorySize(bytes: targetSize))...")
+        let fh = try FileHandle(forWritingTo: URL(fileURLWithPath: HavmConfig.persistentDiskPath))
+        defer { try? fh.close() }
+        try fh.seek(toOffset: targetSize - 1)
+        try fh.write(contentsOf: Data([0]))
+        try fh.synchronize()
+        logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
+    }
 
     private func copyDiskImage(from source: String, to destination: String) throws {
         try fileManager.copyItem(atPath: source, toPath: destination)
