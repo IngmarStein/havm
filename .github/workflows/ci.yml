@@ -8,7 +8,9 @@ on:
 
 jobs:
   build-and-test:
-    # macOS 27 (Golden Gate) SDK required — Xcode 17+.
+    # Requires macOS 27 (Golden Gate) — Xcode 17+.
+    # Until GitHub provides runners, use your Mac as a self-hosted runner:
+    #   Settings → Actions → Runners → New self-hosted runner → macOS ARM64
     runs-on: macos-latest
 
     steps:
@@ -25,14 +27,11 @@ jobs:
           done
           echo "Using: $(xcode-select -p)"
 
-      - name: Build (xcodebuild)
+      - name: Build
         run: |
-          xcodebuild -workspace .swiftpm/xcode/package.xcworkspace \
-            -scheme havm \
-            -destination 'platform=macOS,arch=arm64' \
-            -configuration Release \
-            CODE_SIGN_IDENTITY="-" \
-            CODE_SIGN_ENTITLEMENTS=resources/entitlements-dev.plist
+          ENTITLEMENTS_TIER=1 \
+          CODE_SIGN_IDENTITY="-" \
+          ./scripts/build.sh release
 
       - name: Test
         run: swift test
