@@ -185,7 +185,7 @@ public final class ServiceRuntime: @unchecked Sendable {
             usbListener!, matchingCriteria: [],
             completionHandler: { [weak self] accessories, error in
                 if let error {
-                    self?.logger.warning("USB: Listener registration failed: \(error.localizedDescription)")
+                    self?.logger.info("USB: Listener not available (restricted entitlement missing): \(error.localizedDescription)")
                     return
                 }
                 self?.logger.info("USB: Listener registered — \(accessories.count) already connected")

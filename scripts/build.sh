@@ -53,21 +53,53 @@ else
 fi
 
 # --- Sign --------------------------------------------------------------------
-if [ -n "$DEVELOPMENT_TEAM" ] && [ "$CODE_SIGN_IDENTITY" != "-" ]; then
+SIGN_IDENTITY="$CODE_SIGN_IDENTITY"
+
+RUNTIME_FLAGS="--options runtime --timestamp"
+
+if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     # Wrap in .app bundle so restricted entitlements get a provisioning profile.
+    # Always use .app when signing with a real identity — consistent across tiers.
     APP_DIR=".build/Havm.app"
     rm -rf "$APP_DIR"
     mkdir -p "$APP_DIR/Contents/MacOS"
     cp "$BINARY" "$APP_DIR/Contents/MacOS/havm"
 
-    for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.provisionprofile; do
-        [ -f "$f" ] || continue
-        if security cms -D -i "$f" 2>/dev/null | grep -q "ch.ingmar.havm"; then
-            cp "$f" "$APP_DIR/Contents/embedded.provisionprofile"
-            echo "    Profile:   $(basename "$f")"
-            break
-        fi
-    done
+    # Find a provisioning profile that matches our bundle ID.
+    # When signing with a Developer ID cert, prefer a Developer ID profile.
+    PROFILE_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+    FOUND_PROFILE=""
+
+    if echo "$SIGN_IDENTITY" | grep -q "Developer ID"; then
+        # First pass: prefer a Developer ID provisioning profile.
+        # We can identify these by the ProvisionsAllDevices key (absent or
+        # false in development profiles).
+        for f in "$PROFILE_DIR"/*.provisionprofile; do
+            [ -f "$f" ] || continue
+            PROFILE_XML=$(security cms -D -i "$f" 2>/dev/null || true)
+            if echo "$PROFILE_XML" | grep -q "ch.ingmar.havm" && \
+               echo "$PROFILE_XML" | grep -q "ProvisionsAllDevices"; then
+                FOUND_PROFILE="$f"
+                break
+            fi
+        done
+    fi
+
+    # Fallback: any profile matching our bundle ID.
+    if [ -z "$FOUND_PROFILE" ]; then
+        for f in "$PROFILE_DIR"/*.provisionprofile; do
+            [ -f "$f" ] || continue
+            if security cms -D -i "$f" 2>/dev/null | grep -q "ch.ingmar.havm"; then
+                FOUND_PROFILE="$f"
+                break
+            fi
+        done
+    fi
+
+    if [ -n "$FOUND_PROFILE" ]; then
+        cp "$FOUND_PROFILE" "$APP_DIR/Contents/embedded.provisionprofile"
+        echo "    Profile:   $(basename "$FOUND_PROFILE")"
+    fi
 
     cat > "$APP_DIR/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -88,9 +120,10 @@ if [ -n "$DEVELOPMENT_TEAM" ] && [ "$CODE_SIGN_IDENTITY" != "-" ]; then
 </plist>
 EOF
 
-    codesign --sign "$CODE_SIGN_IDENTITY" \
+    codesign --sign "$SIGN_IDENTITY" \
         --entitlements "$ENTITLEMENTS" \
         --force \
+        $RUNTIME_FLAGS \
         "$APP_DIR" 2>&1 | grep -v "replacing" || true
     ln -sf "$PWD/$APP_DIR/Contents/MacOS/havm" "$BINARY"
 else
@@ -100,6 +133,7 @@ else
     codesign --sign - \
         --entitlements "$ENTITLEMENTS" \
         --force \
+        $RUNTIME_FLAGS \
         "$BINARY" 2>&1 | grep -v "replacing" || true
 fi
 
