@@ -29,6 +29,7 @@ struct HavmCLI: AsyncParsableCommand {
         subcommands: [
             RunCommand.self,
             ListUSBCommand.self,
+            CleanupCommand.self,
             VersionCommand.self,
         ]
     )

@@ -1,17 +1,18 @@
 # havm — Home Assistant VM Runner
 
 Zero-config CLI for running [Home Assistant OS][haos] on Apple Silicon using
-Apple's native [Virtualization framework][vz]. Download, resize, boot — one command.
+Apple's native [Virtualization framework][vz]. One command from download to boot.
 
-- **Zero dependencies** — only macOS 27 and Apple Silicon needed.
-- **Persistent** — all HA OS data (configs, add-ons, history) lives on a resizable
-  raw disk image. NVRAM and MAC address persist across reboots.
-- **Headless** — designed to run as a `launchd` background service via Homebrew.
-- **USB accessories** — attach coordinators and other USB devices via the menu bar item
-  (requires paid Apple Developer account + provisioning profile).
-- **SSH key import** — optional virtual CONFIG disk for root SSH access on port 22222.
-- **Graceful shutdown** — tries Supervisor API, then SSH (port 22222/22),
-  with instant force-stop fallback.
+- **No setup required** — downloads and prepares HA OS automatically on first run.
+  No Shortcuts, AppleScript, or manual launchd plists. Works with `brew services`.
+- **Starts at login** — designed for headless operation as a launchd service.
+  Fire-and-forget: your smart home boots with your Mac.
+- **Persistent** — all HA OS data (configs, add-ons, history) lives on a
+  raw disk image. NVRAM and MAC address survive reboots.
+- **USB accessories** — attach coordinators and other USB devices via the
+  menu bar item. Hot-plug, no restart needed.
+- **SSH key import** — optional virtual CONFIG disk for root SSH on port 22222.
+- **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM.
 
 **Requires macOS 27 (Golden Gate) or later with Apple Silicon.**
 
@@ -45,6 +46,7 @@ Subsequent runs skip straight to boot.
 | `havm run -j` | JSON log output (shorthand for `--log-format json`) |
 | `havm run -v` | Verbose output (shorthand for `--log-level debug`) |
 | `havm list-usb` | List paired USB devices |
+| `havm cleanup` | Clear cached HA OS downloads |
 | `havm version` | Print version and system info |
 
 ## Configuration
@@ -117,14 +119,7 @@ shutdown:
 To attach a USB accessory while the VM is running, use the menu bar item
 that appears when `havm run` starts. Select a device to attach it — it
 is persisted and will be re-attached automatically on next boot. No
-restart needed.
-
-**Requirements:**
-- Paid Apple Developer account (Apple gates the USB accessory entitlement)
-- Provisioning profile with `com.apple.developer.accessory-access.usb`
-
-The VM runs fine without any USB accessories — this is only needed for
-coordinator attachment.
+restart needed. The VM runs fine without USB accessories.
 
 ## Logging
 
@@ -202,21 +197,29 @@ The formula's `service` block runs `havm run` with `keep_alive true`.
 
 ## Building from Source
 
-No paid Apple Developer account required. Ad-hoc signing works for development.
+Ad-hoc signing works for basic VM functionality. USB accessories require
+a paid Apple Developer account (the entitlement is gated by Apple).
 
 ```bash
 git clone https://github.com/username/havm.git
 cd havm
+cp resources/build.xcconfig.example resources/build.xcconfig
+# Set your team ID in build.xcconfig
 ./scripts/build.sh release
-
-# Verify
 .build/release/havm version
 ```
 
-**Entitlements:** Two plists are provided:
-- `resources/entitlements-dev.plist` — Virtualization + Hypervisor (ad-hoc signing, no paid account)
-- `resources/entitlements-base.plist` — Baseline (virt + hypervisor), always present
-- Restricted entitlements are added at build time via `plutil` based on feature flags
+**Entitlement tiers:**
+
+| Tier | Account | USB | Bridge | File |
+|------|---------|-----|--------|------|
+| 1 | Free | No | No | `entitlements-tier1.plist` |
+| 2 | Paid | Yes | No | `entitlements-tier2.plist` |
+| 3 | Paid + Apple approval | Yes | Yes | `entitlements.plist` |
+
+Set `ENTITLEMENTS_TIER` and `DEVELOPMENT_TEAM` in `resources/build.xcconfig`.
+Build `havm.xcodeproj` once in Xcode to generate the provisioning profile
+for `ch.ingmar.havm`.
 
 ## License
 
