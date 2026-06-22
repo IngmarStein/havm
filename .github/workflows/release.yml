@@ -70,7 +70,7 @@ jobs:
           tar -czf havm.tar.gz -C release .
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: havm.tar.gz
           body: |
