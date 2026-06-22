@@ -21,6 +21,22 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
 
 ## Quick Start
 
+### Homebrew (recommended)
+
+```bash
+brew tap ingmarstein/havm
+brew install havm
+havm run
+```
+
+Or run as a background service:
+
+```bash
+brew services start havm
+```
+
+### Build from source
+
 ```bash
 # Build and sign (no paid developer account needed)
 ./scripts/build.sh release
@@ -186,13 +202,12 @@ Press Ctrl+C twice to skip the graceful shutdown and stop the VM immediately.
 
 ## Homebrew Service
 
-Once a Homebrew formula is available:
-
 ```bash
 brew services start havm
 ```
 
-The formula's `service` block runs `havm run` with `keep_alive true`.
+`havm run` runs in the foreground (ideal for launchd / `brew services`). The
+formula configures `keep_alive true` so the VM restarts automatically if it exits.
 
 ## Building from Source
 
