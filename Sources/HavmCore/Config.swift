@@ -354,8 +354,17 @@ extension HavmConfig {
             .path
     }
 
-    /// Base directory for havm persistent data: ~/Library/Application Support/havm/
+    /// Override for data directory, set during config loading.
+    public static nonisolated(unsafe) var dataDirectoryOverride: String?
+
+    /// Base directory for havm persistent data.
+    ///
+    /// Uses the `data_directory` config value if set, otherwise defaults to
+    /// `~/Library/Application Support/havm/`.
     public static var dataDirectory: String {
+        if let override = dataDirectoryOverride {
+            return override
+        }
         let appSupport = NSSearchPathForDirectoriesInDomains(
             .applicationSupportDirectory, .userDomainMask, true
         ).first ?? FileManager.default.homeDirectoryForCurrentUser

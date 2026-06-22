@@ -26,7 +26,16 @@ struct RunCommand: AsyncParsableCommand {
           help: "Shorthand for --log-level debug.")
     var verbose: Bool = false
 
+    @Option(name: [.long],
+            help: "Data directory for persistent VM data (default: ~/Library/Application Support/havm/).")
+    var dataDir: String?
+
     func run() async throws {
+        // 0. Set data directory override before anything touches the file system.
+        if let dir = dataDir {
+            HavmConfig.dataDirectoryOverride = dir
+        }
+
         // 1. Load config (or use defaults) — must happen before LoggingSystem bootstrap
         //    so we know the configured log format. Errors at this stage go to stderr.
         let havmConfig: HavmConfig
