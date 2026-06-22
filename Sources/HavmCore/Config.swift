@@ -29,14 +29,19 @@ public struct HavmConfig: Decodable, Sendable {
     public struct NetworkOverrides: Decodable, Sendable {
         public var type: NetworkType?
         public var interface: String?
+        /// Optional MAC address for the guest network interface.
+        /// Must be a locally-administered unicast address (e.g., `02:00:00:00:00:01`).
+        /// If not set, a random MAC is generated and persisted on first boot.
+        public var mac: String?
         /// Hostname or static IP for reaching the guest.
         /// In bridge mode, defaults to `homeassistant.local` (mDNS).
         /// Set this if you run multiple HA instances or use a static IP.
         public var hostname: String?
 
-        public init(type: NetworkType? = nil, interface: String? = nil, hostname: String? = nil) {
+        public init(type: NetworkType? = nil, interface: String? = nil, mac: String? = nil, hostname: String? = nil) {
             self.type = type
             self.interface = interface
+            self.mac = mac
             self.hostname = hostname
         }
     }

@@ -194,6 +194,12 @@ public final class VMController: NSObject, @unchecked Sendable {
     // MARK: - MAC address
 
     private func loadOrCreateMACAddress() -> VZMACAddress {
+        // Config override takes priority.
+        if let macString = config.network?.mac,
+           let mac = VZMACAddress(string: macString) {
+            return mac
+        }
+        // Otherwise use persisted random address.
         let path = HavmConfig.macAddressPath
         if let string = try? String(contentsOfFile: path, encoding: .utf8),
            let mac = VZMACAddress(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) {

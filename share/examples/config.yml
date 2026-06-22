@@ -15,6 +15,9 @@ network:
   type: nat
   # interface: override auto-detected bridge interface
   # interface: "en0"
+  # mac: stable locally-administered MAC address (e.g., "02:00:00:00:00:01").
+  #      If not set, a random MAC is generated and persisted on first boot.
+  # mac: "02:00:00:00:00:01"
   # hostname: "homeassistant.local"  # mDNS hostname or static IP for reaching the guest
 
 # Home Assistant OS release channel
