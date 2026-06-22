@@ -9,9 +9,7 @@ on:
 jobs:
   build-and-test:
     # Requires macOS 27 (Golden Gate) — Xcode 17+.
-    # Until GitHub provides runners, use your Mac as a self-hosted runner:
-    #   Settings → Actions → Runners → New self-hosted runner → macOS ARM64
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
 
     steps:
       - uses: actions/checkout@v4
