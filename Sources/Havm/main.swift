@@ -16,7 +16,7 @@ struct HavmCLI: AsyncParsableCommand {
         discussion: """
             Run Home Assistant OS on Apple Silicon using the native \
             Virtualization framework. On first run, automatically downloads \
-            the latest HA OS release, extracts the kernel, and prepares a \
+            the latest HA OS release, decompresses the disk image, and prepares a \
             persistent disk image.
 
             Designed for headless operation. Use 'havm run' to start the VM \

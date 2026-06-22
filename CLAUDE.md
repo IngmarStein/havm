@@ -27,7 +27,7 @@ HavmCore (library)
 ├── VMController     VZEFIBootLoader + VZEFIVariableStore, storage, network, USB,
 │                    machine identifier persistence, @MainActor on start()
 ├── USBManager       AccessoryAccess framework for USB passthrough
-├── KnownCoordinators 15 Zigbee/Z-Wave coordinators (vendor/product IDs)
+
 ├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)

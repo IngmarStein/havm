@@ -67,7 +67,7 @@ struct RunCommand: AsyncParsableCommand {
             "Config loaded: CPU=\(havmConfig.effectiveCPUCount) Memory=\(MemorySize(bytes: havmConfig.effectiveMemorySize)) Network=\(havmConfig.effectiveNetworkType) Log=\(format.rawValue)"
         )
 
-        // 3. Set up HA OS if needed (download, extract kernel/initrd, prepare disk)
+        // 3. Set up HA OS if needed (download, decompress, prepare disk)
         let setupManager = HAOSSetupManager(config: havmConfig, logger: logger)
         do {
             try await setupManager.setupIfNeeded()
@@ -84,12 +84,8 @@ struct RunCommand: AsyncParsableCommand {
         let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, logger: logger)
 
         // runBlocking dispatches to the main thread and blocks via CFRunLoopRun().
-        // USB passthrough is prepared inside startVMBlocking.
-        let exitCode = runtime.runBlocking(usbManager: usbManager)
-
-        if exitCode != 0 {
-            throw ExitCode(Int32(exitCode))
-        }
+        // All exit paths use _exit() — the return value is never actually reached.
+        _ = runtime.runBlocking(usbManager: usbManager)
     }
 }
 

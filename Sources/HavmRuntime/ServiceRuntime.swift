@@ -28,7 +28,6 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var guestReachableNotified = false
     private var firstProbeDone = false
     private var guestIP: String?
-    private var exitCode: Int32 = 0
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var usbListener: USBListener?
