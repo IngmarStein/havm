@@ -329,16 +329,18 @@ public func loadConfig(path: String? = nil) throws -> HavmConfig {
     }
 
     guard FileManager.default.fileExists(atPath: configPath) else {
-        if path != nil {
-            throw ConfigError.fileNotFound(configPath)
-        }
-        // No user config at default path — use defaults, that's fine
+        // Missing config is fine — use defaults.
         return HavmConfig.defaults
     }
 
     let yaml = try String(contentsOfFile: configPath, encoding: .utf8)
-    guard (try? Yams.compose(yaml: yaml)) != nil else {
-        throw ConfigError.parseError("Invalid YAML in \(configPath)")
+    // Empty, whitespace-only, or comment-only files are fine — use defaults.
+    let trimmed = yaml.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+        return HavmConfig.defaults
+    }
+    guard let _ = try? Yams.compose(yaml: yaml) else {
+        return HavmConfig.defaults
     }
 
     let decoder = YAMLDecoder()
