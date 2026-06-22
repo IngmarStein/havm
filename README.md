@@ -77,6 +77,7 @@ vm:
 network:
   type: nat               # nat (default) or bridge
   interface: "en0"        # override auto-detected bridge interface
+  mac: "02:00:00:00:00:01"  # fixed MAC address (optional, random by default)
   hostname: "homeassistant.local"  # mDNS hostname or static IP
 
 haos:

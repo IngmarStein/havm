@@ -5,19 +5,18 @@ import Logging
 
 // MARK: - USB Manager
 
-/// Reads persisted USB accessory files (written by havm-connect) and creates
+/// Reads persisted USB accessory files and creates
 /// VZUSBPassthroughDeviceConfiguration objects for the VM.
 ///
-/// USB passthrough requires the havm-connect app:
-///   1. havm-connect  — discovers devices via AAUSBAccessoryManager (needs
-///                     Dock app), persists AAUSBAccessory objects to
-///                     ~/Library/Application Support/havm/usb/
-///   2. havm run     — reads persisted files, creates passthrough configs
+/// USB passthrough architecture:
+///   1. havm run (menu bar item) — discovers devices via AAUSBAccessoryManager
+///                     (NSApplication.accessory), persists AAUSBAccessory objects
+///                     to ~/Library/Application Support/havm/usb/
+///   2. VM configuration    — reads persisted files, creates passthrough configs
 ///                     for the VM via VZUSBPassthroughDeviceConfiguration
 ///
 /// AAUSBAccessory conforms to NSSecureCoding and is designed for cross-process
-/// transfer (it also supports XPC transport). The CLI links AccessoryAccess
-/// for the type, but AAUSBAccessoryManager (device discovery) requires a Dock app.
+/// transfer (it also supports XPC transport).
 ///
 /// USB passthrough requires the `com.apple.developer.accessory-access.usb`
 /// entitlement (paid Apple Developer account + provisioning profile).
@@ -32,7 +31,7 @@ public final class USBManager: @unchecked Sendable {
 
     // MARK: - Persisted accessory listing
 
-    /// List persisted accessories from havm-connect.
+    /// List persisted accessories from the menu bar item.
     public static func listPersistedAccessories() -> [(registryID: UInt64, vendorId: UInt16, productId: UInt16)] {
         let accessories = loadPersistedAccessories()
         return accessories.map { acc in

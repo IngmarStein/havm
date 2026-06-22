@@ -64,7 +64,7 @@ public struct HavmConfig: Decodable, Sendable {
         }
     }
 
-    /// USB passthrough is managed through the havm-connect UI, not via config.
+    /// USB passthrough is managed via the macOS menu bar item, not via config.
     /// The `enabled` flag controls whether persisted accessories are attached.
     public struct USBConfig: Decodable, Sendable {
         public var enabled: Bool?
@@ -434,7 +434,7 @@ extension HavmConfig {
             .path
     }
 
-    /// Directory for persisted USB accessory data (from HAVM Connect).
+    /// Directory for persisted USB accessory data (from the menu bar item).
     public static var usbPersistenceDirectory: String {
         URL(fileURLWithPath: dataDirectory)
             .appendingPathComponent("usb")

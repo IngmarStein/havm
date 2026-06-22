@@ -95,7 +95,7 @@ is the only reliable method.
   vm/MachineIdentifier                              # Stable machine ID (consistent MAC)
   vm/config.img                                     # SSH key import disk (CONFIG label)
   vm/havm.pid                                       # Process PID for external tooling
-  usb/                                              # Persisted USB accessory data (havm-connect)
+  usb/                                              # Persisted USB accessory data (menu bar item)
 ~/Library/Caches/havm/
   haos_generic-aarch64-<version>.img.xz             # Cached download
   haos_generic-aarch64-<version>.img                # Decompressed cache
