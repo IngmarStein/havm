@@ -15,7 +15,7 @@ public final class VMController: NSObject, @unchecked Sendable {
 
     public var onStateChange: ((VZVirtualMachine.State) -> Void)?
     public private(set) var state: VZVirtualMachine.State = .stopped
-    /// Stable MAC address derived from the machine identifier.
+    /// Stable MAC address persisted across reboots.
     public private(set) var guestMAC: String?
 
     public init(config: HavmConfig, logger: Logger = Logger(label: "havm.vm")) {
@@ -77,15 +77,9 @@ public final class VMController: NSObject, @unchecked Sendable {
 
         // Network: stable MAC for consistent DHCP leases across reboots.
         let net = VZVirtioNetworkDeviceConfiguration()
-        let mid = loadOrCreateMachineIdentifier()
-        let idBytes = mid.dataRepresentation
-        var rawBytes = Array(idBytes.suffix(6))
-        while rawBytes.count < 6 { rawBytes.append(0) }
-        rawBytes[0] = (rawBytes[0] & 0xFC) | 0x02  // locally-administered unicast
-        let macString = rawBytes.map { String(format: "%02x", $0) }.joined(separator: ":")
-        // Force-unwrap safe: we construct the string ourselves from 6 valid hex bytes.
-        net.macAddress = VZMACAddress(string: macString)!
-        self.guestMAC = net.macAddress.string
+        let macAddress = loadOrCreateMACAddress()
+        net.macAddress = macAddress
+        self.guestMAC = macAddress.string
 
         switch config.effectiveNetworkType {
         case .nat:
@@ -195,6 +189,25 @@ public final class VMController: NSObject, @unchecked Sendable {
         } catch {
             onComplete(error)
         }
+    }
+
+    // MARK: - MAC address
+
+    private func loadOrCreateMACAddress() -> VZMACAddress {
+        let path = HavmConfig.macAddressPath
+        if let string = try? String(contentsOfFile: path, encoding: .utf8),
+           let mac = VZMACAddress(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return mac
+        }
+        let mac = VZMACAddress.randomLocallyAdministered()
+        do {
+            let dir = (path as NSString).deletingLastPathComponent
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try mac.string.write(toFile: path, atomically: true, encoding: .utf8)
+        } catch {
+            logger.warning("Failed to persist MAC address: \(error)")
+        }
+        return mac
     }
 
     // MARK: - Machine identifier

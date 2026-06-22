@@ -401,10 +401,17 @@ extension HavmConfig {
             .path
     }
 
-    /// Path to the persisted machine identifier (stable MAC addresses across reboots).
+    /// Path to the persisted machine identifier.
     public static var machineIdentifierPath: String {
         URL(fileURLWithPath: vmDirectory)
             .appendingPathComponent("MachineIdentifier")
+            .path
+    }
+
+    /// Path to the persisted MAC address (randomly generated on first boot).
+    public static var macAddressPath: String {
+        URL(fileURLWithPath: vmDirectory)
+            .appendingPathComponent("MACAddress")
             .path
     }
 
