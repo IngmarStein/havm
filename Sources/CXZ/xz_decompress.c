@@ -1,13 +1,12 @@
 // Thin wrapper around liblzma for XZ decompression.
-// macOS ships liblzma at /usr/lib/liblzma.dylib (since 10.9).
-// We declare the minimal API surface needed — no system headers required.
+// macOS ships liblzma.dylib — we link directly via -llzma.
+// Since Apple doesn't ship the headers, we declare the minimal API surface here.
 
 #include "xz.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <dlfcn.h>
 
 // ---- Minimal liblzma type declarations ----
 
@@ -63,9 +62,10 @@ typedef struct {
 #define LZMA_CONCATENATED           0x08U
 #define LZMA_IGNORE_CHECK           0x10U
 
-typedef lzma_ret (*lzma_stream_decoder_fn)(lzma_stream *strm, uint64_t memlimit, uint32_t flags);
-typedef lzma_ret (*lzma_code_fn)(lzma_stream *strm, lzma_action action);
-typedef void     (*lzma_end_fn)(lzma_stream *strm);
+// Direct calls into liblzma — resolved at link time.
+extern lzma_ret lzma_stream_decoder(lzma_stream *strm, uint64_t memlimit, uint32_t flags);
+extern lzma_ret lzma_code(lzma_stream *strm, lzma_action action);
+extern void     lzma_end(lzma_stream *strm);
 
 // ---- Implementation ----
 
@@ -73,28 +73,10 @@ typedef void     (*lzma_end_fn)(lzma_stream *strm);
 #define OUTPUT_BUF_SIZE (256 * 1024)
 
 int xz_decompress_file(const char *input_path, const char *output_path) {
-    // Open liblzma dynamically
-    void *handle = dlopen("/usr/lib/liblzma.dylib", RTLD_NOW);
-    if (!handle) {
-        fprintf(stderr, "Failed to load liblzma: %s\n", dlerror());
-        return 1;
-    }
-
-    lzma_stream_decoder_fn lzma_stream_decoder = (lzma_stream_decoder_fn)dlsym(handle, "lzma_stream_decoder");
-    lzma_code_fn lzma_code = (lzma_code_fn)dlsym(handle, "lzma_code");
-    lzma_end_fn lzma_end = (lzma_end_fn)dlsym(handle, "lzma_end");
-
-    if (!lzma_stream_decoder || !lzma_code || !lzma_end) {
-        fprintf(stderr, "Failed to resolve liblzma symbols: %s\n", dlerror());
-        dlclose(handle);
-        return 1;
-    }
-
     // Open input file
     FILE *in = fopen(input_path, "rb");
     if (!in) {
         perror("fopen input");
-        dlclose(handle);
         return 1;
     }
 
@@ -103,7 +85,6 @@ int xz_decompress_file(const char *input_path, const char *output_path) {
     if (!out) {
         perror("fopen output");
         fclose(in);
-        dlclose(handle);
         return 1;
     }
 
@@ -116,7 +97,6 @@ int xz_decompress_file(const char *input_path, const char *output_path) {
         free(out_buf);
         fclose(out);
         fclose(in);
-        dlclose(handle);
         return 1;
     }
 
@@ -180,7 +160,6 @@ cleanup:
     free(out_buf);
     fclose(out);
     fclose(in);
-    dlclose(handle);
 
     if (ret != LZMA_STREAM_END) {
         // Remove partial output on error

@@ -45,7 +45,10 @@ let package = Package(
         ),
         .target(
             name: "CXZ",
-            dependencies: []
+            dependencies: [],
+            linkerSettings: [
+                .linkedLibrary("lzma"),
+            ]
         ),
         .testTarget(
             name: "HavmCoreTests",
