@@ -42,12 +42,11 @@ Subsequent runs skip straight to boot.
 | Command | Description |
 |---------|-------------|
 | `havm run` | Start the VM — auto-downloads HA OS on first run |
-| `havm run -c <path>` | Use a non-default config file |
-| `havm run -j` | JSON log output (shorthand for `--log-format json`) |
-| `havm run -v` | Verbose output (shorthand for `--log-level debug`) |
 | `havm list-usb` | List paired USB devices |
-| `havm cleanup` | Clear cached HA OS downloads |
+| `havm cleanup` | Clear cached HA OS downloads from `~/Library/Caches/havm/` |
 | `havm version` | Print version and system info |
+
+Run `havm --help` or `havm <command> --help` for flags and options.
 
 ## Configuration
 
