@@ -26,7 +26,7 @@ struct RunCommand: AsyncParsableCommand {
           help: "Shorthand for --log-level debug.")
     var verbose: Bool = false
 
-    @Option(name: [.long],
+    @Option(name: [.customShort("d"), .long],
             help: "Data directory for persistent VM data (default: ~/Library/Application Support/havm/).")
     var dataDir: String?
 
