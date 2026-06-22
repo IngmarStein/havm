@@ -24,8 +24,7 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
 ### Homebrew (recommended)
 
 ```bash
-brew tap ingmarstein/havm
-brew install havm
+brew install ingmarstein/havm/havm
 havm run
 ```
 
