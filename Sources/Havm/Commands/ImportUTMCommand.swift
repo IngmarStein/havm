@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import HavmCore
+import Darwin
 
 struct ImportUTMCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -145,7 +146,9 @@ struct ImportUTMCommand: AsyncParsableCommand {
 
     // MARK: - Helpers
 
-    /// Copy a file with progress reporting for large files.
+    /// Copy a file, preserving APFS sparseness. Uses `clonefile(2)` for
+    /// same-volume instant clones; falls back to a sparse-aware copy that
+    /// skips zero-filled blocks so holes aren't materialized.
     private func copyFile(from source: URL, to destination: URL, description: String) throws {
         let fileManager = FileManager.default
 
@@ -155,34 +158,52 @@ struct ImportUTMCommand: AsyncParsableCommand {
         }
 
         let sourceSize = (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        if sourceSize > 100 * 1024 * 1024 {
-            // For large files, stream with progress
+
+        // Ensure destination directory exists
+        let dir = (destination.path as NSString).deletingLastPathComponent
+        try fileManager.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        // Try clonefile first — instant on same APFS volume, preserves sparseness.
+        if clonefile(source.path, destination.path, 0) == 0 {
             let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(sourceSize), countStyle: .file)
-            print("    Copying \(description) (\(sizeStr))...")
-
-            let input = try FileHandle(forReadingFrom: source)
-            defer { try? input.close() }
-
-            let dir = (destination.path as NSString).deletingLastPathComponent
-            try fileManager.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            fileManager.createFile(atPath: destination.path, contents: nil)
-
-            let output = try FileHandle(forWritingTo: destination)
-            defer { try? output.close() }
-
-            var totalWritten = 0
-            while let chunk = try input.read(upToCount: 1_048_576), !chunk.isEmpty {
-                try output.write(contentsOf: chunk)
-                totalWritten += chunk.count
-                if totalWritten % (50 * 1024 * 1024) < 1_048_576 {
-                    let pct = totalWritten * 100 / sourceSize
-                    print("    Progress: \(pct)%")
-                }
-            }
-            try output.synchronize()
-        } else {
-            try fileManager.copyItem(at: source, to: destination)
+            print("    Cloned \(description) (\(sizeStr), sparse)")
+            return
         }
+
+        // Fall back to sparse-aware copy for cross-volume scenarios.
+        let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(sourceSize), countStyle: .file)
+        print("    Copying \(description) (\(sizeStr), sparse-aware)...")
+
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+
+        // Pre-allocate the destination to the full logical size.
+        // APFS will hole-punch regions we never write to.
+        fileManager.createFile(atPath: destination.path, contents: nil)
+        let output = try FileHandle(forWritingTo: destination)
+        defer { try? output.close() }
+        try output.seek(toOffset: UInt64(sourceSize - 1))
+        try output.write(contentsOf: Data([0]))
+
+        let chunkSize = 1_048_576
+        var offset: UInt64 = 0
+        var totalRead = 0
+        var lastProgress = 0
+        while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+            // Only write non-zero chunks to preserve sparseness
+            if !chunk.allSatisfy({ $0 == 0 }) {
+                try output.seek(toOffset: offset)
+                try output.write(contentsOf: chunk)
+            }
+            offset += UInt64(chunk.count)
+            totalRead += chunk.count
+            let pct = totalRead * 100 / sourceSize
+            if pct - lastProgress >= 5 {
+                print("    Progress: \(pct)%")
+                lastProgress = pct
+            }
+        }
+        try output.synchronize()
     }
 
     /// Generate a havm config file reflecting the imported VM's settings.
