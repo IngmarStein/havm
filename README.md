@@ -57,11 +57,62 @@ Subsequent runs skip straight to boot.
 | Command | Description |
 |---------|-------------|
 | `havm run` | Start the VM — auto-downloads HA OS on first run |
+| `havm import-utm` | Import a Home Assistant VM from UTM |
 | `havm list-usb` | List paired USB devices |
 | `havm cleanup` | Clear cached HA OS downloads from `~/Library/Caches/havm/` |
 | `havm version` | Print version and system info |
 
 Run `havm --help` or `havm <command> --help` for flags and options.
+
+## Importing from UTM
+
+If you have an existing Home Assistant VM in [UTM][utm], you can import it
+into havm in one command:
+
+```bash
+havm import-utm ~/Library/Containers/com.utmapp.UTM/Data/Documents/Home\ Assistant.utm
+```
+
+The import copies (not moves) the VM data from the UTM bundle into havm's
+data directory and generates a config file with matching settings. Your UTM
+bundle is left intact.
+
+**What gets imported:**
+
+| UTM data | havm destination |
+|----------|-----------------|
+| HA OS disk image (largest writable drive) | `~/Library/Application Support/havm/vm/haos.img` |
+| EFI variable store (`efi_vars.fd`) | `NVRAM` |
+| Machine identifier | `MachineIdentifier` (stable MAC address) |
+| MAC address | `MACAddress` |
+| CPU, memory, network settings | `~/.config/havm/config.yml` |
+
+**What's NOT imported:**
+
+- **Auxiliary disks** — UTM VMs may have additional data drives. havm imports
+  only the largest writable disk. Auxiliary disks are reported as warnings so
+  you can copy them manually if needed.
+- **SSH keys** — UTM doesn't use havm's CONFIG disk mechanism. If you had SSH
+  keys configured in UTM, add them to `ssh.authorized_keys` in havm's config.
+- **UTM-specific settings** — display, audio, clipboard, Rosetta, and other
+  UTM-exclusive features are ignored.
+
+**Sparse file handling** — HA OS disk images are APFS sparse files (e.g., 21 GB
+physical for a 34 GB logical disk). The import uses `clonefile(2)` for an
+instant copy-on-write clone on the same volume, preserving sparseness without
+blowing up disk usage. If the source is on a different volume, it falls back
+to a sparse-aware copy that skips zero-filled blocks.
+
+If havm data already exists, the command refuses to overwrite it. Use `--force`
+(`-f`) to overwrite:
+
+```bash
+havm import-utm ~/path/to/Home\ Assistant.utm --force
+```
+
+After import, run `havm run` as usual.
+
+[utm]: https://mac.getutm.app
 
 ## Configuration
 
