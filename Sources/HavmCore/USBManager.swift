@@ -35,7 +35,7 @@ public final class USBManager: @unchecked Sendable {
     public static func listPersistedAccessories() -> [(registryID: UInt64, vendorId: UInt16, productId: UInt16)] {
         let accessories = loadPersistedAccessories()
         return accessories.map { acc in
-            let (vid, pid) = parseUSBDescriptor(acc.deviceDescriptorData)
+            let (vid, pid) = acc.vendorProductID
             return (acc.registryID, vid, pid)
         }
     }
@@ -80,16 +80,6 @@ public final class USBManager: @unchecked Sendable {
         return result
     }
 
-    // MARK: - USB descriptor parsing
-
-    /// Extract vendor and product IDs from a USB device descriptor.
-    /// Descriptor format: VID at bytes 8-9, PID at bytes 10-11 (little-endian).
-    private static func parseUSBDescriptor(_ data: Data) -> (UInt16, UInt16) {
-        guard data.count >= 18 else { return (0, 0) }
-        let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
-        let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
-        return (vid, pid)
-    }
 }
 
 // MARK: - AAUSBAccessory convenience

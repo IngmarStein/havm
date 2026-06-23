@@ -2,13 +2,13 @@ import ArgumentParser
 import Foundation
 import HavmCore
 
-struct ListUSBCommand: AsyncParsableCommand {
+struct ListUSBCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "list-usb",
         abstract: "List USB devices paired with the VM."
     )
 
-    func run() async throws {
+    func run() throws {
         let devices = USBManager.listPersistedAccessories()
 
         if devices.isEmpty {

@@ -253,13 +253,11 @@ public struct MemorySize: Sendable, CustomStringConvertible {
     public init(bytes: UInt64) { self.bytes = bytes }
 
     public var description: String {
-        let gib = Double(bytes) / (1024 * 1024 * 1024)
-        if gib >= 1, gib.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(gib)) GiB"
+        if bytes >= 1024 * 1024 * 1024, bytes % (1024 * 1024 * 1024) == 0 {
+            return "\(bytes / (1024 * 1024 * 1024)) GiB"
         }
-        let mib = Double(bytes) / (1024 * 1024)
-        if mib >= 1, mib.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(mib)) MiB"
+        if bytes >= 1024 * 1024, bytes % (1024 * 1024) == 0 {
+            return "\(bytes / (1024 * 1024)) MiB"
         }
         return "\(bytes) B"
     }
@@ -364,14 +362,7 @@ extension HavmConfig {
     /// Override for data directory, set during config loading.
     public static nonisolated(unsafe) var dataDirectoryOverride: String?
 
-    /// Base directory for havm persistent data.
-    ///
-    /// Uses the `data_directory` config value if set, otherwise defaults to
-    /// `~/Library/Application Support/havm/`.
-    public static var dataDirectory: String {
-        if let override = dataDirectoryOverride {
-            return override
-        }
+    private static let _defaultDataDirectory: String = {
         let appSupport = NSSearchPathForDirectoriesInDomains(
             .applicationSupportDirectory, .userDomainMask, true
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
@@ -379,10 +370,18 @@ extension HavmConfig {
         return URL(fileURLWithPath: appSupport)
             .appendingPathComponent("havm")
             .path
+    }()
+
+    /// Base directory for havm persistent data.
+    ///
+    /// Uses the `data_directory` config value if set, otherwise defaults to
+    /// `~/Library/Application Support/havm/`.
+    public static var dataDirectory: String {
+        dataDirectoryOverride ?? _defaultDataDirectory
     }
 
     /// Directory for cached HA OS images: ~/Library/Caches/havm/
-    public static var cacheDirectory: String {
+    public static let cacheDirectory: String = {
         let caches = NSSearchPathForDirectoriesInDomains(
             .cachesDirectory, .userDomainMask, true
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
@@ -390,7 +389,7 @@ extension HavmConfig {
         return URL(fileURLWithPath: caches)
             .appendingPathComponent("havm")
             .path
-    }
+    }()
 
     /// Directory for persistent VM data.
     public static var vmDirectory: String {

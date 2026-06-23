@@ -29,6 +29,10 @@ struct GitHubAsset: Decodable {
     }
 }
 
+// MARK: - Constants
+
+private let havmErrorDomain = "havm"
+
 // MARK: - Setup error
 
 public enum SetupError: Error, CustomStringConvertible {
@@ -225,13 +229,18 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 }
                 if httpResponse.statusCode == 429 || (500...599).contains(httpResponse.statusCode) {
                     lastError = SetupError.downloadFailed(url.absoluteString,
-                        NSError(domain: "", code: httpResponse.statusCode,
+                        NSError(domain: havmErrorDomain, code: httpResponse.statusCode,
                                 userInfo: [NSLocalizedDescriptionKey:
                                     "HTTP \(httpResponse.statusCode) (attempt \(attempt + 1)/3)"]))
                 } else {
                     throw SetupError.noAssetsFound("HTTP \(httpResponse.statusCode)")
                 }
             } catch let error as SetupError {
+                // Only retry download failures (transient). Permanent errors
+                // like 404 or invalid responses should escape immediately.
+                if case .noAssetsFound = error {
+                    throw error
+                }
                 lastError = error
             } catch {
                 lastError = error
@@ -251,7 +260,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
     private func downloadAsset(_ asset: GitHubAsset, to destination: String) async throws -> String {
         guard let url = URL(string: asset.browserDownloadURL) else {
             throw SetupError.downloadFailed(asset.browserDownloadURL,
-                NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
+                NSError(domain: havmErrorDomain, code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
         }
 
         logger.info("Downloading \(asset.name) (\(ByteCountFormatter.string(fromByteCount: asset.size, countStyle: .file)))...")

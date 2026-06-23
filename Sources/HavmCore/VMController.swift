@@ -45,7 +45,6 @@ public final class VMController: NSObject, @unchecked Sendable {
             url: URL(fileURLWithPath: HavmConfig.persistentDiskPath),
             readOnly: false
         )
-        // Storage: main HA OS disk
         let storageDevices: [VZStorageDeviceConfiguration] = [
             VZVirtioBlockDeviceConfiguration(attachment: mainDisk)
         ]
@@ -250,18 +249,19 @@ public final class VMController: NSObject, @unchecked Sendable {
         }
         let queue = vm.queue
         nonisolated(unsafe) let ctl = controller
+        let logger = self.logger
         queue.async {
             let config = VZUSBPassthroughDeviceConfiguration(device: accessory)
             guard let device = try? VZUSBPassthroughDevice(configuration: config) else {
-                Logger(label: "havm.vm").warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryID)")
+                logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryID)")
                 return
             }
             ctl.attach(device: device) { error in
                 if let error {
-                    Logger(label: "havm.vm").info("USB: Attach failed: \(error.localizedDescription)")
+                    logger.info("USB: Attach failed: \(error.localizedDescription)")
                 } else {
                     let (vid, pid) = accessory.vendorProductID
-                    Logger(label: "havm.vm").info("USB: Attached 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
+                    logger.info("USB: Attached 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
                 }
             }
         }

@@ -69,23 +69,14 @@ enum CONFIGDiskBuilder {
             data[entryOff] = UInt8(slot + 1) | (slot == lfnSlots - 1 ? 0x40 : 0)
 
             var ci = slot * 13
-            for i in 0..<5 {
-                let p = entryOff + 1 + i * 2
-                if ci < utf16.count { data[p] = UInt8(utf16[ci] & 0xFF); data[p+1] = UInt8((utf16[ci] >> 8) & 0xFF); ci += 1 }
-                else if ci == utf16.count { data[p] = 0; data[p+1] = 0; ci += 1 }
-                else { data[p] = 0xFF; data[p+1] = 0xFF }
-            }
-            for i in 0..<6 {
-                let p = entryOff + 14 + i * 2
-                if ci < utf16.count { data[p] = UInt8(utf16[ci] & 0xFF); data[p+1] = UInt8((utf16[ci] >> 8) & 0xFF); ci += 1 }
-                else if ci == utf16.count { data[p] = 0; data[p+1] = 0; ci += 1 }
-                else { data[p] = 0xFF; data[p+1] = 0xFF }
-            }
-            for i in 0..<2 {
-                let p = entryOff + 28 + i * 2
-                if ci < utf16.count { data[p] = UInt8(utf16[ci] & 0xFF); data[p+1] = UInt8((utf16[ci] >> 8) & 0xFF); ci += 1 }
-                else if ci == utf16.count { data[p] = 0; data[p+1] = 0; ci += 1 }
-                else { data[p] = 0xFF; data[p+1] = 0xFF }
+            let fields: [(offset: Int, count: Int)] = [(1, 5), (14, 6), (28, 2)]
+            for (fieldOffset, count) in fields {
+                for i in 0..<count {
+                    let p = entryOff + fieldOffset + i * 2
+                    if ci < utf16.count       { data[p] = UInt8(utf16[ci] & 0xFF); data[p+1] = UInt8((utf16[ci] >> 8) & 0xFF); ci += 1 }
+                    else if ci == utf16.count  { data[p] = 0; data[p+1] = 0; ci += 1 }
+                    else                       { data[p] = 0xFF; data[p+1] = 0xFF }
+                }
             }
 
             data[entryOff + 11] = 0x0F; data[entryOff + 12] = 0x00

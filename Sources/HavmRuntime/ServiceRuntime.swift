@@ -201,6 +201,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         guard !shutdownRequested else {
             // Second signal — force immediate exit
             logger.warning("\(name) received again — exiting immediately")
+            removePIDFile()
             _exit(1)
         }
         shutdownRequested = true
@@ -278,6 +279,8 @@ public final class ServiceRuntime: @unchecked Sendable {
         case failed    // Definitive failure — fall through to next method
     }
 
+    private static let emptyJSONBody = Data("{}".utf8)
+
     /// Send a shutdown command to the guest via the Home Assistant REST API.
     /// Calls the `hassio.host_shutdown` service with a Bearer token.
     /// Uses `shutdown.ha_url` if configured, otherwise defaults to
@@ -297,7 +300,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("{}".utf8)
+        request.httpBody = Self.emptyJSONBody
         request.timeoutInterval = TimeInterval(min(timeout, 10))
 
         do {
@@ -345,6 +348,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
 
+        let logger = self.logger
         return await withCheckedContinuation { continuation in
             process.terminationHandler = { proc in
                 let succeeded = proc.terminationStatus == 0
@@ -353,7 +357,7 @@ public final class ServiceRuntime: @unchecked Sendable {
                     let stderrText = String(data: stderrData, encoding: .utf8)?
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     if !stderrText.isEmpty {
-                        Logger(label: "havm.runtime").debug("SSH (port \(port)) stderr: \(stderrText)")
+                        logger.debug("SSH (port \(port)) stderr: \(stderrText)")
                     }
                 }
                 continuation.resume(returning: succeeded)
@@ -382,6 +386,15 @@ public final class ServiceRuntime: @unchecked Sendable {
             ip = discoverViaDHCPLeases()
         }
 
+        if ip == nil, !firstProbeDone {
+            firstProbeDone = true
+            if let hostname = config.effectiveGuestHostname {
+                logger.info("Waiting for resolution of \(hostname)...")
+            } else if let mac = vmController.guestMAC {
+                logger.info("Waiting for guest DHCP lease (MAC \(mac))...")
+            }
+        }
+
         guard let ip, !ip.isEmpty, ip != guestIP else { return }
         guestIP = ip
 
@@ -408,10 +421,6 @@ public final class ServiceRuntime: @unchecked Sendable {
         defer { if let r = result { freeaddrinfo(r) } }
 
         guard getaddrinfo(hostname, nil, &hints, &result) == 0, result != nil else {
-            if !firstProbeDone {
-                firstProbeDone = true
-                logger.info("Waiting for resolution of \(hostname)...")
-            }
             return nil
         }
 
@@ -452,10 +461,6 @@ public final class ServiceRuntime: @unchecked Sendable {
             }
         }
 
-        if !firstProbeDone {
-            firstProbeDone = true
-            logger.info("Waiting for guest DHCP lease (MAC \(mac))...")
-        }
         return nil
     }
 
