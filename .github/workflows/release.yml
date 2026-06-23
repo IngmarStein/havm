@@ -55,13 +55,13 @@ jobs:
             --force --timestamp --options runtime \
             .build/release/havm
 
-      - name: Sign (ad-hoc — dev entitlements only)
+      - name: Sign (ad-hoc — base entitlements only)
         if: env.DEVELOPER_ID_CERT == ''
         run: |
           # Fallback: ad-hoc signing with unrestricted entitlements only.
           # Bridge networking and USB passthrough will NOT work.
           codesign --sign - \
-            --entitlements resources/entitlements-dev.plist \
+            --entitlements resources/entitlements-tier1.plist \
             --force .build/release/havm
 
       - name: Package
