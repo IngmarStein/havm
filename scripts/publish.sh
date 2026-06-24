@@ -57,7 +57,7 @@ if ! gh auth status &>/dev/null; then
 fi
 
 # --- Build -------------------------------------------------------------------
-echo "==> Building havm v${VERSION} (tier 2, Developer ID)..."
+echo "==> Building havm v${VERSION} (tier 3, Developer ID)..."
 
 # Ensure version is set correctly in source
 CURRENT_VERSION=$(grep 'static let current' Sources/Havm/main.swift | sed 's/.*"\(.*\)".*/\1/')
@@ -66,7 +66,7 @@ if [ "$CURRENT_VERSION" != "$VERSION" ]; then
     sed -i '' "s/static let current = \"$CURRENT_VERSION\"/static let current = \"$VERSION\"/" Sources/Havm/main.swift
 fi
 
-CODE_SIGN_IDENTITY="$DEVELOPER_ID" ENTITLEMENTS_TIER=2 ./scripts/build.sh release
+CODE_SIGN_IDENTITY="$DEVELOPER_ID" ENTITLEMENTS_TIER=3 ./scripts/build.sh release
 
 BINARY=".build/release/havm"
 APP_DIR=".build/Havm.app"
