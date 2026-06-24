@@ -93,14 +93,8 @@ jobs:
             ./havm run
             ```
 
-            ### Networking
+            ### Networking & USB
 
-            NAT networking works out of the box. **Bridge networking** requires
-            `com.apple.vm.networking` — a restricted entitlement that requires
-            Apple approval and a paid Developer ID for distribution.
-
-            ### USB Passthrough
-
-            Requires `com.apple.developer.accessory-access.usb` — also a
-            restricted entitlement requiring Apple approval.
+            NAT works out of the box. Bridge networking and USB passthrough are
+            supported by the signed release binary — no extra setup needed.
           generate_release_notes: true
