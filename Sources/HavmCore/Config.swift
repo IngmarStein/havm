@@ -117,7 +117,6 @@ public struct HavmConfig: Decodable, Sendable {
     public struct LoggingOverrides: Decodable, Sendable {
         public var level: LogLevel?
         public var format: LogFormat?
-        public var file: String?
 
         public enum LogLevel: String, Decodable, Sendable {
             case debug, info, warning, error
@@ -127,10 +126,9 @@ public struct HavmConfig: Decodable, Sendable {
             case text, json
         }
 
-        public init(level: LogLevel? = nil, format: LogFormat? = nil, file: String? = nil) {
+        public init(level: LogLevel? = nil, format: LogFormat? = nil) {
             self.level = level
             self.format = format
-            self.file = file
         }
     }
 

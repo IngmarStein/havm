@@ -143,7 +143,6 @@ usb:
 logging:
   format: text            # text (default) or json (NDJSON, one object per line)
   level: debug            # debug, info (default), warning, error
-  file: "/var/log/havm.log"  # write logs to a file instead of stdout
 
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
@@ -207,8 +206,7 @@ logging:
   file: "/opt/homebrew/var/log/havm.log"
 ```
 
-With `logging.file`, the process still logs to stdout (launchd captures it),
-but also writes a structured NDJSON log file for monitoring and debugging.
+JSON logging to a file can be configured via launchd's `StandardOutPath`.
 
 ## SSH Access
 
