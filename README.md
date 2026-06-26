@@ -140,14 +140,16 @@ ssh:
 usb:
   enabled: true           # default: true — attach paired USB accessories
 
+ha:
+  url: "https://homeassistant.local:443"  # default: http://<discovered-ip>:8123
+  api_token: "eyJ..."     # HA long-lived access token for REST API calls
+
 logging:
   format: text            # text (default) or json (NDJSON, one object per line)
   level: debug            # debug, info (default), warning, error
 
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
-  api_token: "eyJ..."     # HA long-lived access token for REST API shutdown
-  ha_url: "https://homeassistant.local:443"  # override default http://<ip>:8123
 ```
 
 ## Data Layout
@@ -231,20 +233,22 @@ On SIGTERM or Ctrl+C, `havm` tries these shutdown methods in order, falling
 through to the next if one fails:
 
 1. **HA REST API** — `POST http://<ip>:8123/api/services/hassio/host_shutdown`
-   (requires a [long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile) in `shutdown.api_token`)
+   (requires a [long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile) in `ha.api_token`)
 2. **Debug SSH (port 22222)** — `ssh root@<ip> -p 22222 shutdown -h now`
    (requires `ssh.authorized_keys` for CONFIG disk import)
 3. **SSH add-on (port 22)** — `ssh root@<ip> -p 22 ha host shutdown`
    (requires the SSH add-on installed in HA)
 4. **Force-stop** — if all above fail, the VM is stopped immediately
 
-The shutdown timeout is configurable:
+The shutdown timeout and API token are configurable:
 
 ```yaml
+ha:
+  api_token: "eyJ..."     # HA long-lived access token
+  url: "https://homeassistant.local:443"  # default: http://<ip>:8123
+
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
-  api_token: "eyJ..."     # HA long-lived access token
-  ha_url: "https://homeassistant.local:443"  # default: http://<ip>:8123
 ```
 
 Press Ctrl+C twice to skip the graceful shutdown and stop the VM immediately.

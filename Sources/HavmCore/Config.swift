@@ -116,23 +116,13 @@ public struct HavmConfig: Decodable, Sendable {
 
     public struct ShutdownOverrides: Decodable, Sendable {
         public var timeoutSeconds: Int?
-        /// Long-lived access token for Supervisor API shutdown.
-        /// Prefer `ha.api_token` — this is a fallback.
-        public var apiToken: String?
-        /// Base URL of the Home Assistant REST API.
-        /// Prefer `ha.url` — this is a fallback.
-        public var haURL: String?
 
         enum CodingKeys: String, CodingKey {
             case timeoutSeconds = "timeout_seconds"
-            case apiToken = "api_token"
-            case haURL = "ha_url"
         }
 
-        public init(timeoutSeconds: Int? = nil, apiToken: String? = nil, haURL: String? = nil) {
+        public init(timeoutSeconds: Int? = nil) {
             self.timeoutSeconds = timeoutSeconds
-            self.apiToken = apiToken
-            self.haURL = haURL
         }
     }
 
@@ -211,20 +201,18 @@ public struct HavmConfig: Decodable, Sendable {
     }
 
     /// Home Assistant long-lived access token for REST API use.
-    /// Reads from `ha.api_token` first, falls back to `shutdown.api_token`.
-    /// If set, havm uses it for API calls like shutdown and manifest polling.
+    /// Set via `ha.api_token`. Used for API calls like shutdown.
     public var effectiveHAAPIToken: String? {
-        ha?.apiToken ?? shutdown?.apiToken
+        ha?.apiToken
     }
 
     /// Base URL for the Home Assistant web UI and REST API.
-    /// Reads from `ha.url` first, falls back to `shutdown.ha_url`.
-    /// If not set, defaults to `http://<discovered-ip>:8123`.
+    /// Set via `ha.url`. If not set, defaults to `http://<discovered-ip>:8123`.
     public var effectiveHAURL: String? {
-        ha?.url ?? shutdown?.haURL
+        ha?.url
     }
 
-    /// Convenience alias for backward compatibility.
+    /// Convenience alias for shutdown code that references the token.
     public var effectiveShutdownAPIToken: String? {
         effectiveHAAPIToken
     }

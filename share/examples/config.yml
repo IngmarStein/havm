@@ -53,4 +53,3 @@ ha:
 # Shutdown behavior on SIGTERM/SIGINT
 shutdown:
   timeout_seconds: 30         # max wait for guest to halt (default: 30)
-  # ha_url and api_token can also be set here (legacy), but 'ha' is preferred.

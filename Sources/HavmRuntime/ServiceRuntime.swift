@@ -19,7 +19,7 @@ import AccessoryAccess
 ///
 /// After the VM boots, the runtime discovers the guest IP via mDNS resolution,
 /// DHCP lease parsing, or a config-provided hostname. Once the IP is known, it
-/// polls `manifest.json` on the Home Assistant web UI until the frontend
+/// polls the Home Assistant web UI health-check endpoint until the frontend
 /// responds (or 5 minutes elapse), then prints the ready URL.
 ///
 /// ## USB Accessory Discovery
@@ -39,8 +39,8 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var usbListener: USBListener?
-    private var manifestPollCount = 0
-    private let manifestPollMax = 60  // 60 × 5s = 5 minutes
+    private var healthPollCount = 0
+    private let healthPollMax = 60  // 60 × 5s = 5 minutes
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -420,12 +420,12 @@ public final class ServiceRuntime: @unchecked Sendable {
         }
     }
 
-    /// Poll the Home Assistant manifest.json endpoint until the web UI responds.
-    /// Stops after the first successful response or after `manifestPollMax` attempts
+    /// Poll the Home Assistant web UI health-check endpoint until it responds.
+    /// Stops after the first successful response or after `healthPollMax` attempts
     /// (~5 minutes at the 5-second poll cadence).
     private func checkWebUI() {
-        guard manifestPollCount < manifestPollMax else { return }
-        manifestPollCount += 1
+        guard healthPollCount < healthPollMax else { return }
+        healthPollCount += 1
 
         let baseURL: String
         if let configured = config.effectiveHAURL {
