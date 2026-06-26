@@ -40,13 +40,17 @@ logging:
   # Level: debug, info (default), warning, error
   level: info
 
+# Home Assistant connection settings (URL and API token).
+# Used for shutdown and web UI readiness detection.
+ha:
+  # Base URL of the Home Assistant instance (default: http://<discovered-ip>:8123).
+  # Override if HA uses a different port or HTTPS.
+  # url: "https://homeassistant.local:443"
+  # Long-lived access token for REST API calls.
+  # Create one at: http://<your-ha-ip>:8123/profile/security
+  # api_token: "eyJ..."
+
 # Shutdown behavior on SIGTERM/SIGINT
 shutdown:
   timeout_seconds: 30         # max wait for guest to halt (default: 30)
-  # Home Assistant long-lived access token for REST API shutdown.
-  # havm calls POST /api/services/hassio/host_shutdown before SSH methods.
-  # Create one at: http://<your-ha-ip>:8123/profile/security
-  # api_token: "eyJ..."
-  # Base URL for the HA REST API (default: http://<discovered-ip>:8123).
-  # Override if HA uses a different port or HTTPS.
-  # ha_url: "https://homeassistant.local:443"
+  # ha_url and api_token can also be set here (legacy), but 'ha' is preferred.
