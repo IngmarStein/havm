@@ -16,6 +16,8 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
 
 **Requires macOS 27 (Golden Gate) or later with Apple Silicon.**
 
+https://github.com/IngmarStein/havm/blob/main/demo/demo.mp4
+
 [haos]: https://github.com/home-assistant/operating-system
 [vz]: https://developer.apple.com/documentation/virtualization
 
