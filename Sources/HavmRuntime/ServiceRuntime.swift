@@ -5,15 +5,22 @@ import Logging
 import AppKit
 import AccessoryAccess
 
-/// Manages the blocking service runtime: signal handling, VM lifecycle, graceful shutdown.
+/// Manages the blocking service runtime: signal handling, VM lifecycle,
+/// graceful shutdown, guest IP discovery, and web UI readiness detection.
 ///
 /// On SIGTERM or SIGINT:
-///   1. If guest IP is known, sends shutdown via SSH (ssh root@<ip> -p 22222 shutdown -h now)
-///   2. Waits up to the configured timeout for the VM to stop
-///   3. If SSH fails or guest IP is unknown, calls vm.stop() immediately
+///   1. REST API → SSH port 22222 → SSH port 22 → force-stop
+///   2. Second signal during shutdown: force exit immediately
 ///
 /// ACPI power button (vm.requestStop()) is not used — HA OS on aarch64 uses
 /// PSCI for power management and ignores ACPI events entirely.
+///
+/// ## Guest connectivity
+///
+/// After the VM boots, the runtime discovers the guest IP via mDNS resolution,
+/// DHCP lease parsing, or a config-provided hostname. Once the IP is known, it
+/// polls `manifest.json` on the Home Assistant web UI until the frontend
+/// responds (or 5 minutes elapse), then prints the ready URL.
 ///
 /// ## USB Accessory Discovery
 /// Registers an `AAUSBAccessoryListener` at startup. macOS shows a menu bar
@@ -26,11 +33,14 @@ public final class ServiceRuntime: @unchecked Sendable {
 
     private var shutdownRequested = false
     private var guestReachableNotified = false
+    private var webUIReadyNotified = false
     private var firstProbeDone = false
     private var guestIP: String?
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var usbListener: USBListener?
+    private var manifestPollCount = 0
+    private let manifestPollMax = 60  // 60 × 5s = 5 minutes
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -76,8 +86,12 @@ public final class ServiceRuntime: @unchecked Sendable {
                         RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
 
                         let newTick = tick + 1
-                        if newTick % 20 == 0, !self.guestReachableNotified {
-                            self.checkGuestNetwork()
+                        if newTick % 20 == 0 {
+                            if !self.guestReachableNotified {
+                                self.checkGuestNetwork()
+                            } else if !self.webUIReadyNotified {
+                                self.checkWebUI()
+                            }
                         }
                         poll(tick: newTick)
                     }
@@ -403,6 +417,40 @@ public final class ServiceRuntime: @unchecked Sendable {
             logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
             logger.info("  Web: http://\(ip):8123")
             logger.info("  SSH: ssh root@\(ip) -p 22222")
+        }
+    }
+
+    /// Poll the Home Assistant manifest.json endpoint until the web UI responds.
+    /// Stops after the first successful response or after `manifestPollMax` attempts
+    /// (~5 minutes at the 5-second poll cadence).
+    private func checkWebUI() {
+        guard manifestPollCount < manifestPollMax else { return }
+        manifestPollCount += 1
+
+        let baseURL: String
+        if let configured = config.effectiveHAURL {
+            baseURL = configured
+        } else if let ip = guestIP {
+            baseURL = "http://\(ip):8123"
+        } else {
+            return
+        }
+
+        guard let url = URL(string: "\(baseURL)/manifest.json") else { return }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+
+        Task { @MainActor in
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
+                guard !self.webUIReadyNotified else { return }
+                self.webUIReadyNotified = true
+                self.logger.info("Home Assistant is ready at \(baseURL)")
+            } catch {
+                // UI not up yet — retry silently on next poll
+            }
         }
     }
 

@@ -11,6 +11,7 @@ public struct HavmConfig: Decodable, Sendable {
     public var haos: HAOSOverrides?
     public var usb: USBConfig?
     public var ssh: SSHOverrides?
+    public var ha: HAConfig?
     public var shutdown: ShutdownOverrides?
     public var logging: LoggingOverrides?
 
@@ -90,15 +91,36 @@ public struct HavmConfig: Decodable, Sendable {
         }
     }
 
+    /// Home Assistant connection settings. Used for both shutdown and
+    /// pre-UI-ready checks (e.g. manifest.json polling).
+    public struct HAConfig: Decodable, Sendable {
+        /// Base URL of the Home Assistant instance.
+        /// Overrides the default `http://<discovered-ip>:8123`.
+        /// Use this if HA runs on a different port or uses HTTPS,
+        /// e.g. `https://homeassistant.local:443`.
+        public var url: String?
+        /// Long-lived access token for REST API calls (shutdown, etc.).
+        /// Create one at http://<ip>:8123/profile/security.
+        public var apiToken: String?
+
+        enum CodingKeys: String, CodingKey {
+            case url
+            case apiToken = "api_token"
+        }
+
+        public init(url: String? = nil, apiToken: String? = nil) {
+            self.url = url
+            self.apiToken = apiToken
+        }
+    }
+
     public struct ShutdownOverrides: Decodable, Sendable {
         public var timeoutSeconds: Int?
-        /// Home Assistant long-lived access token for Supervisor API shutdown.
-        /// Create one at http://<ip>:8123/profile/security (or via
-        /// /api/long_lived_access_token) in your HA user profile.
+        /// Long-lived access token for Supervisor API shutdown.
+        /// Prefer `ha.api_token` — this is a fallback.
         public var apiToken: String?
-        /// Base URL of the Home Assistant REST API. Overrides the default
-        /// `http://<discovered-ip>:8123`. Use this if HA runs on a different
-        /// port or uses HTTPS, e.g. `https://homeassistant.local:443`.
+        /// Base URL of the Home Assistant REST API.
+        /// Prefer `ha.url` — this is a fallback.
         public var haURL: String?
 
         enum CodingKeys: String, CodingKey {
@@ -188,17 +210,23 @@ public struct HavmConfig: Decodable, Sendable {
         shutdown?.timeoutSeconds ?? 30
     }
 
-    /// Home Assistant long-lived access token for REST API shutdown.
-    /// If set, havm calls `POST /api/services/hassio/host_shutdown` before
-    /// falling back to SSH-based shutdown methods.
-    public var effectiveShutdownAPIToken: String? {
-        shutdown?.apiToken
+    /// Home Assistant long-lived access token for REST API use.
+    /// Reads from `ha.api_token` first, falls back to `shutdown.api_token`.
+    /// If set, havm uses it for API calls like shutdown and manifest polling.
+    public var effectiveHAAPIToken: String? {
+        ha?.apiToken ?? shutdown?.apiToken
     }
 
-    /// Base URL for the Home Assistant REST API. If set, overrides the
-    /// auto-constructed `http://<discovered-ip>:8123`.
+    /// Base URL for the Home Assistant web UI and REST API.
+    /// Reads from `ha.url` first, falls back to `shutdown.ha_url`.
+    /// If not set, defaults to `http://<discovered-ip>:8123`.
     public var effectiveHAURL: String? {
-        shutdown?.haURL
+        ha?.url ?? shutdown?.haURL
+    }
+
+    /// Convenience alias for backward compatibility.
+    public var effectiveShutdownAPIToken: String? {
+        effectiveHAAPIToken
     }
 
     // MARK: - Init
@@ -209,6 +237,7 @@ public struct HavmConfig: Decodable, Sendable {
         haos: HAOSOverrides? = nil,
         usb: USBConfig? = nil,
         ssh: SSHOverrides? = nil,
+        ha: HAConfig? = nil,
         shutdown: ShutdownOverrides? = nil,
         logging: LoggingOverrides? = nil
     ) {
@@ -217,6 +246,7 @@ public struct HavmConfig: Decodable, Sendable {
         self.haos = haos
         self.usb = usb
         self.ssh = ssh
+        self.ha = ha
         self.shutdown = shutdown
         self.logging = logging
     }
