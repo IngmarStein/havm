@@ -16,7 +16,6 @@ jobs:
 
       - name: Select Xcode 27
         run: |
-          # Pre-release Xcode first, then stable.
           for dir in \
             /Applications/Xcode-beta.app/Contents/Developer \
             /Applications/Xcode_27*.app/Contents/Developer; do
@@ -28,6 +27,15 @@ jobs:
           done
           echo "Error: Xcode 27 not found" >&2
           exit 1
+
+      - name: Update version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          CURRENT=$(grep 'static let current' Sources/Havm/main.swift | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$CURRENT" != "$VERSION" ]; then
+            echo "    $CURRENT -> $VERSION"
+            sed -i '' "s/static let current = \"$CURRENT\"/static let current = \"$VERSION\"/" Sources/Havm/main.swift
+          fi
 
       - name: Import Developer ID certificate
         if: vars.DEVELOPMENT_TEAM != '' && secrets.DEVELOPER_ID_CERT != ''
@@ -47,16 +55,14 @@ jobs:
           DEVELOPMENT_TEAM: ${{ vars.DEVELOPMENT_TEAM }}
           CODE_SIGN_IDENTITY: ${{ vars.DEVELOPER_ID }}
           ENTITLEMENTS_TIER: "3"
-        run: |
-          ./scripts/build.sh release
+        run: ./scripts/build.sh release
 
       - name: Build and sign (ad-hoc — tier 1)
         if: vars.DEVELOPMENT_TEAM == '' || secrets.DEVELOPER_ID_CERT == ''
         env:
           ENTITLEMENTS_TIER: "1"
           CODE_SIGN_IDENTITY: "-"
-        run: |
-          ./scripts/build.sh release
+        run: ./scripts/build.sh release
 
       - name: Package
         run: |
@@ -66,24 +72,20 @@ jobs:
           echo "${GITHUB_REF_NAME#v}" > .build/VERSION
           (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
+      - name: Notarize
+        if: vars.DEVELOPMENT_TEAM != '' && secrets.DEVELOPER_ID_CERT != ''
+        run: |
+          xcrun notarytool submit havm.zip \
+            --keychain-profile "${NOTARY_PROFILE:-AC_PASSWORD}" \
+            --wait --timeout 5m
+
       - name: Create Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: havm.zip
-          body: |
-            ## havm — Home Assistant OS VM for Apple Silicon
-
-            Zero-config CLI for running Home Assistant OS on macOS 27+ using the
-            native Virtualization framework.
-
-            ### Requirements
-            - macOS 27 (Golden Gate) or later
-            - Apple Silicon Mac
-
-            ### Install
-
-            ```bash
-            unzip havm.zip
-            Havm.app/Contents/MacOS/havm run
-            ```
-          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+        run: |
+          gh release create "$tag" \
+            --repo="${GITHUB_REPOSITORY}" \
+            --title="${GITHUB_REPOSITORY#*/} ${tag#v}" \
+            --generate-notes \
+            havm.zip

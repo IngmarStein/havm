@@ -44,17 +44,24 @@ echo "    Team:      ${DEVELOPMENT_TEAM:-(none)}"
 echo "    Identity:  $CODE_SIGN_IDENTITY"
 
 # --- Build -------------------------------------------------------------------
+# Remove symlink from old build.sh versions that linked the binary into the
+# .app bundle. swift build would follow it and write into a directory we need
+# to rm -rf below.
 if [ "$CONFIG" = "release" ]; then
-    swift build -c release --product havm
     BINARY=".build/release/havm"
 else
-    swift build --product havm
     BINARY=".build/debug/havm"
+fi
+[ -L "$BINARY" ] && rm -f "$BINARY"
+
+if [ "$CONFIG" = "release" ]; then
+    swift build -c release --product havm
+else
+    swift build --product havm
 fi
 
 # --- Sign --------------------------------------------------------------------
 SIGN_IDENTITY="$CODE_SIGN_IDENTITY"
-RUNTIME_FLAGS="--options runtime --timestamp"
 
 # Always create .app bundle for consistent output structure.
 APP_DIR=".build/Havm.app"
@@ -116,7 +123,7 @@ if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     codesign --sign "$SIGN_IDENTITY" \
         --entitlements "$ENTITLEMENTS" \
         --force \
-        $RUNTIME_FLAGS \
+        --options runtime --timestamp \
         "$APP_DIR" 2>&1 | grep -v "replacing" || true
 else
     # Ad-hoc signing — restricted entitlements are stripped.
@@ -124,11 +131,9 @@ else
     codesign --sign - \
         --entitlements "$ENTITLEMENTS" \
         --force \
-        $RUNTIME_FLAGS \
+        --options runtime --timestamp \
         "$APP_DIR" 2>&1 | grep -v "replacing" || true
 fi
 
-ln -sf "$PWD/$APP_DIR/Contents/MacOS/havm" "$BINARY"
-
-echo "==> Done: $BINARY ($APP_DIR)"
-"$BINARY" version
+echo "==> Done: $APP_DIR"
+"$APP_DIR/Contents/MacOS/havm" version
