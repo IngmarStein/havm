@@ -11,22 +11,25 @@ permissions:
 
 jobs:
   build-and-test:
-    # Requires macOS 27 (Golden Gate) — Xcode 17+.
+    # Requires macOS 27 (Golden Gate) — Xcode 27+.
     runs-on: [self-hosted, macOS, ARM64]
 
     steps:
       - uses: actions/checkout@v7
 
-      - name: Select Xcode
+      - name: Select Xcode 27
         run: |
-          for xcode in /Applications/Xcode_17*.app; do
-            if [ -d "$xcode" ]; then
-              sudo xcode-select -s "$xcode"
-              echo "Selected: $xcode"
-              break
+          for dir in \
+            /Applications/Xcode-beta.app/Contents/Developer \
+            /Applications/Xcode_27*.app/Contents/Developer; do
+            if [ -d "$dir" ] && [ -x "$dir/usr/bin/xcodebuild" ]; then
+              echo "DEVELOPER_DIR=$dir" >> "$GITHUB_ENV"
+              echo "$($dir/usr/bin/xcodebuild -version | head -1)"
+              exit 0
             fi
           done
-          echo "Using: $(xcode-select -p)"
+          echo "Error: Xcode 27 not found" >&2
+          exit 1
 
       - name: Build
         run: |

@@ -14,23 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Select Xcode
+      - name: Select Xcode 27
         run: |
-          for xcode in /Applications/Xcode_17*.app; do
-            if [ -d "$xcode" ]; then
-              sudo xcode-select -s "$xcode"
-              echo "Selected: $xcode"
-              break
+          # Pre-release Xcode first, then stable.
+          for dir in \
+            /Applications/Xcode-beta.app/Contents/Developer \
+            /Applications/Xcode_27*.app/Contents/Developer; do
+            if [ -d "$dir" ] && [ -x "$dir/usr/bin/xcodebuild" ]; then
+              echo "DEVELOPER_DIR=$dir" >> "$GITHUB_ENV"
+              echo "$($dir/usr/bin/xcodebuild -version | head -1)"
+              exit 0
             fi
           done
-          echo "Using: $(xcode-select -p)"
-
-      - name: Build
-        run: |
-          swift build -c release
+          echo "Error: Xcode 27 not found" >&2
+          exit 1
 
       - name: Import Developer ID certificate
-        if: env.DEVELOPER_ID_CERT != ''
+        if: vars.DEVELOPMENT_TEAM != '' && secrets.DEVELOPER_ID_CERT != ''
         env:
           DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
           DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
@@ -41,41 +41,39 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: \
             -k "$DEVELOPER_ID_PASSWORD" ~/Library/Keychains/login.keychain-db
 
-      - name: Sign (Developer ID — full entitlements)
-        if: env.DEVELOPER_ID_CERT != ''
+      - name: Build and sign (Developer ID — tier 3)
+        if: vars.DEVELOPMENT_TEAM != '' && secrets.DEVELOPER_ID_CERT != ''
         env:
-          DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
-          DEVELOPER_ID: ${{ vars.DEVELOPER_ID }}
+          DEVELOPMENT_TEAM: ${{ vars.DEVELOPMENT_TEAM }}
+          CODE_SIGN_IDENTITY: ${{ vars.DEVELOPER_ID }}
+          ENTITLEMENTS_TIER: "3"
         run: |
-          # Full entitlements including vm.networking and accessory-access.usb.
-          # These require Apple-approved provisioning — only works with paid
-          # Developer ID accounts that have been granted these entitlements.
-          codesign --sign "$DEVELOPER_ID" \
-            --entitlements resources/entitlements.plist \
-            --force --timestamp --options runtime \
-            .build/release/havm
+          ./scripts/build.sh release
 
-      - name: Sign (ad-hoc — base entitlements only)
-        if: env.DEVELOPER_ID_CERT == ''
+      - name: Build and sign (ad-hoc — tier 1)
+        if: vars.DEVELOPMENT_TEAM == '' || secrets.DEVELOPER_ID_CERT == ''
+        env:
+          ENTITLEMENTS_TIER: "1"
+          CODE_SIGN_IDENTITY: "-"
         run: |
-          # Fallback: ad-hoc signing with unrestricted entitlements only.
-          # Bridge networking and USB passthrough will NOT work.
-          codesign --sign - \
-            --entitlements resources/entitlements-tier1.plist \
-            --force .build/release/havm
+          ./scripts/build.sh release
 
       - name: Package
         run: |
-          mkdir -p release
-          cp .build/release/havm release/
-          cp README.md release/
-          cp -r share/examples release/ 2>/dev/null || true
-          tar -czf havm.tar.gz -C release .
+          if [ -d ".build/Havm.app" ]; then
+            ditto -c -k --keepParent .build/Havm.app havm.zip
+          else
+            mkdir -p release
+            cp .build/release/havm release/
+            cp README.md release/
+            cp -r share/examples release/ 2>/dev/null || true
+            ditto -c -k release havm.zip
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          files: havm.tar.gz
+          files: havm.zip
           body: |
             ## havm — Home Assistant OS VM for Apple Silicon
 
@@ -89,12 +87,12 @@ jobs:
             ### Install
 
             ```bash
-            tar -xzf havm.tar.gz
+            # Extract the archive
+            unzip havm.zip
+
+            # Run — either as .app bundle:
+            Havm.app/Contents/MacOS/havm run
+            # or as raw binary (ad-hoc build):
             ./havm run
             ```
-
-            ### Networking & USB
-
-            NAT works out of the box. Bridge networking and USB passthrough are
-            supported by the signed release binary — no extra setup needed.
           generate_release_notes: true
