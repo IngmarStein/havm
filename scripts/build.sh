@@ -54,54 +54,15 @@ fi
 
 # --- Sign --------------------------------------------------------------------
 SIGN_IDENTITY="$CODE_SIGN_IDENTITY"
-
 RUNTIME_FLAGS="--options runtime --timestamp"
 
-if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
-    # Wrap in .app bundle so restricted entitlements get a provisioning profile.
-    # Always use .app when signing with a real identity — consistent across tiers.
-    APP_DIR=".build/Havm.app"
-    rm -rf "$APP_DIR"
-    mkdir -p "$APP_DIR/Contents/MacOS"
-    cp "$BINARY" "$APP_DIR/Contents/MacOS/havm"
+# Always create .app bundle for consistent output structure.
+APP_DIR=".build/Havm.app"
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS"
+cp "$BINARY" "$APP_DIR/Contents/MacOS/havm"
 
-    # Find a provisioning profile that matches our bundle ID.
-    # When signing with a Developer ID cert, prefer a Developer ID profile.
-    PROFILE_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
-    FOUND_PROFILE=""
-
-    if echo "$SIGN_IDENTITY" | grep -q "Developer ID"; then
-        # First pass: prefer a Developer ID provisioning profile.
-        # We can identify these by the ProvisionsAllDevices key (absent or
-        # false in development profiles).
-        for f in "$PROFILE_DIR"/*.provisionprofile; do
-            [ -f "$f" ] || continue
-            PROFILE_XML=$(security cms -D -i "$f" 2>/dev/null || true)
-            if echo "$PROFILE_XML" | grep -q "ch.ingmar.havm" && \
-               echo "$PROFILE_XML" | grep -q "ProvisionsAllDevices"; then
-                FOUND_PROFILE="$f"
-                break
-            fi
-        done
-    fi
-
-    # Fallback: any profile matching our bundle ID.
-    if [ -z "$FOUND_PROFILE" ]; then
-        for f in "$PROFILE_DIR"/*.provisionprofile; do
-            [ -f "$f" ] || continue
-            if security cms -D -i "$f" 2>/dev/null | grep -q "ch.ingmar.havm"; then
-                FOUND_PROFILE="$f"
-                break
-            fi
-        done
-    fi
-
-    if [ -n "$FOUND_PROFILE" ]; then
-        cp "$FOUND_PROFILE" "$APP_DIR/Contents/embedded.provisionprofile"
-        echo "    Profile:   $(basename "$FOUND_PROFILE")"
-    fi
-
-    cat > "$APP_DIR/Contents/Info.plist" << EOF
+cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -118,24 +79,56 @@ if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     <string>1</string>
 </dict>
 </plist>
-EOF
+PLIST
+
+if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    # Real identity: embed provisioning profile for restricted entitlements.
+    PROFILE_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+    FOUND_PROFILE=""
+
+    if echo "$SIGN_IDENTITY" | grep -q "Developer ID"; then
+        for f in "$PROFILE_DIR"/*.provisionprofile; do
+            [ -f "$f" ] || continue
+            PROFILE_XML=$(security cms -D -i "$f" 2>/dev/null || true)
+            if echo "$PROFILE_XML" | grep -q "ch.ingmar.havm" && \
+               echo "$PROFILE_XML" | grep -q "ProvisionsAllDevices"; then
+                FOUND_PROFILE="$f"
+                break
+            fi
+        done
+    fi
+
+    if [ -z "$FOUND_PROFILE" ]; then
+        for f in "$PROFILE_DIR"/*.provisionprofile; do
+            [ -f "$f" ] || continue
+            if security cms -D -i "$f" 2>/dev/null | grep -q "ch.ingmar.havm"; then
+                FOUND_PROFILE="$f"
+                break
+            fi
+        done
+    fi
+
+    if [ -n "$FOUND_PROFILE" ]; then
+        cp "$FOUND_PROFILE" "$APP_DIR/Contents/embedded.provisionprofile"
+        echo "    Profile:   $(basename "$FOUND_PROFILE")"
+    fi
 
     codesign --sign "$SIGN_IDENTITY" \
         --entitlements "$ENTITLEMENTS" \
         --force \
         $RUNTIME_FLAGS \
         "$APP_DIR" 2>&1 | grep -v "replacing" || true
-    ln -sf "$PWD/$APP_DIR/Contents/MacOS/havm" "$BINARY"
 else
-    # Ad-hoc signing — restricted entitlements are stripped, so the binary
-    # can run but USB passthrough won't work.
-    echo "    (ad-hoc signing — USB passthrough unavailable)"
+    # Ad-hoc signing — restricted entitlements are stripped.
+    echo "    (ad-hoc signing — restricted entitlements unavailable)"
     codesign --sign - \
         --entitlements "$ENTITLEMENTS" \
         --force \
         $RUNTIME_FLAGS \
-        "$BINARY" 2>&1 | grep -v "replacing" || true
+        "$APP_DIR" 2>&1 | grep -v "replacing" || true
 fi
 
-echo "==> Done: $BINARY"
+ln -sf "$PWD/$APP_DIR/Contents/MacOS/havm" "$BINARY"
+
+echo "==> Done: $BINARY ($APP_DIR)"
 "$BINARY" version

@@ -60,15 +60,8 @@ jobs:
 
       - name: Package
         run: |
-          if [ -d ".build/Havm.app" ]; then
-            ditto -c -k --keepParent .build/Havm.app havm.zip
-          else
-            mkdir -p release
-            cp .build/release/havm release/
-            cp README.md release/
-            cp -r share/examples release/ 2>/dev/null || true
-            ditto -c -k release havm.zip
-          fi
+          echo "${GITHUB_REF_NAME#v}" > .build/VERSION
+          (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
@@ -87,12 +80,7 @@ jobs:
             ### Install
 
             ```bash
-            # Extract the archive
             unzip havm.zip
-
-            # Run — either as .app bundle:
             Havm.app/Contents/MacOS/havm run
-            # or as raw binary (ad-hoc build):
-            ./havm run
             ```
           generate_release_notes: true
