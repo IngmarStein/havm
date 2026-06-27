@@ -76,10 +76,31 @@ jobs:
 
       - name: Notarize
         if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ vars.NOTARY_ISSUER }}
         run: |
-          xcrun notarytool submit havm.zip \
-            --keychain-profile "${NOTARY_PROFILE:-AC_PASSWORD}" \
-            --wait --timeout 5m
+          echo "$NOTARY_KEY" > notary.p8
+          echo "==> Submitting for notarization..."
+          if xcrun notarytool submit havm.zip \
+              --key notary.p8 \
+              --key-id "$NOTARY_KEY_ID" \
+              --issuer "$NOTARY_ISSUER" \
+              --wait --timeout 5m 2>&1 | tee notary.log | grep -q "status: Accepted"; then
+            echo "    Notarization: Accepted"
+          else
+            echo "Error: notarization failed."
+            SUBMIT_ID=$(grep "id:" notary.log | head -1 | awk '{print $NF}')
+            if [ -n "$SUBMIT_ID" ]; then
+              echo "--- Notarization log ---"
+              xcrun notarytool log "$SUBMIT_ID" \
+                --key notary.p8 \
+                --key-id "$NOTARY_KEY_ID" \
+                --issuer "$NOTARY_ISSUER"
+            fi
+            exit 1
+          fi
 
       - name: Create Release
         env:
