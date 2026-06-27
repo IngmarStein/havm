@@ -353,7 +353,7 @@ public func loadConfig(path: String? = nil) throws -> HavmConfig {
     guard !trimmed.isEmpty else {
         return HavmConfig.defaults
     }
-    guard let _ = try? Yams.compose(yaml: yaml) else {
+    guard (try? Yams.compose(yaml: yaml)) != nil else {
         return HavmConfig.defaults
     }
 

@@ -510,7 +510,7 @@ public final class ServiceRuntime: @unchecked Sendable {
             inet_ntop(AF_INET, &addr.pointee.sin_addr, &buf, socklen_t(16))
             let nullTerm = buf.firstIndex(of: 0) ?? buf.count
             let utf8Bytes = buf[0..<nullTerm].map { UInt8(bitPattern: $0) }
-            return String(decoding: utf8Bytes, as: UTF8.self)
+            return String(bytes: utf8Bytes, encoding: .utf8) ?? ""
         }
     }
 

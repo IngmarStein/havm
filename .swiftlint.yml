@@ -1,0 +1,22 @@
+# havm — SwiftLint config
+# Rules tuned for this project's style. Only enabled rules that catch
+# actual bugs or meaningful style violations.
+
+disabled_rules:
+  # Style choices that don't fit this project.
+  - identifier_name           # vm, ha, k, v, fh, ip — short names are idiomatic Swift
+  - nesting                   # Config structs nest by design for Decodable
+  - file_length               # Some files are legitimately long
+  - type_body_length          # OK to have long types
+  - function_body_length      # OK to have long functions
+  - cyclomatic_complexity     # Trust the author
+  - large_tuple               # Valid use cases
+  - function_parameter_count  # Config builders need many params
+  - trailing_comma            # Personal style
+  - vertical_parameter_alignment # Personal style
+  - statement_position        # else/catch on new line is project style
+  - opening_brace             # Same as statement_position
+
+line_length:
+  warning: 200
+  ignores_comments: true

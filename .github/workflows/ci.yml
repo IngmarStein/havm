@@ -10,6 +10,23 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ShellCheck
+        run: |
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh
+
+      - name: SwiftLint
+        run: |
+          curl -sSL "https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip" \
+            -o swiftlint.zip
+          unzip -q swiftlint.zip
+          ./swiftlint lint --quiet --strict
+
   build-and-test:
     # Requires macOS 27 (Golden Gate) — Xcode 27+.
     runs-on: [self-hosted, macOS, ARM64]
