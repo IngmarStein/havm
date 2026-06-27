@@ -23,9 +23,9 @@ import AccessoryAccess
 /// responds (or 5 minutes elapse), then prints the ready URL.
 ///
 /// ## USB Accessory Discovery
-/// Registers an `AAUSBAccessoryListener` at startup. macOS shows a menu bar
-/// item where the user selects which USB accessories to attach. On connect,
-/// the accessory is persisted and hot-attached to the running VM.
+/// Registers an `AAUSBAccessoryListener` after VM start. macOS shows a menu
+/// bar item where the user selects which USB accessories to attach. On connect,
+/// the accessory is hot-attached to the running VM.
 public final class ServiceRuntime: @unchecked Sendable {
     private let config: HavmConfig
     private let vmController: VMController
@@ -54,20 +54,21 @@ public final class ServiceRuntime: @unchecked Sendable {
     }
 
     /// Run the VM, blocking the calling thread until the VM exits or a signal is received.
-    public func runBlocking(usbManager: USBManager? = nil) -> Int32 {
+    public func runBlocking() -> Int32 {
         // Write PID file for external tooling (Homebrew services, monitoring).
         writePIDFile()
 
         DispatchQueue.main.async {
             self.setupSignalHandlers()
 
-            self.vmController.startVMBlocking(usbManager: usbManager) { startError in
+            self.vmController.startVMBlocking { startError in
                 if let error = startError {
                     self.logger.error("Failed to start VM: \(error)")
                     exit(1)
                 }
 
                 self.logger.info("VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.")
+                self.setupUSBDiscovery()
                 self.printBootingInstructions()
 
                 func poll(tick: Int = 0) {
@@ -165,10 +166,6 @@ public final class ServiceRuntime: @unchecked Sendable {
             self?.signalShutdown(name: "SIGINT")
         }
         signalSourceInt?.resume()
-
-        // Register for USB accessory discovery. macOS shows a menu bar
-        // item where the user selects which devices to attach.
-        setupUSBDiscovery()
     }
 
     private func setupUSBDiscovery() {
@@ -186,12 +183,10 @@ public final class ServiceRuntime: @unchecked Sendable {
         usbListener = USBListener { [weak self] accessory in
             let (vid, pid) = accessory.vendorProductID
             self?.logger.info("USB: Accessory connected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
-            USBListener.persistAccessory(accessory)
             self?.vmController.attachAccessory(accessory)
         } onDisconnect: { [weak self] accessory in
             let (vid, pid) = accessory.vendorProductID
             self?.logger.info("USB: Accessory disconnected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
-            USBListener.removePersistedAccessory(accessory)
         }
 
         AAUSBAccessoryManager.shared.registerListener(
@@ -203,8 +198,6 @@ public final class ServiceRuntime: @unchecked Sendable {
                 }
                 self?.logger.info("USB: Listener registered — \(accessories.count) already connected")
                 for acc in accessories {
-                    self?.logger.info("USB: Re-attaching persisted accessory registryID=\(acc.registryID)")
-                    USBListener.persistAccessory(acc)
                     self?.vmController.attachAccessory(acc)
                 }
             }
@@ -542,8 +535,7 @@ public final class ServiceRuntime: @unchecked Sendable {
 // MARK: - USB Accessory Listener
 
 /// Listens for USB accessory connect/disconnect events from the
-/// macOS menu bar item. Persists accessories to the shared USB
-/// directory so they survive reboots.
+/// macOS menu bar item. Delegates attachment to the VM controller.
 private final class USBListener: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
     private let onConnect: (AAUSBAccessory) -> Void
     private let onDisconnect: (AAUSBAccessory) -> Void
@@ -560,24 +552,5 @@ private final class USBListener: NSObject, AAUSBAccessoryListener, @unchecked Se
 
     func usbAccessoryDidDisconnect(_ usbAccessory: AAUSBAccessory) {
         onDisconnect(usbAccessory)
-    }
-
-    // MARK: - Persistence
-
-    static func persistAccessory(_ acc: AAUSBAccessory) {
-        let dir = HavmConfig.usbPersistenceDirectory
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let path = (dir as NSString).appendingPathComponent("\(acc.registryID).accessory")
-        if let data = try? NSKeyedArchiver.archivedData(
-            withRootObject: acc, requiringSecureCoding: true
-        ) {
-            try? data.write(to: URL(fileURLWithPath: path))
-        }
-    }
-
-    static func removePersistedAccessory(_ acc: AAUSBAccessory) {
-        let path = (HavmConfig.usbPersistenceDirectory as NSString)
-            .appendingPathComponent("\(acc.registryID).accessory")
-        try? FileManager.default.removeItem(atPath: path)
     }
 }

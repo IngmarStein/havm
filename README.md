@@ -167,7 +167,6 @@ shutdown:
   vm/MachineIdentifier                    # Stable machine ID (consistent MAC)
   vm/config.img                           # SSH key import disk (if configured)
   vm/havm.pid                             # Process PID (while running)
-  usb/<id>.accessory                      # Paired USB accessories
 ```
 
 ## VM Hardware
@@ -187,8 +186,8 @@ shutdown:
 
 To attach a USB accessory while the VM is running, use the menu bar item
 that appears when `havm run` starts. Select a device to attach it — it
-is persisted and will be re-attached automatically on next boot. No
-restart needed. The VM runs fine without USB accessories.
+is persisted and will be re-attached automatically shortly after boot on
+the next run. No restart needed.
 
 ## Logging
 

@@ -102,10 +102,9 @@ and hot-attached to the running VM via `VZUSBPassthroughDevice`.
 **Architecture:**
 - `ServiceRuntime.setupUSBDiscovery()` boots `NSApplication.accessory`, registers
   `AAUSBAccessoryListener`. The menu bar item is the user's selection UI.
-- On connect: listener persists `AAUSBAccessory` via `NSKeyedArchiver` to
-  `~/Library/Application Support/havm/usb/<registryID>.accessory`, then
-  hot-attaches via `VZUSBPassthroughDevice` + `usbControllers.first?.attach(device:)`.
-- On boot: persisted accessories are loaded and attached during VM configuration.
+- On connect: listener hot-attaches via `VZUSBPassthroughDevice` +
+  `usbControllers.first?.attach(device:)` with fresh registryIDs.
+- On boot: listener registers after VM start, hot-attaches discovery results.
 - The CLI builds as a minimal `Havm.app` bundle so Xcode's provisioning profile
   covers the restricted `accessory-access.usb` entitlement.
 

@@ -50,8 +50,8 @@ public final class VMController: NSObject, @unchecked Sendable {
         ]
 
         // USB: always provision the XHCI controller when USB is enabled so
-        // devices can be hot-attached later. Static devices (CONFIG disk,
-        // persisted passthrough) are added at boot.
+        // passthrough devices can be hot-attached later. Only the CONFIG disk
+        // is added at boot.
         var usbDevices: [VZUSBDeviceConfiguration] = []
         let configDiskPath = HavmConfig.configDiskPath
         if FileManager.default.fileExists(atPath: configDiskPath) {
@@ -61,9 +61,6 @@ public final class VMController: NSObject, @unchecked Sendable {
             )
             usbDevices.append(VZUSBMassStorageDeviceConfiguration(attachment: configAttachment))
             logger.info("SSH CONFIG disk attached (USB)")
-        }
-        if !usbPassthroughConfigs.isEmpty {
-            usbDevices.append(contentsOf: usbPassthroughConfigs)
         }
         if config.effectiveUSBEnabled {
             let xhci = VZXHCIControllerConfiguration()
@@ -114,13 +111,6 @@ public final class VMController: NSObject, @unchecked Sendable {
         return vmConfig
     }
 
-    /// USB device configurations (populated before start).
-    private var usbPassthroughConfigs: [any VZUSBDeviceConfiguration] = []
-
-    public func prepareUSB(usbManager: USBManager) {
-        usbPassthroughConfigs = usbManager.buildPassthroughConfigurations()
-    }
-
     // MARK: - EFI variable store
 
     private func loadOrCreateEFIVariableStore() -> VZEFIVariableStore {
@@ -161,11 +151,10 @@ public final class VMController: NSObject, @unchecked Sendable {
     /// when VZ delivers its start callback (on the main queue).
     /// Called from ServiceRuntime via DispatchQueue.main.async.
     public func startVMBlocking(
-        usbManager: USBManager?,
         onComplete: @escaping @Sendable (Error?) -> Void
     ) {
-        if let usb = usbManager { prepareUSB(usbManager: usb) }
-
+        // USB passthrough devices are hot-attached by the listener after
+        // boot, not pre-configured from stale persisted accessory files.
         do {
             let vmConfig = try createConfiguration()
             let virtualMachine = VZVirtualMachine(configuration: vmConfig)
@@ -250,7 +239,7 @@ public final class VMController: NSObject, @unchecked Sendable {
         let queue = vm.queue
         nonisolated(unsafe) let ctl = controller
         let logger = self.logger
-        queue.async {
+        queue.async(execute: DispatchWorkItem {
             let config = VZUSBPassthroughDeviceConfiguration(device: accessory)
             guard let device = try? VZUSBPassthroughDevice(configuration: config) else {
                 logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryID)")
@@ -264,7 +253,7 @@ public final class VMController: NSObject, @unchecked Sendable {
                     logger.info("USB: Attached 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
                 }
             }
-        }
+        })
     }
 
     // MARK: - Lifecycle
@@ -328,5 +317,18 @@ public enum VMConfigError: Error, CustomStringConvertible {
         case .noNetworkInterfaces:
             return "No network interfaces available for bridging."
         }
+    }
+}
+
+// MARK: - AAUSBAccessory convenience
+
+extension AAUSBAccessory {
+    /// Extract vendor and product ID from the USB device descriptor.
+    public var vendorProductID: (UInt16, UInt16) {
+        let data = deviceDescriptorData
+        return data.count >= 18
+            ? (UInt16(littleEndian: data[10..<12].reduce(0) { $0 << 8 | UInt16($1) }),
+               UInt16(littleEndian: data[12..<14].reduce(0) { $0 << 8 | UInt16($1) }))
+            : (0, 0)
     }
 }

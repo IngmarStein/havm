@@ -76,16 +76,13 @@ struct RunCommand: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        // 4. Prepare USB manager and discover devices for passthrough
-        let usbManager = USBManager(config: havmConfig, logger: logger)
-
-        // 5. Create and start the VM
+        // 4. Create and start the VM
         let vmController = VMController(config: havmConfig, logger: logger)
         let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, logger: logger)
 
         // runBlocking dispatches to the main thread and blocks via CFRunLoopRun().
         // All exit paths use _exit() — the return value is never actually reached.
-        _ = runtime.runBlocking(usbManager: usbManager)
+        _ = runtime.runBlocking()
     }
 }
 
