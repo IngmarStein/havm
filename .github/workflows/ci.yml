@@ -22,10 +22,7 @@ jobs:
 
       - name: SwiftLint
         run: |
-          curl -sSL "https://github.com/realm/SwiftLint/releases/download/0.65.0/portable_swiftlint.zip" \
-            -o swiftlint.zip
-          unzip -q swiftlint.zip
-          ./swiftlint lint --quiet --strict
+          docker run --rm -v "$PWD:/code" ghcr.io/realm/swiftlint:latest lint --quiet --strict
 
   build-and-test:
     # Requires macOS 27 (Golden Gate) — Xcode 27+.
