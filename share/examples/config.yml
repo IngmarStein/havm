@@ -29,9 +29,9 @@ haos:
 ssh:
   authorized_keys: "~/.ssh/id_ed25519.pub"
 
-# USB device passthrough (requires paid developer account + provisioning profile)
+# USB device passthrough
 usb:
-  enabled: true               # attach persisted USB accessories (default: true)
+  enabled: true               # enable USB accessory passthrough (default: true)
 
 # Logging
 logging:
