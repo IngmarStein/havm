@@ -17,7 +17,8 @@ swift test                    # 8 tests in HavmCoreTests
 ```
 Havm (CLI, AsyncParsableCommand)
 ├── RunCommand       → HAOSSetup → VMController → ServiceRuntime
-├── ListUSBCommand   → USBManager
+├── CleanupCommand   → FileManager
+├── ImportUTMCommand → UTMImport
 └── VersionCommand
 
 HavmCore (library)
@@ -26,8 +27,7 @@ HavmCore (library)
 │                    copy+resize disk, SSH CONFIG disk
 ├── VMController     VZEFIBootLoader + VZEFIVariableStore, storage, network, USB,
 │                    machine identifier persistence, @MainActor on start()
-├── USBManager       AccessoryAccess framework for USB passthrough
-
+├── (ServiceRuntime) AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
 ├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
@@ -96,8 +96,8 @@ for `ch.ingmar.havm` — the CLI build script picks it up automatically.
 
 USB accessory passthrough uses `AAUSBAccessoryManager` (macOS 27). When `havm run`
 starts with `ENABLE_USB_ACCESSORY=YES`, it registers a listener and macOS shows
-a menu bar item. The user selects which devices to attach — they are persisted
-and hot-attached to the running VM via `VZUSBPassthroughDevice`.
+a menu bar item. The user selects which devices to attach — they are
+hot-attached to the running VM via `VZUSBPassthroughDevice`.
 
 **Architecture:**
 - `ServiceRuntime.setupUSBDiscovery()` boots `NSApplication.accessory`, registers

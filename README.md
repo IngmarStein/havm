@@ -60,7 +60,6 @@ Subsequent runs skip straight to boot.
 |---------|-------------|
 | `havm run` | Start the VM — auto-downloads HA OS on first run |
 | `havm import-utm` | Import a Home Assistant VM from UTM |
-| `havm list-usb` | List paired USB devices |
 | `havm cleanup` | Clear cached HA OS downloads from `~/Library/Caches/havm/` |
 | `havm version` | Print version and system info |
 
@@ -140,7 +139,7 @@ ssh:
   authorized_keys: "~/.ssh/id_ed25519.pub"  # imported into HA OS for port 22222
 
 usb:
-  enabled: true           # default: true — attach paired USB accessories
+  enabled: true           # default: true — enable USB accessory passthrough
 
 ha:
   url: "https://homeassistant.local:443"  # default: http://<discovered-ip>:8123
@@ -186,7 +185,7 @@ shutdown:
 
 To attach a USB accessory while the VM is running, use the menu bar item
 that appears when `havm run` starts. Select a device to attach it — it
-is persisted and will be re-attached automatically shortly after boot on
+will be re-attached automatically shortly after boot on
 the next run. No restart needed.
 
 ## Logging
