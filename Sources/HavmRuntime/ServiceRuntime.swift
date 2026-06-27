@@ -296,33 +296,14 @@ public final class ServiceRuntime: @unchecked Sendable {
     private static let emptyJSONBody = Data("{}".utf8)
 
     /// Fetch and print HA OS host info from the Supervisor API proxy.
-    private func printHostInfo(baseURL: String, token: String) async {
-        guard let url = URL(string: "\(baseURL)/api/hassio/host/info") else { return }
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 5
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let info = json["data"] as? [String: Any] else { return }
-
-            let os = info["operating_system"] as? String ?? "?"
-            let hostname = info["hostname"] as? String ?? "?"
-            let diskTotal = (info["disk_total"] as? NSNumber)?.doubleValue ?? 0
-            let diskFree = (info["disk_free"] as? NSNumber)?.doubleValue ?? 0
-            let diskUsed = diskTotal - diskFree
-
-            func fmtGB(_ bytes: Double) -> String {
-                String(format: "%.1f GiB", bytes / 1_073_741_824)
-            }
-
-            logger.info("HA OS: \(os) | Hostname: \(hostname)")
-            logger.info("  Disk: \(fmtGB(diskUsed)) used / \(fmtGB(diskTotal)) total (\(fmtGB(diskFree)) free)")
-        } catch {
-            logger.debug("Host info not available: \(error.localizedDescription)")
+    private func haBaseURL(host: String? = nil) -> String? {
+        if let configured = config.effectiveHAURL {
+            return configured
         }
+        if let ip = host ?? guestIP {
+            return "http://\(ip):8123"
+        }
+        return nil
     }
 
     /// Send a shutdown command to the guest via the Home Assistant REST API.
@@ -330,12 +311,7 @@ public final class ServiceRuntime: @unchecked Sendable {
     /// Uses `shutdown.ha_url` if configured, otherwise defaults to
     /// `http://<discovered-ip>:8123`.
     private func supervisorShutdown(host: String, token: String, timeout: Int) async -> RESTAPIResult {
-        let baseURL: String
-        if let configuredURL = config.effectiveHAURL {
-            baseURL = configuredURL
-        } else {
-            baseURL = "http://\(host):8123"
-        }
+        guard let baseURL = haBaseURL(host: host) else { return .failed }
         guard let url = URL(string: "\(baseURL)/api/services/hassio/host_shutdown") else {
             return .failed
         }
@@ -457,14 +433,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         guard healthPollCount < healthPollMax else { return }
         healthPollCount += 1
 
-        let baseURL: String
-        if let configured = config.effectiveHAURL {
-            baseURL = configured
-        } else if let ip = guestIP {
-            baseURL = "http://\(ip):8123"
-        } else {
-            return
-        }
+        guard let baseURL = haBaseURL() else { return }
 
         guard let url = URL(string: "\(baseURL)/manifest.json") else { return }
 
@@ -478,9 +447,6 @@ public final class ServiceRuntime: @unchecked Sendable {
                 guard !self.webUIReadyNotified else { return }
                 self.webUIReadyNotified = true
                 self.logger.info("Home Assistant is ready at \(baseURL)")
-                if let token = self.config.effectiveHAAPIToken {
-                    await self.printHostInfo(baseURL: baseURL, token: token)
-                }
             } catch {
                 // UI not up yet — retry silently on next poll
             }
