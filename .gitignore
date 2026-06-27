@@ -6,6 +6,7 @@ build/
 default.profraw
 
 # IDE
+.vscode/
 *.xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
@@ -20,3 +21,4 @@ default.profraw
 **/xcuserdata/
 __pycache__/
 resources/build.xcconfig
+demo/
