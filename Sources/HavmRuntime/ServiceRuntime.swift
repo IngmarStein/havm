@@ -328,7 +328,7 @@ public final class ServiceRuntime: @unchecked Sendable {
             }
             // 401/403: token is wrong or expired — user needs to know.
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                logger.warning("REST API: HTTP \(httpResponse.statusCode) — check shutdown.api_token in config.")
+                logger.warning("REST API: HTTP \(httpResponse.statusCode) — check ha.api_token in config.")
             } else {
                 logger.info("REST API: HTTP \(httpResponse.statusCode) — falling through to SSH.")
             }
