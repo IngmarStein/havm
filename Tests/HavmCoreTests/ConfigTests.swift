@@ -101,7 +101,7 @@ final class ConfigTests: XCTestCase {
         let disk = CONFIGDiskBuilder.build(authorizedKey: keyData)
         // Root directory at MBR(512) + FAT(512) + 2*4*512(FATs) = 5120
         let rootDir = 5120
-        
+
         // Dump first 4 directory entries (32 bytes each)
         let entries = (0..<4).map { i in
             Array(disk[rootDir + i * 32..<rootDir + (i + 1) * 32])
@@ -113,18 +113,18 @@ final class ConfigTests: XCTestCase {
             let type = attr == 0x08 ? "VOLUME" : attr == 0x0F ? "LFN" : attr == 0x00 ? "FILE" : String(format: "0x%02x", attr)
             print("Entry \(i) [\(type)]: \(e)")
         }
-        
+
         // Entry 0 should be volume "CONFIG"
         let volName = String(bytes: disk[rootDir..<rootDir+11], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? ""
         XCTAssertEqual(volName, "CONFIG", "Volume label")
-        
+
         // Entry 1 should be LFN (attr 0x0F)
         XCTAssertEqual(disk[rootDir + 32 + 11], 0x0F, "Entry 1 should be LFN")
-        
+
         // Entry 3 should be 8.3 (attr 0x00 or 0x20)
         let shortAttr = disk[rootDir + 96 + 11]
         XCTAssertTrue(shortAttr == 0x00 || shortAttr == 0x20, "Entry 3 should be 8.3 file, got 0x\(String(shortAttr, radix: 16))")
-        
+
         // Read short name from entry 3
         let shortName = String(bytes: disk[rootDir+96..<rootDir+96+8], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? ""
         let shortExt = String(bytes: disk[rootDir+96+8..<rootDir+96+11], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? ""
