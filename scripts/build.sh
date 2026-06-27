@@ -135,5 +135,6 @@ else
         "$APP_DIR" 2>&1 | grep -v "replacing" || true
 fi
 
-echo "==> Done: $APP_DIR"
-"$APP_DIR/Contents/MacOS/havm" version
+ln -sf "$PWD/$APP_DIR/Contents/MacOS/havm" "$BINARY"
+echo "==> Done: $BINARY ($APP_DIR)"
+"$BINARY" version
