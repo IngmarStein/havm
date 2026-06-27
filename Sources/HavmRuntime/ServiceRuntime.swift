@@ -153,7 +153,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     /// Register DispatchSource signal monitors. Signals are delivered as GCD
     /// events on the main queue via kqueue, avoiding the async-signal-safety
     /// constraints of raw `signal()` handlers. A second signal during shutdown
-    /// triggers immediate exit (matching the legacy double-SIGTERM behavior).
+    /// triggers immediate exit.
     private func setupSignalHandlers() {
         // Block default signal behavior — DispatchSource monitors via kqueue.
         signal(SIGTERM, SIG_IGN)
@@ -368,7 +368,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     private static let emptyJSONBody = Data("{}".utf8)
 
-    /// Fetch and print HA OS host info from the Supervisor API proxy.
+    /// Resolve the base URL for the Home Assistant REST API.
     private func haBaseURL(host: String? = nil) -> String? {
         if let configured = config.effectiveHAURL {
             return configured
@@ -381,7 +381,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     /// Send a shutdown command to the guest via the Home Assistant REST API.
     /// Calls the `hassio.host_shutdown` service with a Bearer token.
-    /// Uses `shutdown.ha_url` if configured, otherwise defaults to
+    /// Uses `ha.url` if configured, otherwise defaults to
     /// `http://<discovered-ip>:8123`.
     private func supervisorShutdown(host: String, token: String, timeout: Int) async -> RESTAPIResult {
         guard let baseURL = haBaseURL(host: host) else { return .failed }
@@ -611,5 +611,3 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         }
     }
 }
-
-// MARK: - USB Accessory Listener

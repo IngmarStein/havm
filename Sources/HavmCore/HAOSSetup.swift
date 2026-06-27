@@ -39,8 +39,6 @@ public enum SetupError: Error, CustomStringConvertible {
     case noAssetsFound(String)
     case downloadFailed(String, Error)
     case decompressFailed(String)
-    case diskCopyFailed(String)
-    case diskTooSmall
     case checksumMismatch(String)
     case noChecksumAvailable(String)
 
@@ -52,10 +50,6 @@ public enum SetupError: Error, CustomStringConvertible {
             return "Failed to download \(url): \(error.localizedDescription)"
         case .decompressFailed(let path):
             return "Failed to decompress \(path)."
-        case .diskCopyFailed(let path):
-            return "Failed to copy disk image to \(path)."
-        case .diskTooSmall:
-            return "Disk image is too small for GPT repair."
         case .checksumMismatch(let path):
             return "SHA256 checksum mismatch for \(path). The file may be corrupted or truncated. Delete the cached file and try again."
         case .noChecksumAvailable(let path):

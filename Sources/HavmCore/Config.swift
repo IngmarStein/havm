@@ -324,14 +324,10 @@ extension MemorySize: Codable {
 // MARK: - Config loading
 
 public enum ConfigError: Error, CustomStringConvertible {
-    case fileNotFound(String)
-    case parseError(String)
     case invalidMemorySize(String)
 
     public var description: String {
         switch self {
-        case .fileNotFound(let path): return "Config not found: \(path)"
-        case .parseError(let msg): return "Config parse error: \(msg)"
         case .invalidMemorySize(let s): return "Invalid memory size: \(s)"
         }
     }

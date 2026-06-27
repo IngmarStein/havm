@@ -258,21 +258,6 @@ public final class VMController: NSObject, @unchecked Sendable {
 
     // MARK: - Lifecycle
 
-    /// Request ACPI shutdown. Note: HA OS on aarch64 uses PSCI and ignores ACPI
-    /// power button events, so this typically does not work. Use SSH-based
-    /// shutdown (ServiceRuntime) instead.
-    @MainActor
-    public func requestStop() throws {
-        guard let vm = vm else { return }
-        do {
-            try vm.requestStop()
-            logger.info("ACPI shutdown requested")
-        } catch {
-            logger.error("ACPI shutdown failed: \(error)")
-            throw error
-        }
-    }
-
     @MainActor
     public func forceStop() async throws {
         guard let vm = vm else { return }

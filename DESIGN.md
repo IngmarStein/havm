@@ -27,7 +27,7 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 │  │  └───────────────────────┘               │   │
 │  │  ┌──────────────────────────────────┐   │   │
 │  │  │ JSONLogHandler (NDJSON to        │   │   │
-│  │  │ stdout or file)                  │   │   │
+│  │  │ stdout)                        │   │   │
 │  │  └──────────────────────────────────┘   │   │
 │  └──────────────────────────────────────────┘   │
 ├───────┬─────────────────────────────────────────┤
@@ -69,17 +69,18 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 ```
 SIGTERM / SIGINT
   → ServiceRuntime.signalShutdown()
-    → SSH root@<ip> -p 22222 shutdown -h now    # Debug SSH (host, direct)
+    → REST API POST /api/services/hassio/host_shutdown  # If ha.api_token set
     → waitForStop(timeout)
-    → SSH root@<ip> -p 22 ha host shutdown       # SSH add-on (container)
+    → SSH root@<ip> -p 22222 shutdown -h now           # Debug SSH (host)
     → waitForStop(timeout)
-    → vm.forceStop()                              # Fallback: immediate stop
+    → SSH root@<ip> -p 22 ha host shutdown              # SSH add-on
+    → waitForStop(timeout)
+    → vm.forceStop()                                     # Fallback
   → Second signal → _exit(1)
 ```
 
-ACPI power button (`vm.requestStop()`) is **not used**. HA OS on aarch64 uses
-PSCI for power management and ignores ACPI events entirely. SSH-based shutdown
-is the only reliable method.
+ACPI power button is **not used**. HA OS on aarch64 uses PSCI for power
+management and ignores ACPI events entirely.
 
 ## Data Layout
 

@@ -205,10 +205,9 @@ For launchd/Homebrew services, JSON logging to a file is recommended:
 logging:
   format: json
   level: info
-  file: "/opt/homebrew/var/log/havm.log"
 ```
 
-JSON logging to a file can be configured via launchd's `StandardOutPath`.
+To log to a file, direct stdout via launchd's `StandardOutPath`.
 
 ## SSH Access
 
