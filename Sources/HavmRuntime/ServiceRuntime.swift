@@ -26,7 +26,7 @@ import AccessoryAccess
 /// Registers an `AAUSBAccessoryListener` after VM start. macOS shows a menu
 /// bar item where the user selects which USB accessories to attach. On connect,
 /// the accessory is hot-attached to the running VM.
-public final class ServiceRuntime: @unchecked Sendable {
+public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
     private var config: HavmConfig
     private let vmController: VMController
     private var logger: Logger
@@ -38,7 +38,6 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var guestIP: String?
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
-    private var usbListener: USBListener?
     private var configDirWatcher: DispatchSourceFileSystemObject?
     private var configDirDescriptor: Int32 = -1
     private var configFileWatcher: DispatchSourceFileSystemObject?
@@ -49,6 +48,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         self.config = config
         self.vmController = vmController
         self.logger = logger
+        super.init()
 
         vmController.onStateChange = { [weak self] state in
             let name = Self.stateDescription(state)
@@ -185,17 +185,8 @@ public final class ServiceRuntime: @unchecked Sendable {
             NSApplication.shared.setActivationPolicy(.accessory)
         } as Void
 
-        usbListener = USBListener { [weak self] accessory in
-            let (vid, pid) = accessory.vendorProductID
-            self?.logger.info("USB: Accessory connected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
-            self?.vmController.attachAccessory(accessory)
-        } onDisconnect: { [weak self] accessory in
-            let (vid, pid) = accessory.vendorProductID
-            self?.logger.info("USB: Accessory disconnected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
-        }
-
         AAUSBAccessoryManager.shared.registerListener(
-            usbListener!, matchingCriteria: [],
+            self, matchingCriteria: [],
             completionHandler: { [weak self] accessories, error in
                 if let error {
                     self?.logger.info("USB: Listener not available (restricted entitlement missing): \(error.localizedDescription)")
@@ -207,6 +198,19 @@ public final class ServiceRuntime: @unchecked Sendable {
                 }
             }
         )
+    }
+
+    // MARK: - AAUSBAccessoryListener
+
+    public func usbAccessoryDidConnect(_ accessory: AAUSBAccessory) {
+        let (vid, pid) = accessory.vendorProductID
+        logger.info("USB: Accessory connected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
+        vmController.attachAccessory(accessory)
+    }
+
+    public func usbAccessoryDidDisconnect(_ accessory: AAUSBAccessory) {
+        let (vid, pid) = accessory.vendorProductID
+        logger.info("USB: Accessory disconnected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
     }
 
     // MARK: - Config hot-reload
@@ -298,7 +302,7 @@ public final class ServiceRuntime: @unchecked Sendable {
         if let ip = guestIP {
             // 1. HA REST API on port 8123 (if api_token is configured)
             if let token = config.effectiveHAAPIToken {
-                logger.info("Attempting shutdown via REST API (port 8123)...")
+                logger.info("Attempting shutdown via REST API...")
                 let result = await supervisorShutdown(host: ip, token: token, timeout: timeout)
                 switch result {
                 case .success:
@@ -609,24 +613,3 @@ public final class ServiceRuntime: @unchecked Sendable {
 }
 
 // MARK: - USB Accessory Listener
-
-/// Listens for USB accessory connect/disconnect events from the
-/// macOS menu bar item. Delegates attachment to the VM controller.
-private final class USBListener: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
-    private let onConnect: (AAUSBAccessory) -> Void
-    private let onDisconnect: (AAUSBAccessory) -> Void
-
-    init(onConnect: @escaping (AAUSBAccessory) -> Void,
-         onDisconnect: @escaping (AAUSBAccessory) -> Void) {
-        self.onConnect = onConnect
-        self.onDisconnect = onDisconnect
-    }
-
-    func usbAccessoryDidConnect(_ usbAccessory: AAUSBAccessory) {
-        onConnect(usbAccessory)
-    }
-
-    func usbAccessoryDidDisconnect(_ usbAccessory: AAUSBAccessory) {
-        onDisconnect(usbAccessory)
-    }
-}
