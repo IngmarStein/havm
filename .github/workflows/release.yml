@@ -10,6 +10,8 @@ permissions:
 jobs:
   release:
     runs-on: [self-hosted, macOS, ARM64]
+    env:
+      HAS_DEV_CERT: ${{ secrets.DEVELOPER_ID_CERT || '' }}
 
     steps:
       - uses: actions/checkout@v7
@@ -38,9 +40,9 @@ jobs:
           fi
 
       - name: Import Developer ID certificate
-        if: vars.DEVELOPMENT_TEAM != '' && secrets.DEVELOPER_ID_CERT != ''
+        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
         env:
-          DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
+          DEVELOPER_ID_CERT: ${{ env.HAS_DEV_CERT }}
           DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
         run: |
           echo "$DEVELOPER_ID_CERT" | base64 -d > /tmp/cert.p12
@@ -50,7 +52,7 @@ jobs:
             -k "$DEVELOPER_ID_PASSWORD" ~/Library/Keychains/login.keychain-db
 
       - name: Build and sign (Developer ID — tier 3)
-        if: vars.DEVELOPMENT_TEAM != '' && secrets.DEVELOPER_ID_CERT != ''
+        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
         env:
           DEVELOPMENT_TEAM: ${{ vars.DEVELOPMENT_TEAM }}
           CODE_SIGN_IDENTITY: ${{ vars.DEVELOPER_ID }}
@@ -58,7 +60,7 @@ jobs:
         run: ./scripts/build.sh release
 
       - name: Build and sign (ad-hoc — tier 1)
-        if: vars.DEVELOPMENT_TEAM == '' || secrets.DEVELOPER_ID_CERT == ''
+        if: vars.DEVELOPMENT_TEAM == '' || env.HAS_DEV_CERT == ''
         env:
           ENTITLEMENTS_TIER: "1"
           CODE_SIGN_IDENTITY: "-"
@@ -73,7 +75,7 @@ jobs:
           (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
       - name: Notarize
-        if: vars.DEVELOPMENT_TEAM != '' && secrets.DEVELOPER_ID_CERT != ''
+        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
         run: |
           xcrun notarytool submit havm.zip \
             --keychain-profile "${NOTARY_PROFILE:-AC_PASSWORD}" \
