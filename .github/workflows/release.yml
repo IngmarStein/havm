@@ -60,6 +60,9 @@ jobs:
 
       - name: Package
         run: |
+          # VERSION prevents Homebrew from cd-ing into the single-directory
+          # archive. Without it, libexec.install "Havm.app" would fail because
+          # Homebrew stages into Havm.app/ and can't find Havm.app inside it.
           echo "${GITHUB_REF_NAME#v}" > .build/VERSION
           (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
