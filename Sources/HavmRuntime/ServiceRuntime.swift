@@ -170,10 +170,6 @@ public final class ServiceRuntime: @unchecked Sendable {
         }
         signalSourceInt?.resume()
 
-        // Register for USB accessory discovery. macOS shows a menu bar
-        // item where the user selects which devices to attach.
-        setupUSBDiscovery()
-
         startConfigWatcher()
     }
 
