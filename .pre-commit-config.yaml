@@ -1,0 +1,25 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: ShellCheck
+        entry: shellcheck --severity=warning
+        language: system
+        files: ^scripts/.*\.sh$
+        types: [file]
+
+      - id: swiftlint
+        name: SwiftLint
+        entry: swiftlint lint --quiet --strict
+        language: system
+        types: [swift]
+        pass_filenames: false

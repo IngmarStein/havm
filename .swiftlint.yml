@@ -2,6 +2,9 @@
 # Rules tuned for this project's style. Only enabled rules that catch
 # actual bugs or meaningful style violations.
 
+excluded:
+  - .build
+
 disabled_rules:
   # Style choices that don't fit this project.
   - identifier_name           # vm, ha, k, v, fh, ip — short names are idiomatic Swift
