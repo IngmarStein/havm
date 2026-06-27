@@ -39,12 +39,18 @@ jobs:
             sed -i '' "s/static let current = \"$CURRENT\"/static let current = \"$VERSION\"/" Sources/Havm/main.swift
           fi
 
-      - name: Import Developer ID certificate
+      - name: Ensure Developer ID certificate
         if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
         env:
           DEVELOPER_ID_CERT: ${{ env.HAS_DEV_CERT }}
           DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
         run: |
+          # Self-hosted runner: cert already in keychain, skip import.
+          if security find-identity -v -p basic | grep -q "Developer ID"; then
+            echo "Developer ID certificate found in keychain."
+            exit 0
+          fi
+          # Ephemeral runner: import from secrets.
           echo "$DEVELOPER_ID_CERT" | base64 -d > /tmp/cert.p12
           security import /tmp/cert.p12 -k ~/Library/Keychains/login.keychain-db \
             -P "$DEVELOPER_ID_PASSWORD" -T /usr/bin/codesign
