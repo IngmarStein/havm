@@ -228,7 +228,7 @@ public final class ServiceRuntime: @unchecked Sendable {
 
         if let ip = guestIP {
             // 1. HA REST API on port 8123 (if api_token is configured)
-            if let token = config.effectiveShutdownAPIToken {
+            if let token = config.effectiveHAAPIToken {
                 logger.info("Attempting shutdown via REST API (port 8123)...")
                 let result = await supervisorShutdown(host: ip, token: token, timeout: timeout)
                 switch result {
@@ -478,7 +478,7 @@ public final class ServiceRuntime: @unchecked Sendable {
                 guard !self.webUIReadyNotified else { return }
                 self.webUIReadyNotified = true
                 self.logger.info("Home Assistant is ready at \(baseURL)")
-                if let token = self.config.effectiveShutdownAPIToken {
+                if let token = self.config.effectiveHAAPIToken {
                     await self.printHostInfo(baseURL: baseURL, token: token)
                 }
             } catch {

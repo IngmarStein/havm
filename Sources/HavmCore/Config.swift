@@ -212,11 +212,6 @@ public struct HavmConfig: Decodable, Sendable {
         ha?.url
     }
 
-    /// Convenience alias for shutdown code that references the token.
-    public var effectiveShutdownAPIToken: String? {
-        effectiveHAAPIToken
-    }
-
     // MARK: - Init
 
     public init(
