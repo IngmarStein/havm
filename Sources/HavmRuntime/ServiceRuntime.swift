@@ -27,9 +27,9 @@ import AccessoryAccess
 /// bar item where the user selects which USB accessories to attach. On connect,
 /// the accessory is hot-attached to the running VM.
 public final class ServiceRuntime: @unchecked Sendable {
-    private let config: HavmConfig
+    private var config: HavmConfig
     private let vmController: VMController
-    private let logger: Logger
+    private var logger: Logger
 
     private var shutdownRequested = false
     private var guestReachableNotified = false
@@ -39,8 +39,11 @@ public final class ServiceRuntime: @unchecked Sendable {
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var usbListener: USBListener?
+    private var configDirWatcher: DispatchSourceFileSystemObject?
+    private var configDirDescriptor: Int32 = -1
+    private var configFileWatcher: DispatchSourceFileSystemObject?
     private var healthPollCount = 0
-    private let healthPollMax = 60  // 60 × 5s = 5 minutes
+    private let healthPollMax = 300  // 300 × 1s = 5 minutes
 
     public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -87,7 +90,7 @@ public final class ServiceRuntime: @unchecked Sendable {
                         RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
 
                         let newTick = tick + 1
-                        if newTick % 20 == 0 {
+                        if newTick % 4 == 0 {
                             if !self.guestReachableNotified {
                                 self.checkGuestNetwork()
                             } else if !self.webUIReadyNotified {
@@ -166,6 +169,12 @@ public final class ServiceRuntime: @unchecked Sendable {
             self?.signalShutdown(name: "SIGINT")
         }
         signalSourceInt?.resume()
+
+        // Register for USB accessory discovery. macOS shows a menu bar
+        // item where the user selects which devices to attach.
+        setupUSBDiscovery()
+
+        startConfigWatcher()
     }
 
     private func setupUSBDiscovery() {
@@ -202,6 +211,77 @@ public final class ServiceRuntime: @unchecked Sendable {
                 }
             }
         )
+    }
+
+    // MARK: - Config hot-reload
+
+    private func startConfigWatcher() {
+        guard let path = config.configPath else { return }
+        let dir = (path as NSString).deletingLastPathComponent
+
+        // 1. Directory watcher — catches atomic saves (temp file + rename).
+        let dirFD = open(dir, O_EVTONLY)
+        guard dirFD >= 0 else {
+            logger.debug("Config watcher: cannot open \(dir)")
+            return
+        }
+        configDirDescriptor = dirFD
+        let dirSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: dirFD, eventMask: .write, queue: .main
+        )
+        dirSource.setEventHandler { [weak self] in
+            guard let self, let path = self.config.configPath else { return }
+            guard FileManager.default.fileExists(atPath: path) else { return }
+            self.reloadConfig()
+            self.restartFileWatcher()  // atomic save → new inode
+        }
+        dirSource.setCancelHandler { [weak self] in
+            if let fd = self?.configDirDescriptor, fd >= 0 {
+                close(fd)
+                self?.configDirDescriptor = -1
+            }
+        }
+        dirSource.resume()
+        configDirWatcher = dirSource
+
+        // 2. File watcher — catches in-place writes.
+        restartFileWatcher()
+    }
+
+    private func restartFileWatcher() {
+        configFileWatcher?.cancel()
+        configFileWatcher = nil
+        guard let path = config.configPath else { return }
+        let fileFD = open(path, O_EVTONLY)
+        guard fileFD >= 0 else { return }
+        let fileSource = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileFD, eventMask: [.write, .extend], queue: .main
+        )
+        fileSource.setEventHandler { [weak self] in
+            self?.reloadConfig()
+        }
+        fileSource.setCancelHandler { close(fileFD) }
+        fileSource.resume()
+        configFileWatcher = fileSource
+    }
+
+    private func reloadConfig() {
+        guard let path = config.configPath else { return }
+        guard let newConfig = try? loadConfig(path: path) else {
+            logger.debug("Config reload: failed to parse — keeping current config")
+            return
+        }
+        let oldConfig = config
+        config = newConfig
+
+        let levelChanged = newConfig.effectiveLogLevel != oldConfig.effectiveLogLevel
+        let tokenChanged = newConfig.effectiveHAAPIToken != oldConfig.effectiveHAAPIToken
+        guard levelChanged || tokenChanged else { return }
+
+        if levelChanged {
+            logger.logLevel = newConfig.effectiveLogLevel
+        }
+        logger.info("Config reloaded")
     }
 
     private func signalShutdown(name: String) {

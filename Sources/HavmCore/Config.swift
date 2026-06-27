@@ -14,6 +14,8 @@ public struct HavmConfig: Decodable, Sendable {
     public var ha: HAConfig?
     public var shutdown: ShutdownOverrides?
     public var logging: LoggingOverrides?
+    /// Path to the loaded config file, for file watching / hot-reload.
+    public var configPath: String?
 
     public struct VMOverrides: Decodable, Sendable {
         public var cpuCount: Int?
@@ -222,7 +224,8 @@ public struct HavmConfig: Decodable, Sendable {
         ssh: SSHOverrides? = nil,
         ha: HAConfig? = nil,
         shutdown: ShutdownOverrides? = nil,
-        logging: LoggingOverrides? = nil
+        logging: LoggingOverrides? = nil,
+        configPath: String? = nil
     ) {
         self.vm = vm
         self.network = network
@@ -232,6 +235,7 @@ public struct HavmConfig: Decodable, Sendable {
         self.ha = ha
         self.shutdown = shutdown
         self.logging = logging
+        self.configPath = configPath
     }
 
     /// USB passthrough enabled (defaults to true).
@@ -358,7 +362,8 @@ public func loadConfig(path: String? = nil) throws -> HavmConfig {
     }
 
     let decoder = YAMLDecoder()
-    let config = try decoder.decode(HavmConfig.self, from: yaml)
+    var config = try decoder.decode(HavmConfig.self, from: yaml)
+    config.configPath = configPath
     return config
 }
 
