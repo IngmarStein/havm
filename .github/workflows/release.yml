@@ -45,7 +45,7 @@ jobs:
         if: env.DEVELOPER_ID_CERT != ''
         env:
           DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
-          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+          DEVELOPER_ID: ${{ vars.DEVELOPER_ID }}
         run: |
           # Full entitlements including vm.networking and accessory-access.usb.
           # These require Apple-approved provisioning — only works with paid
