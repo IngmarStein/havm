@@ -56,6 +56,7 @@ fi
 
 if [ "$CONFIG" = "release" ]; then
     swift build -c release --product havm
+    strip "$BINARY"
 else
     swift build --product havm
 fi

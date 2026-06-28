@@ -7,10 +7,13 @@
 ## Build & Test
 
 ```bash
-./scripts/build.sh release    # Build + ad-hoc sign with dev entitlements
-swift test                    # 8 tests in HavmCoreTests
+./scripts/build.sh release    # Release build: -O + strip → ~2.1 MB binary
+swift test                    # 10 tests in HavmCoreTests
 ./.build/release/havm run     # Run the VM (blocks; Ctrl+C to stop)
 ```
+
+Binary size is reduced via `strip` (removes ~2.4 MB of symbol tables from LINKEDIT)
+before codesigning. Default `-O` is kept — `-Osize` only saves ~300 KB more.
 
 ## Architecture
 
