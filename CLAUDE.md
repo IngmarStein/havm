@@ -30,6 +30,8 @@ HavmCore (library)
 ├── (ServiceRuntime) AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
 ├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
+├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP),
+│                    bootstrap, process gauges
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
 
 HavmRuntime
@@ -68,10 +70,13 @@ Three tiers map to account types. Select via `ENTITLEMENTS_TIER` in `build.xccon
 | 2 | `entitlements-tier2.plist` | Paid | Yes | No |
 | 3 | `entitlements.plist` | Paid + Apple approval | Yes | Yes |
 
+All tiers include `com.apple.security.network.server` for metrics HTTP serving.
+
 | Entitlement | Restriction |
 |---|---|
 | `com.apple.security.virtualization` | Unrestricted |
 | `com.apple.security.hypervisor` | Unrestricted |
+| `com.apple.security.network.server` | Unrestricted — present in all tiers for metrics HTTP serving |
 | `com.apple.security.device.usb` | Unrestricted (Hardened Runtime) |
 | `com.apple.developer.accessory-access.usb` | Restricted — provisioning profile required. Works with Personal Team. |
 | `com.apple.vm.networking` | Restricted — requires Apple approval. Tier 3 only. |

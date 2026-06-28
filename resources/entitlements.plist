@@ -13,5 +13,7 @@
     <true/>
     <key>com.apple.vm.networking</key>
     <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
 </dict>
 </plist>

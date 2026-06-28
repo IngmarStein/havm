@@ -96,6 +96,36 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(String(data: cluster2, encoding: .utf8), keyContent, "Key content at cluster 2 should match")
     }
 
+    func testMetricsConfigDefaults() throws {
+        let config = HavmConfig.defaults
+        XCTAssertFalse(config.effectiveMetricsEnabled, "Metrics should be disabled by default")
+        XCTAssertEqual(config.effectiveMetricsType, .prometheus)
+        XCTAssertEqual(config.effectivePrometheusPort, 9210)
+        XCTAssertEqual(config.effectivePrometheusHost, "127.0.0.1")
+    }
+
+    func testMetricsConfigExplicitValues() throws {
+        let metrics = HavmConfig.MetricsConfig(
+            enabled: true,
+            type: .prometheus,
+            prometheus: HavmConfig.MetricsConfig.PrometheusConfig(port: 9876, host: "0.0.0.0")
+        )
+        let config = HavmConfig(metrics: metrics)
+        XCTAssertTrue(config.effectiveMetricsEnabled)
+        XCTAssertEqual(config.effectiveMetricsType, .prometheus)
+        XCTAssertEqual(config.effectivePrometheusPort, 9876)
+        XCTAssertEqual(config.effectivePrometheusHost, "0.0.0.0")
+    }
+
+    func testMetricsConfigPartialDefaults() throws {
+        let metrics = HavmConfig.MetricsConfig(enabled: true)
+        let config = HavmConfig(metrics: metrics)
+        XCTAssertTrue(config.effectiveMetricsEnabled)
+        XCTAssertEqual(config.effectiveMetricsType, .prometheus)  // default type
+        XCTAssertEqual(config.effectivePrometheusPort, 9210)      // default port
+        XCTAssertEqual(config.effectivePrometheusHost, "127.0.0.1") // default host
+    }
+
     func testCONFIGDiskRawDirectory() throws {
         let keyData = Data("ssh-ed25519 test\n".utf8)
         let disk = CONFIGDiskBuilder.build(authorizedKey: keyData)

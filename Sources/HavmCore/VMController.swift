@@ -2,6 +2,7 @@ import Foundation
 @preconcurrency import Virtualization
 import Logging
 import AccessoryAccess
+import Metrics
 
 // MARK: - VM Controller
 
@@ -22,6 +23,9 @@ public final class VMController: NSObject, @unchecked Sendable {
         self.config = config
         self.logger = logger
         super.init()
+        // Seed the initial state so the gauge is present in /metrics
+        // before the first transition.
+        Gauge(label: "havm_vm_state", dimensions: [("state", "stopped")]).record(1)
     }
 
     // MARK: - Configuration
@@ -166,8 +170,7 @@ public final class VMController: NSObject, @unchecked Sendable {
                 switch result {
                 case .success:
                     self.logger.info("VM started successfully")
-                    self.state = .running
-                    self.onStateChange?(.running)
+                    self.transition(to: .running)
                     onComplete(nil)
                 case .failure(let error):
                     self.logger.error("VM start failed: \(error.localizedDescription)")
@@ -256,6 +259,29 @@ public final class VMController: NSObject, @unchecked Sendable {
         })
     }
 
+    // MARK: - State transitions
+
+    private func transition(to newState: VZVirtualMachine.State) {
+        let oldLabel = stateDescription(state)
+        let newLabel = stateDescription(newState)
+        Gauge(label: "havm_vm_state", dimensions: [("state", oldLabel)]).record(0)
+        Gauge(label: "havm_vm_state", dimensions: [("state", newLabel)]).record(1)
+        state = newState
+        onStateChange?(newState)
+    }
+
+    private func stateDescription(_ state: VZVirtualMachine.State) -> String {
+        switch state {
+        case .stopped:   "stopped"
+        case .running:   "running"
+        case .paused:    "paused"
+        case .starting:  "starting"
+        case .saving:    "saving"
+        case .restoring: "restoring"
+        default:         "unknown"
+        }
+    }
+
     // MARK: - Lifecycle
 
     @MainActor
@@ -267,8 +293,7 @@ public final class VMController: NSObject, @unchecked Sendable {
                 else { c.resume() }
             }
         }
-        state = .stopped
-        onStateChange?(.stopped)
+        transition(to: .stopped)
     }
 }
 
@@ -277,14 +302,12 @@ public final class VMController: NSObject, @unchecked Sendable {
 extension VMController: VZVirtualMachineDelegate {
     public func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
         logger.error("VM stopped: \(error.localizedDescription)")
-        state = .stopped
-        onStateChange?(.stopped)
+        transition(to: .stopped)
     }
 
     public func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         logger.info("Guest OS stopped")
-        state = .stopped
-        onStateChange?(.stopped)
+        transition(to: .stopped)
     }
 }
 

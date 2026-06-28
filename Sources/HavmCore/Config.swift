@@ -14,6 +14,7 @@ public struct HavmConfig: Decodable, Sendable {
     public var ha: HAConfig?
     public var shutdown: ShutdownOverrides?
     public var logging: LoggingOverrides?
+    public var metrics: MetricsConfig?
     /// Path to the loaded config file, for file watching / hot-reload.
     public var configPath: String?
 
@@ -146,6 +147,32 @@ public struct HavmConfig: Decodable, Sendable {
         }
     }
 
+    public struct MetricsConfig: Decodable, Sendable {
+        public var enabled: Bool?
+        public var type: MetricsType?
+        public var prometheus: PrometheusConfig?
+
+        public enum MetricsType: String, Decodable, Sendable {
+            case prometheus
+        }
+
+        public struct PrometheusConfig: Decodable, Sendable {
+            public var port: Int?
+            public var host: String?
+
+            public init(port: Int? = nil, host: String? = nil) {
+                self.port = port
+                self.host = host
+            }
+        }
+
+        public init(enabled: Bool? = nil, type: MetricsType? = nil, prometheus: PrometheusConfig? = nil) {
+            self.enabled = enabled
+            self.type = type
+            self.prometheus = prometheus
+        }
+    }
+
     /// Effective log format: defaults to `.text`.
     public var effectiveLogFormat: LoggingOverrides.LogFormat {
         logging?.format ?? .text
@@ -225,6 +252,7 @@ public struct HavmConfig: Decodable, Sendable {
         ha: HAConfig? = nil,
         shutdown: ShutdownOverrides? = nil,
         logging: LoggingOverrides? = nil,
+        metrics: MetricsConfig? = nil,
         configPath: String? = nil
     ) {
         self.vm = vm
@@ -235,6 +263,7 @@ public struct HavmConfig: Decodable, Sendable {
         self.ha = ha
         self.shutdown = shutdown
         self.logging = logging
+        self.metrics = metrics
         self.configPath = configPath
     }
 
@@ -257,6 +286,26 @@ public struct HavmConfig: Decodable, Sendable {
         case .bridge: return "homeassistant.local"
         case .nat: return nil  // DHCP lease parsing works, no hostname needed
         }
+    }
+
+    /// Metrics enabled (defaults to false).
+    public var effectiveMetricsEnabled: Bool {
+        metrics?.enabled ?? false
+    }
+
+    /// Metrics backend type (defaults to prometheus).
+    public var effectiveMetricsType: MetricsConfig.MetricsType {
+        metrics?.type ?? .prometheus
+    }
+
+    /// Prometheus metrics endpoint port (defaults to 9210).
+    public var effectivePrometheusPort: Int {
+        metrics?.prometheus?.port ?? 9210
+    }
+
+    /// Prometheus metrics endpoint host (defaults to 127.0.0.1).
+    public var effectivePrometheusHost: String {
+        metrics?.prometheus?.host ?? "127.0.0.1"
     }
 }
 

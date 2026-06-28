@@ -67,7 +67,26 @@ struct RunCommand: AsyncParsableCommand {
             "Config loaded: CPU=\(havmConfig.effectiveCPUCount) Memory=\(MemorySize(bytes: havmConfig.effectiveMemorySize)) Network=\(havmConfig.effectiveNetworkType) Log=\(format.rawValue)"
         )
 
-        // 3. Set up HA OS if needed (download, decompress, prepare disk)
+        // 3. Bootstrap metrics (if enabled)
+        var metricsServer: MetricsServer?
+        if havmConfig.effectiveMetricsEnabled {
+            let registry = bootstrapMetrics(logger: logger)
+            let server = MetricsServer(
+                registry: registry,
+                host: havmConfig.effectivePrometheusHost,
+                port: havmConfig.effectivePrometheusPort,
+                logger: logger
+            )
+            do {
+                try server.start()
+                metricsServer = server
+                logger.info("Metrics: Prometheus exporter on \(havmConfig.effectivePrometheusHost):\(havmConfig.effectivePrometheusPort)")
+            } catch {
+                logger.warning("Metrics: Failed to start server on \(havmConfig.effectivePrometheusHost):\(havmConfig.effectivePrometheusPort) — \(error). Continuing without metrics.")
+            }
+        }
+
+        // 4. Set up HA OS if needed (download, decompress, prepare disk)
         let setupManager = HAOSSetupManager(config: havmConfig, logger: logger)
         do {
             try await setupManager.setupIfNeeded()
@@ -76,9 +95,9 @@ struct RunCommand: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        // 4. Create and start the VM
+        // 5. Create and start the VM
         let vmController = VMController(config: havmConfig, logger: logger)
-        let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, logger: logger)
+        let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, metricsServer: metricsServer, logger: logger)
 
         // runBlocking dispatches to the main thread and blocks via CFRunLoopRun().
         // All exit paths use _exit() — the return value is never actually reached.

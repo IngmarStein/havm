@@ -149,6 +149,13 @@ logging:
   format: text            # text (default) or json (NDJSON, one object per line)
   level: debug            # debug, info (default), warning, error
 
+metrics:
+  enabled: true           # default: false
+  type: prometheus        # prometheus (default) — extensibility point for OTLP
+  prometheus:
+    port: 9210            # default: 9210
+    host: "127.0.0.1"     # default: "127.0.0.1" — set to "0.0.0.0" for LAN access
+
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
 ```
@@ -208,6 +215,50 @@ logging:
 ```
 
 To log to a file, direct stdout via launchd's `StandardOutPath`.
+
+## Metrics
+
+`havm` can expose Prometheus metrics on an HTTP endpoint for monitoring
+with Prometheus or any compatible scraper. Enable it in the config:
+
+```yaml
+metrics:
+  enabled: true
+```
+
+With metrics enabled, `havm` serves `GET /metrics` on `127.0.0.1:9210` by default.
+A `GET /health` endpoint is also available for simple liveness checks.
+
+**Available metrics:**
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `havm_vm_state` | gauge | `state` | VM state (running, stopped, paused, starting, …) |
+| `havm_usb_accessories` | gauge | — | Number of connected USB accessories |
+
+Prometheus also adds its synthetic `up` metric — `1` when the scrape succeeds,
+`0` when `havm` is unreachable.
+
+**Prometheus scrape config:**
+
+```yaml
+scrape_configs:
+  - job_name: 'havm'
+    static_configs:
+      - targets: ['localhost:9210']
+```
+
+The server binds to `127.0.0.1` by default. To allow LAN access (e.g., a
+dedicated Prometheus host), set the host to `0.0.0.0`:
+
+```yaml
+metrics:
+  enabled: true
+  prometheus:
+    host: "0.0.0.0"
+```
+
+Any host/port configuration works out of the box.
 
 ## SSH Access
 

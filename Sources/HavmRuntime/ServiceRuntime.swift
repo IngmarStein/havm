@@ -4,6 +4,7 @@ import HavmCore
 import Logging
 import AppKit
 import AccessoryAccess
+import Metrics
 
 /// Manages the blocking service runtime: signal handling, VM lifecycle,
 /// graceful shutdown, guest IP discovery, and web UI readiness detection.
@@ -43,10 +44,13 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var configFileWatcher: DispatchSourceFileSystemObject?
     private var healthPollCount = 0
     private let healthPollMax = 300  // 300 × 1s = 5 minutes
+    private var metricsServer: MetricsServer?
+    private var usbAccessoryCount: Int = 0
 
-    public init(config: HavmConfig, vmController: VMController, logger: Logger = Logger(label: "havm.runtime")) {
+    public init(config: HavmConfig, vmController: VMController, metricsServer: MetricsServer? = nil, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
         self.vmController = vmController
+        self.metricsServer = metricsServer
         self.logger = logger
         super.init()
 
@@ -178,6 +182,10 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             logger.debug("USB: Not enabled in config — skipping accessory discovery")
             return
         }
+        // Initialize the gauge so it appears in /metrics even before
+        // any accessory connects (zero is a meaningful initial value).
+        Gauge(label: "havm_usb_accessories").record(0)
+
         // AAUSBAccessoryManager needs a running NSApplication.
         // Called from main queue via DispatchQueue.main.async, but NSApplication
         // is @MainActor — use MainActor.assumeIsolated to satisfy the compiler.
@@ -206,11 +214,15 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         let (vid, pid) = accessory.vendorProductID
         logger.info("USB: Accessory connected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
         vmController.attachAccessory(accessory)
+        usbAccessoryCount += 1
+        Gauge(label: "havm_usb_accessories").record(Double(usbAccessoryCount))
     }
 
     public func usbAccessoryDidDisconnect(_ accessory: AAUSBAccessory) {
         let (vid, pid) = accessory.vendorProductID
         logger.info("USB: Accessory disconnected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
+        usbAccessoryCount = max(0, usbAccessoryCount - 1)
+        Gauge(label: "havm_usb_accessories").record(Double(usbAccessoryCount))
     }
 
     // MARK: - Config hot-reload
