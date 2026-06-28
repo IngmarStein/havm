@@ -14,8 +14,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.8.2"),
         .package(url: "https://github.com/jpsim/Yams.git", from: "6.2.2"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.14.0"),
-        .package(url: "https://github.com/apple/swift-metrics.git", from: "2.10.0"),
-        .package(url: "https://github.com/swift-server/swift-prometheus.git", from: "2.0.0"),
+        .package(url: "https://github.com/apple/swift-metrics.git", from: "2.11.0"),
+        .package(url: "https://github.com/swift-server/swift-prometheus.git", from: "2.3.0"),
     ],
     targets: [
         .executableTarget(
