@@ -101,9 +101,4 @@ The <code>type</code> field is an extensibility point — only
 future OTLP or other formats.
 </div>
 
-## Entitlements
-
-All entitlement tiers include `com.apple.security.network.server`, so
-metrics work regardless of your account type.
-
 </div>
