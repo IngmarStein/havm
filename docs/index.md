@@ -117,10 +117,8 @@ title: Home
         <span class="prompt">$</span> <span class="cmd">brew install ingmarstein/havm/havm</span><br>
         <span class="out">==> Caveats</span><br>
         <span class="out">Downloads and sets up Home Assistant OS automatically on first run.</span><br>
-        <br>
         <span class="out">Data: /opt/homebrew/var/lib/havm/</span><br>
         <span class="out">Optional config: /opt/homebrew/etc/havm/config.yml</span><br>
-        <br>
         <span class="out">To start havm now and restart at login:</span><br>
         <span class="out">  brew services start havm</span><br>
         <span class="out">Or, if you don't want a background service you can just run:</span><br>
@@ -150,7 +148,6 @@ title: Home
         <span class="out">Starting VM...</span><br>
         <span class="out">VM started successfully</span><br>
         <span class="out">VM is running. Press Ctrl+C to stop.</span><br>
-<br>
         <span class="out">Guest reachable at 192.168.64.33</span><br>
         <span class="accent">  Web: http://192.168.64.33:8123</span><br>
         <span class="accent">  SSH: ssh root@192.168.64.33 -p 22222</span>
