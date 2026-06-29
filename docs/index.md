@@ -115,15 +115,17 @@ title: Home
       </div>
       <div class="terminal-body">
         <span class="prompt">$</span> <span class="cmd">brew install ingmarstein/havm/havm</span><br>
-        <span class="out">==> Downloading https://github.com/IngmarStein/havm/releases/latest/download/havm.tar.gz</span><br>
-        <span class="out">🍺 /opt/homebrew/bin/havm</span><br><br>
-        <span class="prompt">$</span> <span class="cmd">havm run</span><br>
-        <span class="out">[info] Downloading Home Assistant OS 15.0...</span><br>
-        <span class="out">[info] Decompressing disk image (XZ)...</span><br>
-        <span class="out">[info] Preparing persistent disk (32 GiB, APFS sparse)...</span><br>
-        <span class="out">[info] Booting VM (4 cores, 4 GiB, NAT networking)...</span><br>
-        <span class="out">[info] Guest IP: 192.168.64.42</span><br>
-        <span class="accent">Home Assistant is starting — http://homeassistant.local:8123</span>
+        <span class="out">==> Caveats</span><br>
+        <span class="out">Downloads and sets up Home Assistant OS automatically on first run.</span><br>
+        <br>
+        <span class="out">Data: /opt/homebrew/var/lib/havm/</span><br>
+        <span class="out">Optional config: /opt/homebrew/etc/havm/config.yml</span><br>
+        <br>
+        <span class="out">To start havm now and restart at login:</span><br>
+        <span class="out">  brew services start havm</span><br>
+        <span class="out">Or, if you don't want a background service you can just run:</span><br>
+        <span class="out">  havm run</span><br>
+        <span class="out">🍺 /opt/homebrew/Cellar/havm/0.1.4: 12 files, 2.2MB</span>
       </div>
     </div>
   </div>

@@ -64,12 +64,6 @@ with foreground runs:
 | VM data | `/opt/homebrew/var/lib/havm/` |
 | Config (optional) | `/opt/homebrew/etc/havm/config.yml` |
 
-To run manually with the service data (for debugging):
-
-```bash
-havm run --data-dir /opt/homebrew/var/lib/havm
-```
-
 ## First Run
 
 On first run, `havm` handles everything automatically:
