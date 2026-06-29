@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting Started — havm</title>
+  <meta name="description" content="Zero-config CLI for running Home Assistant OS on Apple Silicon">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div class="doc-page">
+
+<div class="doc-nav">
+    <a href="/">← Home</a>
+    <a href="commands.html">Commands</a>
+    <a href="configuration.html">Configuration</a>
+    <a href="ssh-shutdown.html">SSH & Shutdown</a>
+    <a href="usb-accessories.html">USB Accessories</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="building.html">Building</a>
+</div>
+
+<h1>Getting Started</h1>
+<h2>Prerequisites</h2>
+<ul>
+<li>macOS 27 (Golden Gate) or later</li>
+<li>Apple Silicon Mac</li>
+</ul>
+<h2>Installation</h2>
+<h3>Homebrew (recommended)</h3>
+<pre><code>
+brew install ingmarstein/havm/havm
+</code></pre>
+<p>Verify the installation:</p>
+<pre><code>
+havm version
+</code></pre>
+<h3>Run in the foreground</h3>
+<pre><code>
+havm run
+</code></pre>
+<p>The VM boots and stays attached to your terminal. Press Ctrl+C to stop.</p>
+<h3>Run as a background service</h3>
+<pre><code>
+brew services start havm
+</code></pre>
+<p>The VM starts at login and restarts automatically if it exits. View logs with:</p>
+<pre><code>
+brew services info havm
+</code></pre>
+<h2>First Run</h2>
+<p>On first run, <code>havm</code> handles everything automatically:</p>
+<ol>
+<li><strong>Download</strong> — fetches the latest stable <a href="https://github.com/home-assistant/operating-system">Home Assistant OS</a> release</li>
+</ol>
+<p>for generic aarch64 (<code>.img.xz</code>)</p>
+<ol>
+<li><strong>Decompress</strong> — decompresses the XZ archive using the built-in libzma wrapper</li>
+<li><strong>Copy & resize</strong> — copies the raw disk image to `~/Library/Application</li>
+</ol>
+<p>Support/havm/vm/haos.img` and resizes it (default 32 GiB, configurable)</p>
+<ol>
+<li><strong>Boot</strong> — boots via UEFI from the GPT disk image</li>
+</ol>
+<p>The download is cached in <code>~/Library/Caches/havm/</code>, so subsequent installs or</p>
+<p>re-runs skip the fetch.</p>
+<h2>Next Steps</h2>
+<ul>
+<li><a href="configuration.html">Configure</a> CPU, memory, disk, and network settings</li>
+<li><a href="ssh-shutdown.html">Set up SSH access</a> for debug shell and graceful shutdown</li>
+<li><a href="metrics.html">Enable Prometheus metrics</a> for monitoring</li>
+<li><a href="usb-accessories.html">Attach USB accessories</a> like Zigbee coordinators</li>
+</ul>
+<h2>Updating HA OS</h2>
+<p>HA OS updates are handled from within Home Assistant itself (Settings →</p>
+<p>System → Updates). <code>havm</code> only manages the VM; it doesn't re-download HA OS</p>
+<p>after the initial setup unless you run <code>havm cleanup</code> first to clear the cache.</p>
+
+</div>
+<footer>
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="https://github.com/IngmarStein/havm">Source</a>
+      <a href="https://github.com/IngmarStein/havm/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/IngmarStein/havm/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/sponsors/IngmarStein">Sponsor</a>
+    </div>
+    <p class="footer-credit">havm — a respectful CLI on top of the <a href="https://developer.apple.com/documentation/virtualization">Apple Virtualization framework</a> and <a href="https://github.com/home-assistant/operating-system">Home Assistant OS</a>, which do all the actual work.</p>
+  </div>
+</footer>
+</body>
+</html>

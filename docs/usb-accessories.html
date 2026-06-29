@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>USB Accessories — havm</title>
+  <meta name="description" content="Zero-config CLI for running Home Assistant OS on Apple Silicon">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div class="doc-page">
+
+<div class="doc-nav">
+    <a href="/">← Home</a>
+    <a href="getting-started.html">Getting Started</a>
+    <a href="commands.html">Commands</a>
+    <a href="configuration.html">Configuration</a>
+    <a href="ssh-shutdown.html">SSH & Shutdown</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="building.html">Building</a>
+</div>
+
+<h1>USB Accessories</h1>
+<p>USB accessory passthrough lets you attach physical devices — Zigbee</p>
+<p>coordinators, Z-Wave sticks, Bluetooth dongles — directly to the</p>
+<p>Home Assistant VM.</p>
+<p><div class="note"></p>
+<p>USB accessories require a <strong>paid Apple Developer account</strong></p>
+<p>(Tier 2 or 3). The <code>com.apple.developer.accessory-access.usb</code></p>
+<p>entitlement is gated by Apple.</p>
+<p></div></p>
+<h2>Enabling</h2>
+<p>USB accessories are enabled by default. You can explicitly toggle it:</p>
+<pre><code>
+usb:
+  enabled: true
+</code></pre>
+<h2>Usage</h2>
+<p>When <code>havm run</code> starts, macOS shows a menu bar item. Click it and select</p>
+<p>the device you want to attach — it's hot-plugged to the running VM</p>
+<p>immediately. No restart needed.</p>
+<p>Devices are remembered and re-attached automatically shortly after boot</p>
+<p>on the next run.</p>
+<h2>Architecture</h2>
+<ul>
+<li><code>ServiceRuntime.setupUSBDiscovery()</code> boots <code>NSApplication.accessory</code></li>
+</ul>
+<p>and registers <code>AAUSBAccessoryListener</code>. The menu bar item is the user's</p>
+<p>selection UI.</p>
+<ul>
+<li>On connect: listener hot-attaches via <code>VZUSBPassthroughDevice</code> +</li>
+</ul>
+<p><code>usbControllers.first?.attach(device:)</code> with fresh registry IDs.</p>
+<ul>
+<li>On boot: listener registers after VM start, hot-attaches previously</li>
+</ul>
+<p>selected devices.</p>
+<h2>Entitlements</h2>
+<p>Two entitlements are required for USB passthrough:</p>
+<table>
+<tr><th>Entitlement</th><th>Description</th></tr>
+</table>
+<tr><td><code>com.apple.security.device.usb</code></td><td>Standard Hardened Runtime entitlement</td></tr>
+<tr><td><code>com.apple.developer.accessory-access.usb</code></td><td>Restricted — requires provisioning profile</td></tr>
+</table>
+<p>The CLI builds as a minimal <code>Havm.app</code> bundle so Xcode's provisioning</p>
+<p>profile covers the restricted entitlement. Build <code>havm.xcodeproj</code> once</p>
+<p>(⌘B) to generate the profile — the build script picks it up automatically.</p>
+<h2>Troubleshooting</h2>
+<p><strong>Menu bar item doesn't appear:</strong></p>
+<ul>
+<li>Make sure <code>usb.enabled</code> is <code>true</code> (it is by default)</li>
+<li>Verify you're on Tier 2 or 3 (<code>ENTITLEMENTS_TIER</code> in <code>build.xcconfig</code>)</li>
+<li>Check that the provisioning profile is present</li>
+</ul>
+<p><strong>Device doesn't show in the list:</strong></p>
+<ul>
+<li>The device must be connected before you open the menu</li>
+<li>Some devices may need to be unplugged and re-plugged to be discovered</li>
+</ul>
+
+</div>
+<footer>
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="https://github.com/IngmarStein/havm">Source</a>
+      <a href="https://github.com/IngmarStein/havm/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/IngmarStein/havm/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/sponsors/IngmarStein">Sponsor</a>
+    </div>
+    <p class="footer-credit">havm — a respectful CLI on top of the <a href="https://developer.apple.com/documentation/virtualization">Apple Virtualization framework</a> and <a href="https://github.com/home-assistant/operating-system">Home Assistant OS</a>, which do all the actual work.</p>
+  </div>
+</footer>
+</body>
+</html>

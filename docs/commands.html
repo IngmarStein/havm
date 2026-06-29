@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Commands — havm</title>
+  <meta name="description" content="Zero-config CLI for running Home Assistant OS on Apple Silicon">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div class="doc-page">
+
+<div class="doc-nav">
+    <a href="/">← Home</a>
+    <a href="getting-started.html">Getting Started</a>
+    <a href="configuration.html">Configuration</a>
+    <a href="ssh-shutdown.html">SSH & Shutdown</a>
+    <a href="usb-accessories.html">USB Accessories</a>
+    <a href="metrics.html">Metrics</a>
+    <a href="building.html">Building</a>
+</div>
+
+<h1>Commands</h1>
+<table>
+<tr><th>Command</th><th>Description</th></tr>
+</table>
+<tr><td><code>havm run</code></td><td>Start the VM — auto-downloads HA OS on first run</td></tr>
+<tr><td><code>havm import-utm</code></td><td>Import a Home Assistant VM from UTM</td></tr>
+<tr><td><code>havm cleanup</code></td><td>Clear cached HA OS downloads from <code>~/Library/Caches/havm/</code></td></tr>
+<tr><td><code>havm version</code></td><td>Print version and system info</td></tr>
+</table>
+<p>Run <code>havm --help</code> or <code>havm <command> --help</code> for flags and options.</p>
+<h2><code>havm run</code></h2>
+<p>Starts the VM. On first run, downloads and prepares HA OS automatically.</p>
+<pre><code>
+havm run                        # start with defaults
+havm run -v                     # debug logging
+havm run -j                     # NDJSON log output
+havm run --cpu-count 2          # override CPU cores for this session
+havm run --memory-size "2 GiB"  # override memory for this session
+</code></pre>
+<p>Press Ctrl+C once for graceful shutdown (tries REST API → SSH → force-stop).</p>
+<p>Press Ctrl+C twice to skip and force-stop immediately.</p>
+<h2><code>havm import-utm</code></h2>
+<p>Import an existing Home Assistant VM from <a href="https://mac.getutm.app">UTM</a> into havm.</p>
+<pre><code>
+havm import-utm ~/Library/Containers/com.utmapp.UTM/Data/Documents/Home\ Assistant.utm
+</code></pre>
+<p>The import <strong>copies</strong> (not moves) the VM data. Your UTM bundle is left intact.</p>
+<h3>What gets imported</h3>
+<table>
+<tr><th>UTM data</th><th>havm destination</th></tr>
+</table>
+<tr><td>HA OS disk image (largest writable drive)</td><td><code>~/Library/Application Support/havm/vm/haos.img</code></td></tr>
+<tr><td>EFI variable store (<code>efi_vars.fd</code>)</td><td><code>NVRAM</code></td></tr>
+<tr><td>Machine identifier</td><td><code>MachineIdentifier</code> (stable MAC address)</td></tr>
+<tr><td>MAC address</td><td><code>MACAddress</code></td></tr>
+<tr><td>CPU, memory, network settings</td><td><code>~/.config/havm/config.yml</code></td></tr>
+</table>
+<h3>What's NOT imported</h3>
+<ul>
+<li><strong>Auxiliary disks</strong> — additional data drives are reported as warnings</li>
+<li><strong>SSH keys</strong> — add them to <code>ssh.authorized_keys</code> in havm's config</li>
+<li><strong>UTM-specific settings</strong> — display, audio, clipboard, Rosetta</li>
+</ul>
+<h3>Sparse file handling</h3>
+<p>HA OS disk images are APFS sparse files (e.g., 21 GB physical for 34 GB</p>
+<p>logical). The import uses <code>clonefile(2)</code> for an instant copy-on-write clone</p>
+<p>on the same volume. Cross-volume imports fall back to a sparse-aware copy</p>
+<p>that skips zero-filled blocks.</p>
+<h3>Force overwrite</h3>
+<pre><code>
+havm import-utm ~/path/to/Home\ Assistant.utm --force
+</code></pre>
+<h2><code>havm cleanup</code></h2>
+<p>Clears cached HA OS downloads from <code>~/Library/Caches/havm/</code>. Does <strong>not</strong></p>
+<p>touch the persistent VM data in <code>~/Library/Application Support/havm/</code>.</p>
+<p>Use this to free up disk space or force a re-download of HA OS on the</p>
+<p>next <code>havm run</code>.</p>
+<h2><code>havm version</code></h2>
+<p>Prints the havm version, macOS version, and architecture:</p>
+<pre><code>
+havm 0.1.4
+macOS 27.0 (arm64)
+</code></pre>
+
+</div>
+<footer>
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="https://github.com/IngmarStein/havm">Source</a>
+      <a href="https://github.com/IngmarStein/havm/blob/main/LICENSE">MIT License</a>
+      <a href="https://github.com/IngmarStein/havm/blob/main/CONTRIBUTING.md">Contributing</a>
+      <a href="https://github.com/sponsors/IngmarStein">Sponsor</a>
+    </div>
+    <p class="footer-credit">havm — a respectful CLI on top of the <a href="https://developer.apple.com/documentation/virtualization">Apple Virtualization framework</a> and <a href="https://github.com/home-assistant/operating-system">Home Assistant OS</a>, which do all the actual work.</p>
+  </div>
+</footer>
+</body>
+</html>
