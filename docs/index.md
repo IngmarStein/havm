@@ -5,7 +5,7 @@ title: Home
 
 <!-- ── Hero ───────────────────────────────────────────────────── -->
 <section class="hero">
-  <div class="hero-icon">🏠</div>
+  <img class="hero-logo" src="assets/images/havm-logo.svg" alt="havm logo" width="120" height="120">
   <h1>havm</h1>
   <p class="hero-tagline">
     Zero-config CLI for running Home&nbsp;Assistant&nbsp;OS on Apple&nbsp;Silicon

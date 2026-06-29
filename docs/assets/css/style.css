@@ -86,17 +86,10 @@ section.alt { background: var(--surface); }
   text-align: center;
   border-bottom: 1px solid var(--border);
 }
-.hero-icon {
-  width: 80px;
-  height: 80px;
+.hero-logo {
+  display: block;
   margin: 0 auto 1.5rem;
-  background: linear-gradient(135deg, var(--accent), #0a5c7a);
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2.2rem;
-  box-shadow: 0 8px 32px rgba(24, 188, 242, 0.2);
+  filter: drop-shadow(0 8px 32px rgba(24, 188, 242, 0.15));
 }
 .hero h1 { margin-bottom: 0.5rem; }
 .hero-tagline {
