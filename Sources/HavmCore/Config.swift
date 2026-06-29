@@ -231,8 +231,12 @@ public struct HavmConfig: Decodable, Sendable {
 
     /// Home Assistant long-lived access token for REST API use.
     /// Set via `ha.api_token`. Used for API calls like shutdown.
+    /// Returns nil for empty or whitespace-only strings so the
+    /// shutdown chain skips the REST API step when no token is set.
     public var effectiveHAAPIToken: String? {
-        ha?.apiToken
+        guard let token = ha?.apiToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !token.isEmpty else { return nil }
+        return token
     }
 
     /// Base URL for the Home Assistant web UI and REST API.
