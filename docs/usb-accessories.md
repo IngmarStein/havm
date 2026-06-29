@@ -55,19 +55,6 @@ on the next run.
 - On boot: listener registers after VM start, hot-attaches previously
   selected devices.
 
-## Entitlements
-
-Two entitlements are required for USB passthrough:
-
-| Entitlement | Description |
-|-------------|-------------|
-| `com.apple.security.device.usb` | Standard Hardened Runtime entitlement |
-| `com.apple.developer.accessory-access.usb` | Restricted — requires provisioning profile |
-
-The CLI builds as a minimal `Havm.app` bundle so Xcode's provisioning
-profile covers the restricted entitlement. Build `havm.xcodeproj` once
-(⌘B) to generate the profile — the build script picks it up automatically.
-
 ## Troubleshooting
 
 **Menu bar item doesn't appear:**
