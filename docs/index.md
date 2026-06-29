@@ -145,23 +145,45 @@ fish completions have been installed to:
         <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
         <span class="terminal-title">Terminal — havm run (first boot)</span>
       </div>
-      <div class="terminal-body">
-        <span class="prompt">$</span> <span class="cmd">havm run</span><br>
-        <span class="out">Config loaded: CPU=4 Memory=4 GiB Network=nat</span><br>
-        <span class="out">Starting HA OS setup...</span><br>
-        <span class="out">Found HA OS 18.0: haos_generic-aarch64-18.0.img.xz</span><br>
-        <span class="out">Resizing disk to 32 GiB...</span><br>
-        <span class="out">Disk resized. HA OS will auto-expand partitions on first boot.</span><br>
-        <span class="out">SSH CONFIG disk created</span><br>
-        <span class="out">✅ HA OS setup complete.</span><br>
-        <span class="out">CPU: 4, Memory: 4 GiB</span><br>
-        <span class="out">Network: NAT</span><br>
-        <span class="out">Starting VM...</span><br>
-        <span class="out">VM started successfully</span><br>
-        <span class="out">VM is running. Press Ctrl+C to stop.</span><br>
-        <span class="out">Guest reachable at 192.168.64.33</span><br>
-        <span class="accent">  Web: http://192.168.64.33:8123</span><br>
-        <span class="accent">  SSH: ssh root@192.168.64.33 -p 22222</span>
+      <div class="terminal-body"><pre>
+<span class="prompt">❯</span> <span class="cmd">havm run</span>
+<span class="out">2026-06-29T20:26:47+0200 info havm.run: [Havm] Config loaded: CPU=4 Memory=4 GiB Network=nat Log=text
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Starting HA OS setup...
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Found HA OS 18.0: haos_generic-aarch64-18.0.img.xz
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Using cached image: /Users/ingmar/Library/Caches/havm/haos_generic-aarch64-18.0.img
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Copied disk image to /Users/ingmar/Library/Application Support/havm/vm/haos.img
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Resizing disk from 963661824 B to 32 GiB...
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Disk resized. HA OS will auto-expand partitions on first boot.
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] SSH key path configured: ~/.ssh/id_ed25519.pub
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] SSH CONFIG disk created at /Users/ingmar/Library/Application Support/havm/vm/config.img
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] ✅ HA OS setup complete.
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] CPU: 4, Memory: 4 GiB
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] SSH CONFIG disk attached (USB)
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] USB: 1 device(s)
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Network: NAT (MAC ca:cb:0a:be:56:71)
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] VM configuration validated successfully
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Starting VM...
+2026-06-29T20:26:48+0200 info havm.run: [HavmCore] VM started successfully
+2026-06-29T20:26:48+0200 info havm.run: [HavmRuntime] VM state: running
+2026-06-29T20:26:48+0200 info havm.run: [HavmRuntime] VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.
+
+╔══════════════════════════════════════════════════════════╗
+║  Home Assistant OS is booting (NAT mode).                ║
+║                                                          ║
+║  SSH:  ssh root@&lt;guest-ip&gt; -p 22222                      ║
+║  Web:  http://&lt;guest-ip&gt;:8123                            ║
+║                                                          ║
+║  havm will notify you when the guest responds.           ║
+║  First boot may take a few minutes.                      ║
+╚══════════════════════════════════════════════════════════╝
+
+2026-06-29T20:26:48+0200 info havm.run: [HavmRuntime] USB: Listener registered — 0 already connected
+2026-06-29T20:26:49+0200 info havm.run: [HavmRuntime] Waiting for guest DHCP lease (MAC ca:cb:0a:be:56:71)...
+2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime] Guest reachable at 192.168.64.33 — Home Assistant should be ready shortly
+2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   Web: http://192.168.64.33:8123
+2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   SSH: ssh root@192.168.64.33 -p 22222
+2026-06-29T20:27:31+0200 info havm.run: [HavmRuntime] Home Assistant is ready at http://192.168.64.33:8123</span>
+</pre>
       </div>
     </div>
   </div>
