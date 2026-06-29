@@ -386,7 +386,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             }
             if config.effectiveHAAPIToken == nil {
                 logger.warning(
-                    "Tip: configure ha.api_token for REST API shutdown, or install the SSH add-on in Home Assistant."
+                    "Tip: configure ha.api_token (REST API), ssh.authorized_keys (debug SSH), or install the SSH add-on in Home Assistant."
                 )
             }
             logger.warning("All shutdown methods failed — force-stopping...")
