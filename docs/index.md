@@ -129,7 +129,7 @@ title: Home
       </div>
     </div>
 
-    <p style="margin-top: 1.5rem;">Then run it — havm handles the rest automatically:</p>
+    <p style="margin-top: 0.5rem; margin-bottom: 0.25rem;">Then run it — havm handles the rest automatically:</p>
 
     <div class="terminal">
       <div class="terminal-bar">

@@ -169,7 +169,7 @@ section.alt { background: var(--surface); }
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  margin: 2rem 0;
+  margin: 1.25rem 0;
 }
 .terminal-bar {
   display: flex;
@@ -190,7 +190,7 @@ section.alt { background: var(--surface); }
   font-family: var(--font-mono);
 }
 .terminal-body {
-  padding: 1.2rem 1.4rem;
+  padding: 0.9rem 1.2rem;
   font-family: var(--font-mono);
   font-size: 0.85rem;
   line-height: 1.7;
