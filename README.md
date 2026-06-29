@@ -1,5 +1,11 @@
 # havm — Home Assistant VM Runner
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Swift 6.4](https://img.shields.io/badge/Swift-6.4-orange?logo=swift&logoColor=white)](https://swift.org)
+[![Apple Virtualization](https://img.shields.io/badge/Apple-Virtualization%20Framework-blue?logo=apple&logoColor=white)](https://developer.apple.com/documentation/virtualization)
+[![macOS 27+](https://img.shields.io/badge/macOS-27%2B-lightgrey?logo=apple&logoColor=white)](https://www.apple.com/macos)
+[![Sponsor](https://img.shields.io/badge/%E2%99%A5-Sponsor-EC4899?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/IngmarStein)
+
 Zero-config CLI for running [Home Assistant OS][haos] on Apple Silicon using
 Apple's native [Virtualization framework][vz]. One command from download to boot.
 
