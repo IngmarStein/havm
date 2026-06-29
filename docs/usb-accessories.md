@@ -21,12 +21,6 @@ USB accessory passthrough lets you attach physical devices — Zigbee
 coordinators, Z-Wave sticks, Bluetooth dongles — directly to the
 Home Assistant VM.
 
-<div class="note">
-USB accessories require a <strong>paid Apple Developer account</strong>
-(Tier 2 or 3). The <code>com.apple.developer.accessory-access.usb</code>
-entitlement is gated by Apple.
-</div>
-
 ## Enabling
 
 USB accessories are enabled by default. You can explicitly toggle it:
@@ -45,22 +39,10 @@ immediately. No restart needed.
 Devices are remembered and re-attached automatically shortly after boot
 on the next run.
 
-## Architecture
-
-- `ServiceRuntime.setupUSBDiscovery()` boots `NSApplication.accessory`
-  and registers `AAUSBAccessoryListener`. The menu bar item is the user's
-  selection UI.
-- On connect: listener hot-attaches via `VZUSBPassthroughDevice` +
-  `usbControllers.first?.attach(device:)` with fresh registry IDs.
-- On boot: listener registers after VM start, hot-attaches previously
-  selected devices.
-
 ## Troubleshooting
 
 **Menu bar item doesn't appear:**
 - Make sure `usb.enabled` is `true` (it is by default)
-- Verify you're on Tier 2 or 3 (`ENTITLEMENTS_TIER` in `build.xcconfig`)
-- Check that the provisioning profile is present
 
 **Device doesn't show in the list:**
 - The device must be connected before you open the menu
