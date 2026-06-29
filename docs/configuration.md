@@ -81,11 +81,10 @@ so only actually-used blocks consume physical disk space.
 ## Network
 
 ### `type`
-- `nat` (default) — works with any account type. The VM shares the Mac's
-  network connection. No extra entitlements needed.
-- `bridge` — connects the VM directly to your LAN. Requires a paid Apple
-  Developer account **and** Apple approval for the `com.apple.vm.networking`
-  entitlement (Tier 3).
+- `nat` (default) — the VM shares the Mac's network connection. Works out
+  of the box.
+- `bridge` — connects the VM directly to your LAN. Requires a build with
+  bridge networking support (see [Building](building.html) for details).
 
 ### `interface`
 When using bridge networking, specifies the physical interface to bridge

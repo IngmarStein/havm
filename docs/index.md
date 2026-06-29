@@ -145,7 +145,7 @@ title: Home
         <tr><td>Memory</td><td>4 GiB (configurable)</td><td>Balloon lets macOS reclaim idle guest memory</td></tr>
         <tr><td>Entropy</td><td>VirtIO entropy device</td><td>Random numbers for guest crypto and ASLR</td></tr>
         <tr><td>Disk</td><td>32 GiB raw image, VirtIO block</td><td>APFS sparse on disk (~6 GiB used after first boot)</td></tr>
-        <tr><td>Network</td><td>NAT with stable MAC</td><td>Works without extra entitlements</td></tr>
+        <tr><td>Network</td><td>NAT with stable MAC</td><td>Works out of the box, no extra setup</td></tr>
         <tr><td>CONFIG disk</td><td>USB mass storage (XHCI)</td><td>HA OS imports SSH keys from USB, not VirtIO</td></tr>
         <tr><td>NVRAM</td><td>Persisted EFI variable store</td><td>GRUB boot state survives reboots</td></tr>
         <tr><td>Platform</td><td><code>VZGenericPlatformConfiguration</code></td><td>Stable machine ID → consistent MAC</td></tr>
