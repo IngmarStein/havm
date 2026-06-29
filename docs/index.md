@@ -111,19 +111,30 @@ title: Home
     <div class="terminal">
       <div class="terminal-bar">
         <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
-        <span class="terminal-title">Terminal — havm run</span>
+        <span class="terminal-title">Terminal — brew install havm</span>
       </div>
-      <div class="terminal-body">
-        <span class="prompt">$</span> <span class="cmd">brew install ingmarstein/havm/havm</span><br>
-        <span class="out">==> Caveats</span><br>
-        <span class="out">Downloads and sets up Home Assistant OS automatically on first run.</span><br>
-        <span class="out">Data: /opt/homebrew/var/lib/havm/</span><br>
-        <span class="out">Optional config: /opt/homebrew/etc/havm/config.yml</span><br>
-        <span class="out">To start havm now and restart at login:</span><br>
-        <span class="out">  brew services start havm</span><br>
-        <span class="out">Or, if you don't want a background service you can just run:</span><br>
-        <span class="out">  havm run</span><br>
-        <span class="out">🍺 /opt/homebrew/Cellar/havm/0.1.4: 12 files, 2.2MB</span>
+      <div class="terminal-body"><pre>
+<span class="prompt">$</span> <span class="cmd">brew install ingmarstein/havm/havm</span>
+<span class="out">==> Fetching downloads for: havm
+✔︎ Formula havm (0.1.4)                                              Verified    857.5KB/857.5KB
+==> Installing havm from ingmarstein/havm
+==> Caveats
+Downloads and sets up Home Assistant OS automatically on first run.
+
+Data: /opt/homebrew/var/lib/havm/
+Optional config: /opt/homebrew/etc/havm/config.yml
+
+To start ingmarstein/havm/havm now and restart at login:
+  brew services start ingmarstein/havm/havm
+Or, if you don't want/need a background service you can just run:
+  /opt/homebrew/opt/havm/bin/havm run -c /opt/homebrew/etc/havm/config.yml --data-dir /opt/homebrew/var/lib/havm
+==> Summary
+🍺  /opt/homebrew/Cellar/havm/0.1.4: 12 files, 2.2MB, built in 2 seconds
+==> Running `brew cleanup havm`...
+==> Caveats
+fish completions have been installed to:
+  /opt/homebrew/share/fish/vendor_completions.d</span>
+</pre>
       </div>
     </div>
 
