@@ -230,18 +230,20 @@ title: Home
         <span class="terminal-title">~/.config/havm/config.yml</span>
       </div>
       <div class="terminal-body">
-<span class="out">vm:</span><br>
-<span class="out">  cpu_count: 4</span><br>
-<span class="out">  memory_size: "4 GiB"</span><br>
-<span class="out">  disk_size: "32 GiB"</span><br>
-<span class="out">network:</span><br>
-<span class="out">  type: nat</span><br>
-<span class="out">haos:</span><br>
-<span class="out">  release_channel: stable</span><br>
-<span class="out">ssh:</span><br>
-<span class="out">  authorized_keys: "~/.ssh/id_ed25519.pub"</span><br>
-<span class="out">metrics:</span><br>
-<span class="out">  enabled: true</span>
+<pre>
+vm:
+  cpu_count: 4
+  memory_size: "4 GiB"
+  disk_size: "32 GiB"
+network:
+  type: nat
+haos:
+  release_channel: stable
+ssh:
+  authorized_keys: "~/.ssh/id_ed25519.pub"
+metrics:
+  enabled: true
+</pre>
       </div>
     </div>
 

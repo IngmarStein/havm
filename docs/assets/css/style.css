@@ -194,6 +194,13 @@ section.alt { background: var(--surface); }
   font-family: var(--font-mono);
   font-size: 0.85rem;
   line-height: 1.7;
+  white-space: pre-wrap;
+}
+.terminal-body pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 .terminal-body .prompt { color: var(--green); }
 .terminal-body .cmd { color: #fff; }
