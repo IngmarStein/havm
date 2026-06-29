@@ -225,11 +225,11 @@ title: Home
 
     <table class="spec-table">
       <thead>
-        <tr><th>Location</th><th>Foreground (<code>havm run</code>)</th><th>Service (<code>brew services</code>)</th></tr>
+        <tr><th></th><th>Foreground</th><th>Service</th></tr>
       </thead>
       <tbody>
-        <tr><td>Config</td><td><code>~/.config/havm/config.yml</code></td><td><code>/opt/homebrew/etc/havm/config.yml</code></td></tr>
         <tr><td>VM data</td><td><code>~/Library/Application Support/havm/vm/</code></td><td><code>/opt/homebrew/var/lib/havm/</code></td></tr>
+        <tr><td>Config (optional)</td><td><code>~/.config/havm/config.yml</code></td><td><code>/opt/homebrew/etc/havm/config.yml</code></td></tr>
         <tr><td>Downloads cache</td><td colspan="2"><code>~/Library/Caches/havm/</code></td></tr>
       </tbody>
     </table>
