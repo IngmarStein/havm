@@ -7,12 +7,12 @@ title: Getting Started
 
 <div class="doc-nav">
   <a href="/">← Home</a>
-  <a href="commands">Commands</a>
-  <a href="configuration">Configuration</a>
-  <a href="ssh-shutdown">SSH & Shutdown</a>
-  <a href="usb-accessories">USB Accessories</a>
-  <a href="metrics">Metrics</a>
-  <a href="building">Building</a>
+  <a href="commands.html">Commands</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="ssh-shutdown.html">SSH & Shutdown</a>
+  <a href="usb-accessories.html">USB Accessories</a>
+  <a href="metrics.html">Metrics</a>
+  <a href="building.html">Building</a>
 </div>
 
 # Getting Started
@@ -74,10 +74,10 @@ re-runs skip the fetch.
 
 ## Next Steps
 
-- [Configure](configuration) CPU, memory, disk, and network settings
-- [Set up SSH access](ssh-shutdown) for debug shell and graceful shutdown
-- [Enable Prometheus metrics](metrics) for monitoring
-- [Attach USB accessories](usb-accessories) like Zigbee coordinators
+- [Configure](configuration.html) CPU, memory, disk, and network settings
+- [Set up SSH access](ssh-shutdown.html) for debug shell and graceful shutdown
+- [Enable Prometheus metrics](metrics.html) for monitoring
+- [Attach USB accessories](usb-accessories.html) like Zigbee coordinators
 
 ## Updating HA OS
 

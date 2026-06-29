@@ -7,12 +7,12 @@ title: SSH & Shutdown
 
 <div class="doc-nav">
   <a href="/">← Home</a>
-  <a href="getting-started">Getting Started</a>
-  <a href="commands">Commands</a>
-  <a href="configuration">Configuration</a>
-  <a href="usb-accessories">USB Accessories</a>
-  <a href="metrics">Metrics</a>
-  <a href="building">Building</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="commands.html">Commands</a>
+  <a href="configuration.html">Configuration</a>
+  <a href="usb-accessories.html">USB Accessories</a>
+  <a href="metrics.html">Metrics</a>
+  <a href="building.html">Building</a>
 </div>
 
 # SSH Access & Graceful Shutdown

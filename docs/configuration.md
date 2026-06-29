@@ -7,12 +7,12 @@ title: Configuration
 
 <div class="doc-nav">
   <a href="/">← Home</a>
-  <a href="getting-started">Getting Started</a>
-  <a href="commands">Commands</a>
-  <a href="ssh-shutdown">SSH & Shutdown</a>
-  <a href="usb-accessories">USB Accessories</a>
-  <a href="metrics">Metrics</a>
-  <a href="building">Building</a>
+  <a href="getting-started.html">Getting Started</a>
+  <a href="commands.html">Commands</a>
+  <a href="ssh-shutdown.html">SSH & Shutdown</a>
+  <a href="usb-accessories.html">USB Accessories</a>
+  <a href="metrics.html">Metrics</a>
+  <a href="building.html">Building</a>
 </div>
 
 # Configuration
@@ -118,7 +118,7 @@ For launchd/Homebrew services, JSON logging to a file via
 
 ## Metrics
 
-See the [Metrics](metrics) page for Prometheus setup, available gauges,
+See the [Metrics](metrics.html) page for Prometheus setup, available gauges,
 scrape configuration, and Grafana dashboard examples.
 
 </div>

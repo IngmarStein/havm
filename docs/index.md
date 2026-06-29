@@ -245,7 +245,7 @@ title: Home
     </div>
 
     <p style="margin-top: 1.25rem;">
-      <a href="configuration">Full configuration reference</a> &rarr;
+      <a href="configuration.html">Full configuration reference</a> &rarr;
     </p>
   </div>
 </section>
@@ -257,37 +257,37 @@ title: Home
     <h2>Documentation</h2>
 
     <div class="feature-grid">
-      <a href="getting-started" class="feature-card" style="text-decoration: none;">
+      <a href="getting-started.html" class="feature-card" style="text-decoration: none;">
         <div class="icon">🚀</div>
         <h3>Getting Started</h3>
         <p>Prerequisites, installation, first-run walkthrough, and next steps.</p>
       </a>
-      <a href="commands" class="feature-card" style="text-decoration: none;">
+      <a href="commands.html" class="feature-card" style="text-decoration: none;">
         <div class="icon">⌨️</div>
         <h3>Commands</h3>
         <p>CLI reference: <code>run</code>, <code>import-utm</code>, <code>cleanup</code>, <code>version</code>.</p>
       </a>
-      <a href="configuration" class="feature-card" style="text-decoration: none;">
+      <a href="configuration.html" class="feature-card" style="text-decoration: none;">
         <div class="icon">⚙️</div>
         <h3>Configuration</h3>
         <p>Full <code>config.yml</code> reference with every field explained.</p>
       </a>
-      <a href="ssh-shutdown" class="feature-card" style="text-decoration: none;">
+      <a href="ssh-shutdown.html" class="feature-card" style="text-decoration: none;">
         <div class="icon">🔐</div>
         <h3>SSH &amp; Shutdown</h3>
         <p>Debug SSH setup, graceful shutdown chain, guest IP detection.</p>
       </a>
-      <a href="usb-accessories" class="feature-card" style="text-decoration: none;">
+      <a href="usb-accessories.html" class="feature-card" style="text-decoration: none;">
         <div class="icon">🔌</div>
         <h3>USB Accessories</h3>
         <p>Hot-plug coordinators via the menu bar. Entitlements and troubleshooting.</p>
       </a>
-      <a href="metrics" class="feature-card" style="text-decoration: none;">
+      <a href="metrics.html" class="feature-card" style="text-decoration: none;">
         <div class="icon">📊</div>
         <h3>Metrics</h3>
         <p>Prometheus endpoint, Grafana dashboard examples, scrape configs.</p>
       </a>
-      <a href="building" class="feature-card" style="text-decoration: none;">
+      <a href="building.html" class="feature-card" style="text-decoration: none;">
         <div class="icon">🛠️</div>
         <h3>Building</h3>
         <p>Build from source, entitlement tiers, architecture overview.</p>
