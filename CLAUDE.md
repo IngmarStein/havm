@@ -15,6 +15,14 @@ swift test                    # 10 tests in HavmCoreTests
 Binary size is reduced via `strip` (removes ~2.4 MB of symbol tables from LINKEDIT)
 before codesigning. Default `-O` is kept — `-Osize` only saves ~300 KB more.
 
+## Release Process
+
+1. Bump `HavmVersion.current` in `Sources/Havm/main.swift` (CI also auto-bumps from tag).
+2. Tag: `git tag -a v0.1.4 -m "v0.1.4" && git push --tags`
+3. CI picks up the `v*` tag, builds + notarizes, publishes a GitHub release with
+   `gh release create --generate-notes`. The auto-generated notes are a starting
+   point — edit the release on GitHub to add a curated changelog.
+
 ## Architecture
 
 ```
