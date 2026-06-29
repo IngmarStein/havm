@@ -1,98 +1,302 @@
 ---
+layout: default
 title: Home
-nav_order: 1
-permalink: /
 ---
 
-# havm — Home Assistant VM Runner
+<!-- ── Hero ───────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-icon">🏠</div>
+  <h1>havm</h1>
+  <p class="hero-tagline">
+    Zero-config CLI for running Home&nbsp;Assistant&nbsp;OS on Apple&nbsp;Silicon
+    using the native Virtualization framework. One command from download to boot.
+  </p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/IngmarStein/havm/blob/main/LICENSE)
-[![Swift 6.4](https://img.shields.io/badge/Swift-6.4-orange?logo=swift&logoColor=white)](https://swift.org)
-[![Apple Virtualization](https://img.shields.io/badge/Apple-Virtualization%20Framework-blue?logo=apple&logoColor=white)](https://developer.apple.com/documentation/virtualization)
-[![macOS 27+](https://img.shields.io/badge/macOS-27%2B-lightgrey?logo=apple&logoColor=white)](https://www.apple.com/macos)
-[![Sponsor](https://img.shields.io/badge/%E2%99%A5-Sponsor-EC4899?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/IngmarStein)
+  <div class="hero-badges">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+    <img src="https://img.shields.io/badge/Swift-6.4-orange?logo=swift&logoColor=white" alt="Swift 6.4">
+    <img src="https://img.shields.io/badge/Apple-Virtualization%20Framework-blue?logo=apple&logoColor=white" alt="Apple Virtualization">
+    <img src="https://img.shields.io/badge/macOS-27%2B-lightgrey?logo=apple&logoColor=white" alt="macOS 27+">
+    <img src="https://img.shields.io/badge/%E2%99%A5-Sponsor-EC4899?logo=githubsponsors&logoColor=white" alt="Sponsor">
+  </div>
 
-**havm** is a zero-config CLI for running [Home Assistant OS][haos] on Apple
-Silicon using Apple's native [Virtualization framework][vz]. One command from
-download to boot.
+  <div class="cta-group">
+    <a href="#get-it" class="btn btn-primary">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      Homebrew Install
+    </a>
+    <a href="https://github.com/IngmarStein/havm" class="btn btn-secondary">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      Source on GitHub
+    </a>
+  </div>
+</section>
 
-- **No setup required** — downloads and prepares HA OS automatically on first run.
-  No Shortcuts, AppleScript, or manual launchd plists. Works with `brew services`.
-- **Starts at login** — designed for headless operation as a launchd service.
-  Fire-and-forget: your smart home boots with your Mac.
-- **Persistent** — all HA OS data (configs, add-ons, history) lives on a raw disk
-  image. NVRAM and MAC address survive reboots.
-- **USB accessories** — attach coordinators and other USB devices via the menu bar
-  item. Hot-plug, no restart needed.
-- **SSH key import** — optional virtual CONFIG disk for root SSH on port 22222.
-- **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM.
-- **Prometheus metrics** — built-in HTTP endpoint for monitoring VM state and USB
-  accessories.
+<!-- ── What It Does ──────────────────────────────────────────── -->
+<section>
+  <div class="container">
+    <span class="section-label">What it does</span>
+    <h2>Your smart home, one command away</h2>
 
-**Requires macOS 27 (Golden Gate) or later with Apple Silicon.**
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="icon">⚡</div>
+        <h3>Zero setup</h3>
+        <p>Downloads and prepares HA OS automatically on first run. No Shortcuts, AppleScript, or manual launchd plists.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔄</div>
+        <h3>Starts at login</h3>
+        <p>Designed for headless operation as a launchd service. Fire-and-forget: your smart home boots with your Mac.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">💾</div>
+        <h3>Persistent</h3>
+        <p>All HA OS data — configs, add-ons, history — lives on a raw disk image. NVRAM and MAC address survive reboots.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔌</div>
+        <h3>USB accessories</h3>
+        <p>Attach coordinators via the menu bar item. Hot-plug, no restart needed.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔑</div>
+        <h3>SSH key import</h3>
+        <p>Virtual CONFIG disk imports your public key for root SSH on port 22222 — HA OS picks it up automatically.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">⏻</div>
+        <h3>Graceful shutdown</h3>
+        <p>REST API → SSH → force-stop fallback on SIGTERM. Three methods before pulling the plug.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📊</div>
+        <h3>Prometheus metrics</h3>
+        <p>Built-in HTTP endpoint for monitoring VM state and USB accessories. Grafana-ready.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📦</div>
+        <h3>Self-contained</h3>
+        <p>No Homebrew at runtime, no Python, no shell scripts. A single ~2.1 MB binary with zero external dependencies.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-[haos]: https://github.com/home-assistant/operating-system
-[vz]: https://developer.apple.com/documentation/virtualization
+<!-- ── How It Works ──────────────────────────────────────────── -->
+<section class="alt">
+  <div class="container">
+    <span class="section-label">How it works</span>
+    <h2>First run does it all</h2>
 
-## Quick Start
+    <div class="steps">
+      <div class="step">
+        <h3>Download</h3>
+        <p>Fetches the latest stable HA OS release from GitHub. Cached for instant re-installs.</p>
+      </div>
+      <div class="step">
+        <h3>Decompress</h3>
+        <p>Built-in XZ decoder via libzma — no external tools, no Homebrew dependencies.</p>
+      </div>
+      <div class="step">
+        <h3>Prepare disk</h3>
+        <p>Copies and resizes the raw disk image. APFS sparse files keep it lean.</p>
+      </div>
+      <div class="step">
+        <h3>Boot</h3>
+        <p>UEFI boot from the GPT disk. No kernel extraction, no initrd. Just point at the image.</p>
+      </div>
+    </div>
 
-### Homebrew (recommended)
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+        <span class="terminal-title">Terminal — havm run</span>
+      </div>
+      <div class="terminal-body">
+        <span class="prompt">$</span> <span class="cmd">brew install ingmarstein/havm/havm</span><br>
+        <span class="out">==> Downloading https://github.com/IngmarStein/havm/releases/latest/download/havm.tar.gz</span><br>
+        <span class="out">🍺 /opt/homebrew/bin/havm</span><br><br>
+        <span class="prompt">$</span> <span class="cmd">havm run</span><br>
+        <span class="out">[info] Downloading Home Assistant OS 15.0...</span><br>
+        <span class="out">[info] Decompressing disk image (XZ)...</span><br>
+        <span class="out">[info] Preparing persistent disk (32 GiB, APFS sparse)...</span><br>
+        <span class="out">[info] Booting VM (4 cores, 4 GiB, NAT networking)...</span><br>
+        <span class="out">[info] Guest IP: 192.168.64.42</span><br>
+        <span class="accent">Home Assistant is starting — http://homeassistant.local:8123</span>
+      </div>
+    </div>
+  </div>
+</section>
 
-```bash
-brew install ingmarstein/havm/havm
-havm run
-```
+<!-- ── VM Hardware ────────────────────────────────────────────── -->
+<section>
+  <div class="container">
+    <span class="section-label">Under the hood</span>
+    <h2>VM hardware</h2>
 
-Or run as a background service:
+    <table class="spec-table">
+      <thead>
+        <tr><th>Component</th><th>Choice</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Boot</td><td>UEFI (<code>VZEFIBootLoader</code>)</td><td>Boots directly from the GPT disk image</td></tr>
+        <tr><td>CPU</td><td>4 cores (configurable)</td><td>Sufficient for HA OS + add-ons</td></tr>
+        <tr><td>Memory</td><td>4 GiB (configurable)</td><td>No balloon — keeps it simple</td></tr>
+        <tr><td>Disk</td><td>32 GiB raw image, VirtIO block</td><td>APFS sparse on disk (~6 GiB used after first boot)</td></tr>
+        <tr><td>Network</td><td>NAT with stable MAC</td><td>Works without extra entitlements</td></tr>
+        <tr><td>CONFIG disk</td><td>USB mass storage (XHCI)</td><td>HA OS imports SSH keys from USB, not VirtIO</td></tr>
+        <tr><td>NVRAM</td><td>Persisted EFI variable store</td><td>GRUB boot state survives reboots</td></tr>
+        <tr><td>Platform</td><td><code>VZGenericPlatformConfiguration</code></td><td>Stable machine ID → consistent MAC</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
 
-```bash
-brew services start havm
-```
+<!-- ── Open by Default ────────────────────────────────────────── -->
+<section class="alt">
+  <div class="container">
+    <span class="section-label">Open by default</span>
+    <h2>Trust &amp; transparency</h2>
 
-### Build from source
+    <div class="trust-strip">
+      <div class="trust-item"><span class="check">✓</span> MIT license</div>
+      <div class="trust-item"><span class="check">✓</span> Full source on GitHub</div>
+      <div class="trust-item"><span class="check">✓</span> No telemetry, no accounts</div>
+      <div class="trust-item"><span class="check">✓</span> No external runtime dependencies</div>
+      <div class="trust-item"><span class="check">✓</span> No surprise network calls</div>
+      <div class="trust-item"><span class="check">✓</span> Single self-contained binary</div>
+    </div>
+  </div>
+</section>
 
-```bash
-./scripts/build.sh release
-.build/release/havm run
-```
+<!-- ── Get It ─────────────────────────────────────────────────── -->
+<section id="get-it">
+  <div class="container">
+    <span class="section-label">Get it</span>
+    <h2>Install</h2>
 
-On first run, `havm` automatically:
+    <h3>Homebrew (recommended)</h3>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+        <span class="terminal-title">Terminal</span>
+      </div>
+      <div class="terminal-body">
+        <span class="prompt">$</span> <span class="cmd">brew install ingmarstein/havm/havm</span><br>
+        <span class="prompt">$</span> <span class="cmd">havm run</span>
+      </div>
+    </div>
 
-1. Downloads the latest stable HA OS release (`haos_generic-aarch64-*.img.xz`)
-2. Decompresses the disk image
-3. Copies the disk image to persistent storage and resizes it
-4. Boots the VM
+    <p>Or run as a background service that starts at login:</p>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+        <span class="terminal-title">Terminal</span>
+      </div>
+      <div class="terminal-body">
+        <span class="prompt">$</span> <span class="cmd">brew services start havm</span>
+      </div>
+    </div>
 
-Subsequent runs skip straight to boot.
+    <br>
+    <h3>Build from source</h3>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+        <span class="terminal-title">Terminal</span>
+      </div>
+      <div class="terminal-body">
+        <span class="prompt">$</span> <span class="cmd">git clone https://github.com/IngmarStein/havm.git && cd havm</span><br>
+        <span class="prompt">$</span> <span class="cmd">cp resources/build.xcconfig.example resources/build.xcconfig</span><br>
+        <span class="prompt">$</span> <span class="cmd">./scripts/build.sh release</span><br>
+        <span class="prompt">$</span> <span class="cmd">.build/release/havm run</span>
+      </div>
+    </div>
+  </div>
+</section>
 
-## VM Hardware
+<!-- ── Config Preview ─────────────────────────────────────────── -->
+<section class="alt">
+  <div class="container">
+    <span class="section-label">Optional</span>
+    <h2>Configuration</h2>
+    <p>Everything works with zero config. Tweak <code>~/.config/havm/config.yml</code> if you want:</p>
 
-| Component | Choice | Reason |
-|-----------|--------|--------|
-| Boot | UEFI (`VZEFIBootLoader`) | Boots directly from the GPT disk image |
-| CPU | 4 cores (configurable) | Sufficient for HA OS + add-ons |
-| Memory | 4 GiB (configurable) | No balloon — keeps it simple |
-| Disk | 32 GiB raw image, VirtIO block | APFS sparse on disk |
-| Network | NAT with stable MAC | Works without extra entitlements |
-| CONFIG disk | USB mass storage (XHCI) | HA OS imports SSH keys from USB |
-| NVRAM | Persisted EFI variable store | GRUB boot state survives reboots |
-| Platform | `VZGenericPlatformConfiguration` | Stable machine ID → consistent MAC |
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+        <span class="terminal-title">~/.config/havm/config.yml</span>
+      </div>
+      <div class="terminal-body">
+<span class="out">vm:</span><br>
+<span class="out">  cpu_count: 4</span><br>
+<span class="out">  memory_size: "4 GiB"</span><br>
+<span class="out">  disk_size: "32 GiB"</span><br>
+<span class="out">network:</span><br>
+<span class="out">  type: nat</span><br>
+<span class="out">haos:</span><br>
+<span class="out">  release_channel: stable</span><br>
+<span class="out">ssh:</span><br>
+<span class="out">  authorized_keys: "~/.ssh/id_ed25519.pub"</span><br>
+<span class="out">metrics:</span><br>
+<span class="out">  enabled: true</span>
+      </div>
+    </div>
 
-## Data Layout
+    <p style="margin-top: 1.25rem;">
+      <a href="configuration">Full configuration reference</a> &rarr;
+    </p>
+  </div>
+</section>
 
-```
-~/Library/Caches/havm/
-  haos_generic-aarch64-<version>.img.xz   # Cached download
-  haos_generic-aarch64-<version>.img      # Decompressed cache
+<!-- ── Next Steps ─────────────────────────────────────────────── -->
+<section>
+  <div class="container">
+    <span class="section-label">Learn more</span>
+    <h2>Documentation</h2>
 
-~/Library/Application Support/havm/
-  vm/haos.img                             # Persistent disk image (raw, VirtIO)
-  vm/NVRAM                                # EFI variable store
-  vm/MachineIdentifier                    # Stable machine ID
-  vm/config.img                           # SSH key import disk (if configured)
-  vm/havm.pid                             # Process PID (while running)
-```
-
-## License
-
-MIT — see [LICENSE](https://github.com/IngmarStein/havm/blob/main/LICENSE).
+    <div class="feature-grid">
+      <a href="getting-started" class="feature-card" style="text-decoration: none;">
+        <div class="icon">🚀</div>
+        <h3>Getting Started</h3>
+        <p>Prerequisites, installation, first-run walkthrough, and next steps.</p>
+      </a>
+      <a href="commands" class="feature-card" style="text-decoration: none;">
+        <div class="icon">⌨️</div>
+        <h3>Commands</h3>
+        <p>CLI reference: <code>run</code>, <code>import-utm</code>, <code>cleanup</code>, <code>version</code>.</p>
+      </a>
+      <a href="configuration" class="feature-card" style="text-decoration: none;">
+        <div class="icon">⚙️</div>
+        <h3>Configuration</h3>
+        <p>Full <code>config.yml</code> reference with every field explained.</p>
+      </a>
+      <a href="ssh-shutdown" class="feature-card" style="text-decoration: none;">
+        <div class="icon">🔐</div>
+        <h3>SSH &amp; Shutdown</h3>
+        <p>Debug SSH setup, graceful shutdown chain, guest IP detection.</p>
+      </a>
+      <a href="usb-accessories" class="feature-card" style="text-decoration: none;">
+        <div class="icon">🔌</div>
+        <h3>USB Accessories</h3>
+        <p>Hot-plug coordinators via the menu bar. Entitlements and troubleshooting.</p>
+      </a>
+      <a href="metrics" class="feature-card" style="text-decoration: none;">
+        <div class="icon">📊</div>
+        <h3>Metrics</h3>
+        <p>Prometheus endpoint, Grafana dashboard examples, scrape configs.</p>
+      </a>
+      <a href="building" class="feature-card" style="text-decoration: none;">
+        <div class="icon">🛠️</div>
+        <h3>Building</h3>
+        <p>Build from source, entitlement tiers, architecture overview.</p>
+      </a>
+      <a href="https://github.com/IngmarStein/havm/blob/main/CONTRIBUTING.md" class="feature-card" style="text-decoration: none;">
+        <div class="icon">🤝</div>
+        <h3>Contributing</h3>
+        <p>Development workflow, code style, PR checklist, finding issues to work on.</p>
+      </a>
+    </div>
+  </div>
+</section>

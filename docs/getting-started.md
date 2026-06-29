@@ -1,7 +1,19 @@
 ---
+layout: default
 title: Getting Started
-nav_order: 2
 ---
+
+<div class="doc-page">
+
+<div class="doc-nav">
+  <a href="/">← Home</a>
+  <a href="commands">Commands</a>
+  <a href="configuration">Configuration</a>
+  <a href="ssh-shutdown">SSH & Shutdown</a>
+  <a href="usb-accessories">USB Accessories</a>
+  <a href="metrics">Metrics</a>
+  <a href="building">Building</a>
+</div>
 
 # Getting Started
 
@@ -50,7 +62,7 @@ On first run, `havm` handles everything automatically:
 
 1. **Download** — fetches the latest stable [Home Assistant OS][haos] release
    for generic aarch64 (`.img.xz`)
-2. **Decompress** — decompresses the XZ archive using the built-in liblzma wrapper
+2. **Decompress** — decompresses the XZ archive using the built-in libzma wrapper
 3. **Copy & resize** — copies the raw disk image to `~/Library/Application
    Support/havm/vm/haos.img` and resizes it (default 32 GiB, configurable)
 4. **Boot** — boots via UEFI from the GPT disk image
@@ -62,13 +74,15 @@ re-runs skip the fetch.
 
 ## Next Steps
 
-- [Configure]({% link configuration.md %}) CPU, memory, disk, and network settings
-- [Set up SSH access]({% link ssh-shutdown.md %}) for debug shell and graceful shutdown
-- [Enable Prometheus metrics]({% link metrics.md %}) for monitoring
-- [Attach USB accessories]({% link usb-accessories.md %}) like Zigbee coordinators
+- [Configure](configuration) CPU, memory, disk, and network settings
+- [Set up SSH access](ssh-shutdown) for debug shell and graceful shutdown
+- [Enable Prometheus metrics](metrics) for monitoring
+- [Attach USB accessories](usb-accessories) like Zigbee coordinators
 
 ## Updating HA OS
 
 HA OS updates are handled from within Home Assistant itself (Settings →
 System → Updates). `havm` only manages the VM; it doesn't re-download HA OS
 after the initial setup unless you run `havm cleanup` first to clear the cache.
+
+</div>

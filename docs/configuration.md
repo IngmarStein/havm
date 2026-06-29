@@ -1,7 +1,19 @@
 ---
+layout: default
 title: Configuration
-nav_order: 3
 ---
+
+<div class="doc-page">
+
+<div class="doc-nav">
+  <a href="/">← Home</a>
+  <a href="getting-started">Getting Started</a>
+  <a href="commands">Commands</a>
+  <a href="ssh-shutdown">SSH & Shutdown</a>
+  <a href="usb-accessories">USB Accessories</a>
+  <a href="metrics">Metrics</a>
+  <a href="building">Building</a>
+</div>
 
 # Configuration
 
@@ -73,8 +85,7 @@ so only actually-used blocks consume physical disk space.
   network connection. No extra entitlements needed.
 - `bridge` — connects the VM directly to your LAN. Requires a paid Apple
   Developer account **and** Apple approval for the `com.apple.vm.networking`
-  entitlement (Tier 3). Home Assistant behaves like a physical device on
-  your network.
+  entitlement (Tier 3).
 
 ### `interface`
 When using bridge networking, specifies the physical interface to bridge
@@ -104,3 +115,10 @@ havm run --log-format json --log-level debug
 
 For launchd/Homebrew services, JSON logging to a file via
 `StandardOutPath` is recommended.
+
+## Metrics
+
+See the [Metrics](metrics) page for Prometheus setup, available gauges,
+scrape configuration, and Grafana dashboard examples.
+
+</div>

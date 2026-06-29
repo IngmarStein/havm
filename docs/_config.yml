@@ -1,18 +1,2 @@
 title: havm
 description: Zero-config CLI for running Home Assistant OS on Apple Silicon
-remote_theme: just-the-docs/just-the-docs
-color_scheme: light
-search_enabled: true
-heading_anchors: true
-aux_links:
-  "havm on GitHub":
-    - "https://github.com/IngmarStein/havm"
-aux_links_new_tab: true
-footer_content: 'MIT &copy; <a href="https://github.com/IngmarStein/havm">Ingmar Stein</a>'
-
-nav_sort: case_insensitive
-back_to_top: true
-back_to_top_text: "Back to top"
-
-plugins:
-  - jekyll-remote-theme

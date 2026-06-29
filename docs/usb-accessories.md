@@ -1,7 +1,19 @@
 ---
+layout: default
 title: USB Accessories
-nav_order: 6
 ---
+
+<div class="doc-page">
+
+<div class="doc-nav">
+  <a href="/">← Home</a>
+  <a href="getting-started">Getting Started</a>
+  <a href="commands">Commands</a>
+  <a href="configuration">Configuration</a>
+  <a href="ssh-shutdown">SSH & Shutdown</a>
+  <a href="metrics">Metrics</a>
+  <a href="building">Building</a>
+</div>
 
 # USB Accessories
 
@@ -9,9 +21,11 @@ USB accessory passthrough lets you attach physical devices — Zigbee
 coordinators, Z-Wave sticks, Bluetooth dongles — directly to the
 Home Assistant VM.
 
-{: .note }
-USB accessories require a **paid Apple Developer account** (Tier 2 or 3).
-The `com.apple.developer.accessory-access.usb` entitlement is gated by Apple.
+<div class="note">
+USB accessories require a <strong>paid Apple Developer account</strong>
+(Tier 2 or 3). The <code>com.apple.developer.accessory-access.usb</code>
+entitlement is gated by Apple.
+</div>
 
 ## Enabling
 
@@ -64,3 +78,5 @@ profile covers the restricted entitlement. Build `havm.xcodeproj` once
 **Device doesn't show in the list:**
 - The device must be connected before you open the menu
 - Some devices may need to be unplugged and re-plugged to be discovered
+
+</div>

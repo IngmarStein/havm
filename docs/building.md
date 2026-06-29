@@ -1,7 +1,19 @@
 ---
+layout: default
 title: Building from Source
-nav_order: 8
 ---
+
+<div class="doc-page">
+
+<div class="doc-nav">
+  <a href="/">← Home</a>
+  <a href="getting-started">Getting Started</a>
+  <a href="commands">Commands</a>
+  <a href="configuration">Configuration</a>
+  <a href="ssh-shutdown">SSH & Shutdown</a>
+  <a href="usb-accessories">USB Accessories</a>
+  <a href="metrics">Metrics</a>
+</div>
 
 # Building from Source
 
@@ -98,3 +110,5 @@ For a detailed architecture overview and key design decisions, see
 | `HavmCore` | Config parsing, HA OS download/setup, VM controller, CONFIG disk builder, metrics |
 | `HavmRuntime` | Graceful shutdown chain, DHCP lease parsing, USB accessory listener |
 | `CXZ` | C target — XZ decompression via `dlopen`'d `liblzma` |
+
+</div>

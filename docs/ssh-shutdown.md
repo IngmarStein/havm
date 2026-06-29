@@ -1,7 +1,19 @@
 ---
+layout: default
 title: SSH & Shutdown
-nav_order: 5
 ---
+
+<div class="doc-page">
+
+<div class="doc-nav">
+  <a href="/">← Home</a>
+  <a href="getting-started">Getting Started</a>
+  <a href="commands">Commands</a>
+  <a href="configuration">Configuration</a>
+  <a href="usb-accessories">USB Accessories</a>
+  <a href="metrics">Metrics</a>
+  <a href="building">Building</a>
+</div>
 
 # SSH Access & Graceful Shutdown
 
@@ -39,9 +51,10 @@ through to the next if one fails:
    (requires the SSH add-on installed in HA)
 4. **Force-stop** — if all above fail, the VM is stopped immediately
 
-{: .note }
-ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores
-ACPI power button events.
+<div class="note">
+ACPI <code>requestStop()</code> is not used — HA OS on aarch64 uses PSCI
+and ignores ACPI power button events.
+</div>
 
 ### Configuration
 
@@ -61,9 +74,10 @@ shutdown:
 3. Click **Create Token**, give it a name (e.g., "havm shutdown"), and copy it
 4. Add it to your config as `ha.api_token`
 
-{: .warning }
-The token is a secret. Keep your `config.yml` permissions restrictive
-(`chmod 600 ~/.config/havm/config.yml`).
+<div class="warning">
+The token is a secret. Keep your <code>config.yml</code> permissions
+restrictive (<code>chmod 600 ~/.config/havm/config.yml</code>).
+</div>
 
 ### Guest IP detection
 
@@ -78,3 +92,5 @@ network:
 ```
 
 [token]: https://www.home-assistant.io/docs/authentication/#your-account-profile
+
+</div>

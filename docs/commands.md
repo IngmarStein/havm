@@ -1,7 +1,19 @@
 ---
+layout: default
 title: Commands
-nav_order: 4
 ---
+
+<div class="doc-page">
+
+<div class="doc-nav">
+  <a href="/">← Home</a>
+  <a href="getting-started">Getting Started</a>
+  <a href="configuration">Configuration</a>
+  <a href="ssh-shutdown">SSH & Shutdown</a>
+  <a href="usb-accessories">USB Accessories</a>
+  <a href="metrics">Metrics</a>
+  <a href="building">Building</a>
+</div>
 
 # Commands
 
@@ -86,3 +98,5 @@ Prints the havm version, macOS version, and architecture:
 havm 0.1.4
 macOS 27.0 (arm64)
 ```
+
+</div>

@@ -1,7 +1,19 @@
 ---
+layout: default
 title: Metrics
-nav_order: 7
 ---
+
+<div class="doc-page">
+
+<div class="doc-nav">
+  <a href="/">← Home</a>
+  <a href="getting-started">Getting Started</a>
+  <a href="commands">Commands</a>
+  <a href="configuration">Configuration</a>
+  <a href="ssh-shutdown">SSH & Shutdown</a>
+  <a href="usb-accessories">USB Accessories</a>
+  <a href="building">Building</a>
+</div>
 
 # Prometheus Metrics
 
@@ -83,11 +95,15 @@ metrics:
     host: "127.0.0.1"     # default: "127.0.0.1"
 ```
 
-{: .note }
-The `type` field is an extensibility point — only `prometheus` is
-supported today, but the field exists for future OTLP or other formats.
+<div class="note">
+The <code>type</code> field is an extensibility point — only
+<code>prometheus</code> is supported today, but the field exists for
+future OTLP or other formats.
+</div>
 
 ## Entitlements
 
 All entitlement tiers include `com.apple.security.network.server`, so
 metrics work regardless of your account type.
+
+</div>
