@@ -189,7 +189,8 @@ shutdown:
 |-----------|--------|--------|
 | Boot | UEFI (`VZEFIBootLoader`) | Boots directly from the GPT disk image |
 | CPU | 4 cores (configurable) | Sufficient for HA OS + add-ons |
-| Memory | 4 GiB (configurable) | No balloon — keeps it simple |
+| Memory | 4 GiB (configurable) | Balloon lets macOS reclaim idle guest memory under pressure |
+| Entropy | VirtIO entropy device | Random numbers for guest kernel crypto and ASLR |
 | Disk | 32 GiB raw image, VirtIO block | APFS sparse on disk (only ~6 GiB used after first boot) |
 | Network | NAT with stable MAC | Works without extra entitlements |
 | CONFIG disk | USB mass storage (XHCI) | HA OS imports SSH keys from USB, not VirtIO |

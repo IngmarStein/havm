@@ -110,6 +110,14 @@ public final class VMController: NSObject, @unchecked Sendable {
         platform.machineIdentifier = loadOrCreateMachineIdentifier()
         vmConfig.platform = platform
 
+        // Entropy device — provides random numbers to the guest kernel for
+        // cryptographic operations and ASLR.
+        vmConfig.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
+
+        // Memory balloon — allows macOS to reclaim idle guest memory when the
+        // host is under memory pressure.
+        vmConfig.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
+
         try vmConfig.validate()
         logger.info("VM configuration validated successfully")
         return vmConfig
