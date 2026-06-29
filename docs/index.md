@@ -1,13 +1,8 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>havm — Home Assistant VM Runner</title>
-  <meta name="description" content="Zero-config CLI for running Home Assistant OS on Apple Silicon">
-  <link rel="stylesheet" href="assets/css/style.css">
-</head>
-<body>
+---
+layout: default
+title: Home
+---
+
 <!-- ── Hero ───────────────────────────────────────────────────── -->
 <section class="hero">
   <div class="hero-icon">🏠</div>
@@ -306,16 +301,3 @@
     </div>
   </div>
 </section>
-<footer>
-  <div class="footer-inner">
-    <div class="footer-links">
-      <a href="https://github.com/IngmarStein/havm">Source</a>
-      <a href="https://github.com/IngmarStein/havm/blob/main/LICENSE">MIT License</a>
-      <a href="https://github.com/IngmarStein/havm/blob/main/CONTRIBUTING.md">Contributing</a>
-      <a href="https://github.com/sponsors/IngmarStein">Sponsor</a>
-    </div>
-    <p class="footer-credit">havm — a respectful CLI on top of the <a href="https://developer.apple.com/documentation/virtualization">Apple Virtualization framework</a> and <a href="https://github.com/home-assistant/operating-system">Home Assistant OS</a>, which do all the actual work.</p>
-  </div>
-</footer>
-</body>
-</html>
