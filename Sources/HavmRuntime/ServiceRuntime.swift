@@ -378,7 +378,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                await waitForStop(timeout: timeout) {
                 return
             }
-            // 3. SSH add-on on port 22 (container, uses ha host shutdown)
+            // 3. Terminal & SSH add-on on port 22 (container, uses ha host shutdown)
             logger.info("Attempting SSH shutdown via port 22...")
             if await sshShutdown(host: ip, port: 22, command: "ha host shutdown", timeout: timeout),
                await waitForStop(timeout: timeout) {
@@ -386,7 +386,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             }
             if config.effectiveHAAPIToken == nil {
                 logger.warning(
-                    "Tip: configure ha.api_token (REST API), ssh.authorized_keys (debug SSH), or install the SSH add-on in Home Assistant."
+                    "Tip: configure ha.api_token (REST API), ssh.authorized_keys (debug SSH), or install the Terminal & SSH app in Home Assistant."
                 )
             }
             logger.warning("All shutdown methods failed — force-stopping...")
