@@ -128,6 +128,34 @@ title: Home
         <span class="out">🍺 /opt/homebrew/Cellar/havm/0.1.4: 12 files, 2.2MB</span>
       </div>
     </div>
+
+    <p style="margin-top: 1.5rem;">Then run it — havm handles the rest automatically:</p>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
+        <span class="terminal-title">Terminal — havm run (first boot)</span>
+      </div>
+      <div class="terminal-body">
+        <span class="prompt">$</span> <span class="cmd">havm run</span><br>
+        <span class="out">Config loaded: CPU=4 Memory=4 GiB Network=nat</span><br>
+        <span class="out">Starting HA OS setup...</span><br>
+        <span class="out">Found HA OS 18.0: haos_generic-aarch64-18.0.img.xz</span><br>
+        <span class="out">Resizing disk to 32 GiB...</span><br>
+        <span class="out">Disk resized. HA OS will auto-expand partitions on first boot.</span><br>
+        <span class="out">SSH CONFIG disk created</span><br>
+        <span class="out">✅ HA OS setup complete.</span><br>
+        <span class="out">CPU: 4, Memory: 4 GiB</span><br>
+        <span class="out">Network: NAT</span><br>
+        <span class="out">Starting VM...</span><br>
+        <span class="out">VM started successfully</span><br>
+        <span class="out">VM is running. Press Ctrl+C to stop.</span><br>
+<br>
+        <span class="out">Guest reachable at 192.168.64.33</span><br>
+        <span class="accent">  Web: http://192.168.64.33:8123</span><br>
+        <span class="accent">  SSH: ssh root@192.168.64.33 -p 22222</span>
+      </div>
+    </div>
   </div>
 </section>
 
