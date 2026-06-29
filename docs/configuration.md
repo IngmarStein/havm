@@ -18,7 +18,8 @@ title: Configuration
 # Configuration
 
 All fields are optional — `havm run` works with zero config. Place overrides
-in `~/.config/havm/config.yml`.
+in `~/.config/havm/config.yml`. When running as a Homebrew service, use
+`/opt/homebrew/etc/havm/config.yml` instead.
 
 ## Full Reference
 

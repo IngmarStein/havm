@@ -56,6 +56,16 @@ The VM starts at login and restarts automatically if it exits. View logs with:
 brew services info havm
 ```
 
+When running as a service, havm uses these paths:
+
+| Purpose | Path |
+|---------|------|
+| Config | `/opt/homebrew/etc/havm/config.yml` |
+| VM data | `/opt/homebrew/var/lib/havm` |
+
+Override configs go in the service config path. VM data (disk images, NVRAM)
+are kept separate from user data to avoid conflicts with foreground runs.
+
 ## First Run
 
 On first run, `havm` handles everything automatically:
