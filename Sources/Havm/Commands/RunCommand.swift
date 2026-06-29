@@ -67,10 +67,10 @@ struct RunCommand: AsyncParsableCommand {
             "Config loaded: CPU=\(havmConfig.effectiveCPUCount) Memory=\(MemorySize(bytes: havmConfig.effectiveMemorySize)) Network=\(havmConfig.effectiveNetworkType) Log=\(format.rawValue)"
         )
 
-        // 3. Bootstrap metrics (if enabled)
+        // 3. Bootstrap metrics (always — registry is needed for hot-reload)
+        let registry = bootstrapMetrics(logger: logger)
         var metricsServer: MetricsServer?
         if havmConfig.effectiveMetricsEnabled {
-            let registry = bootstrapMetrics(logger: logger)
             let server = MetricsServer(
                 registry: registry,
                 host: havmConfig.effectivePrometheusHost,
@@ -97,7 +97,7 @@ struct RunCommand: AsyncParsableCommand {
 
         // 5. Create and start the VM
         let vmController = VMController(config: havmConfig, logger: logger)
-        let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, metricsServer: metricsServer, logger: logger)
+        let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, metricsServer: metricsServer, registry: registry, logger: logger)
 
         // runBlocking dispatches to the main thread and blocks via CFRunLoopRun().
         // All exit paths use _exit() — the return value is never actually reached.

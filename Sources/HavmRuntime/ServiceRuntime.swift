@@ -5,6 +5,7 @@ import Logging
 import AppKit
 import AccessoryAccess
 import Metrics
+import Prometheus
 
 /// Manages the blocking service runtime: signal handling, VM lifecycle,
 /// graceful shutdown, guest IP discovery, and web UI readiness detection.
@@ -45,12 +46,14 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var healthPollCount = 0
     private let healthPollMax = 300  // 300 × 1s = 5 minutes
     private var metricsServer: MetricsServer?
+    private let registry: PrometheusCollectorRegistry
     private var usbAccessoryCount: Int = 0
 
-    public init(config: HavmConfig, vmController: VMController, metricsServer: MetricsServer? = nil, logger: Logger = Logger(label: "havm.runtime")) {
+    public init(config: HavmConfig, vmController: VMController, metricsServer: MetricsServer? = nil, registry: PrometheusCollectorRegistry, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
         self.vmController = vmController
         self.metricsServer = metricsServer
+        self.registry = registry
         self.logger = logger
         super.init()
 
@@ -284,16 +287,57 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             return
         }
         let oldConfig = config
-        config = newConfig
 
         let levelChanged = newConfig.effectiveLogLevel != oldConfig.effectiveLogLevel
         let tokenChanged = newConfig.effectiveHAAPIToken != oldConfig.effectiveHAAPIToken
-        guard levelChanged || tokenChanged else { return }
+
+        let metricsEnabledChanged = newConfig.effectiveMetricsEnabled != oldConfig.effectiveMetricsEnabled
+        let metricsHostChanged = newConfig.effectivePrometheusHost != oldConfig.effectivePrometheusHost
+        let metricsPortChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
+        let metricsChanged = metricsEnabledChanged || metricsHostChanged || metricsPortChanged
+
+        if metricsChanged { applyMetricsConfig(old: oldConfig, new: newConfig) }
+
+        config = newConfig
+
+        guard levelChanged || tokenChanged || metricsChanged else { return }
 
         if levelChanged {
             logger.logLevel = newConfig.effectiveLogLevel
         }
         logger.info("Config reloaded")
+    }
+
+    private func applyMetricsConfig(old oldConfig: HavmConfig, new newConfig: HavmConfig) {
+        if !newConfig.effectiveMetricsEnabled {
+            if metricsServer != nil {
+                metricsServer?.stop()
+                metricsServer = nil
+                logger.info("Metrics: Server stopped (disabled).")
+            }
+            return
+        }
+
+        // Enabled — if host or port changed (or first enable), restart.
+        let hostChanged = newConfig.effectivePrometheusHost != oldConfig.effectivePrometheusHost
+        let portChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
+
+        if hostChanged || portChanged || metricsServer == nil {
+            metricsServer?.stop()
+            let server = MetricsServer(
+                registry: registry,
+                host: newConfig.effectivePrometheusHost,
+                port: newConfig.effectivePrometheusPort,
+                logger: logger
+            )
+            do {
+                try server.start()
+                metricsServer = server
+                logger.info("Metrics: Prometheus exporter on \(newConfig.effectivePrometheusHost):\(newConfig.effectivePrometheusPort)")
+            } catch {
+                logger.warning("Metrics: Failed to start server on \(newConfig.effectivePrometheusHost):\(newConfig.effectivePrometheusPort) — \(error).")
+            }
+        }
     }
 
     private func signalShutdown(name: String) {
