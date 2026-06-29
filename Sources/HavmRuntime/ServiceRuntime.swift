@@ -355,6 +355,13 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private func performGracefulShutdown() async {
         let timeout = config.effectiveShutdownTimeout
 
+        let hasToken = config.effectiveHAAPIToken != nil
+        let hasSSHKey = config.effectiveSSHKeyPath != nil
+        if !hasToken && !hasSSHKey {
+            logger.warning("No shutdown methods configured — force-stopping.")
+            logger.warning("Configure one of: ha.api_token (REST API) or ssh.authorized_keys (SSH)")
+        }
+
         if let ip = guestIP {
             // 1. HA REST API on port 8123 (if api_token is configured)
             if let token = config.effectiveHAAPIToken {
