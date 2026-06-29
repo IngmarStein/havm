@@ -13,6 +13,8 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
   menu bar item. Hot-plug, no restart needed.
 - **SSH key import** — optional virtual CONFIG disk for root SSH on port 22222.
 - **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM.
+- **Prometheus metrics** — built-in HTTP endpoint for monitoring VM state and
+  USB accessories. Feed into Grafana dashboards or alerting rules.
 
 **Requires macOS 27 (Golden Gate) or later with Apple Silicon.**
 
