@@ -7,7 +7,7 @@ title: Commands
 
 
 <div class="doc-nav">
-    <a href="/">← Home</a>
+    <a href="{{ site.baseurl }}/">← Home</a>
     <a href="getting-started.html">Getting Started</a>
     <a href="configuration.html">Configuration</a>
     <a href="ssh-shutdown.html">SSH & Shutdown</a>

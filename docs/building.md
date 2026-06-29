@@ -7,7 +7,7 @@ title: Building from Source
 
 
 <div class="doc-nav">
-    <a href="/">← Home</a>
+    <a href="{{ site.baseurl }}/">← Home</a>
     <a href="getting-started.html">Getting Started</a>
     <a href="commands.html">Commands</a>
     <a href="configuration.html">Configuration</a>
