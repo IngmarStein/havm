@@ -8,7 +8,6 @@ let package = Package(
     ],
     products: [
         .executable(name: "havm", targets: ["Havm"]),
-        .library(name: "HavmCore", targets: ["HavmCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.8.2"),
@@ -35,9 +34,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "Prometheus", package: "swift-prometheus"),
-            ],
-            linkerSettings: [
-                .linkedFramework("AccessoryAccess"),
             ]
         ),
         .target(
@@ -46,6 +42,9 @@ let package = Package(
                 "HavmCore",
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
+            ],
+            linkerSettings: [
+                .linkedFramework("AccessoryAccess"),
             ]
         ),
         .target(
