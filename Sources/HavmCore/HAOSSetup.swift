@@ -165,17 +165,41 @@ public final class HAOSSetupManager: @unchecked Sendable {
     private static let haosRepoAPI = "https://api.github.com/repos/home-assistant/operating-system/releases"
 
     private func fetchRelease() async throws -> GitHubRelease {
-        var urlString = Self.haosRepoAPI
-        switch config.effectiveReleaseChannel {
-        case .stable: urlString += "/latest"
-        case .preRelease: urlString += "?per_page=5"
-        }
+        let (url, channelKey): (URL, String) = {
+            var urlString = Self.haosRepoAPI
+            let key: String
+            switch config.effectiveReleaseChannel {
+            case .stable:
+                urlString += "/latest"
+                key = "stable"
+            case .preRelease:
+                urlString += "?per_page=5"
+                key = "pre-release"
+            }
+            return (URL(string: urlString)!, key)
+        }()
 
-        guard let url = URL(string: urlString) else {
-            throw SetupError.noAssetsFound("invalid URL")
-        }
+        let cacheURL = URL(fileURLWithPath: HavmConfig.cacheDirectory)
+            .appendingPathComponent("release-\(channelKey).cache")
 
-        let data = try await fetchWithRetry(url: url, description: "GitHub releases API")
+        // Try conditional request with cached ETag — 304 responses
+        // don't count against GitHub's rate limit.
+        let cached = loadCachedRelease(from: cacheURL)
+        let data: Data
+        if let (cachedData, newEtag) = try await fetchWithEtag(
+            url: url, etag: cached?.etag, description: "GitHub releases API"
+        ) {
+            data = cachedData
+            if let etag = newEtag {
+                saveCachedRelease(etag: etag, data: cachedData, to: cacheURL)
+            }
+        } else if let cachedData = cached?.data {
+            // 304 Not Modified — use cached response (zero rate-limit cost)
+            logger.debug("Release data unchanged — using cached response")
+            data = cachedData
+        } else {
+            throw SetupError.noAssetsFound("release data unavailable")
+        }
 
         if config.effectiveReleaseChannel == .preRelease {
             let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
@@ -186,6 +210,73 @@ public final class HAOSSetupManager: @unchecked Sendable {
         } else {
             return try JSONDecoder().decode(GitHubRelease.self, from: data)
         }
+    }
+
+    // MARK: - ETag caching
+
+    private struct CachedRelease: Codable {
+        let etag: String
+        let data: Data
+    }
+
+    private func loadCachedRelease(from url: URL) -> CachedRelease? {
+        guard let encoded = try? Data(contentsOf: url),
+              let cached = try? JSONDecoder().decode(CachedRelease.self, from: encoded) else {
+            return nil
+        }
+        return cached
+    }
+
+    private func saveCachedRelease(etag: String, data: Data, to url: URL) {
+        let cached = CachedRelease(etag: etag, data: data)
+        if let encoded = try? JSONEncoder().encode(cached) {
+            try? encoded.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Fetch a URL with optional `If-None-Match` header.
+    /// - Returns: `(data, etag?)` on 200, `nil` on 304, throws on error.
+    private func fetchWithEtag(
+        url: URL, etag: String?, description: String
+    ) async throws -> (Data, String?)? {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let etag {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { return nil }
+
+        if http.statusCode == 304 {
+            return nil  // Not modified — use cache
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 403 && etag == nil {
+                // Rate-limited on first request (no cached ETag). Let the
+                // retry logic handle it.
+                throw SetupError.downloadFailed(url.absoluteString,
+                    NSError(domain: havmErrorDomain, code: 403,
+                            userInfo: [NSLocalizedDescriptionKey: "GitHub API rate limit exceeded"]))
+            }
+            throw SetupError.noAssetsFound("HTTP \(http.statusCode)")
+        }
+
+        // GitHub returns ETag values like W/"abc123". Strip the qualifier
+        // so re-sending the raw value as If-None-Match works correctly.
+        let responseEtag: String? = {
+            guard var raw = (http.allHeaderFields["Etag"] as? String) ?? nil else {
+                return nil
+            }
+            if raw.hasPrefix("W/\"") && raw.hasSuffix("\"") {
+                raw = String(raw.dropFirst(3).dropLast(1))
+            } else if raw.hasPrefix("\"") && raw.hasSuffix("\"") {
+                raw = String(raw.dropFirst().dropLast())
+            }
+            return raw.isEmpty ? nil : raw
+        }()
+
+        return (data, responseEtag)
     }
 
     private func findAArch64Image(in release: GitHubRelease) throws -> GitHubAsset {
@@ -204,49 +295,6 @@ public final class HAOSSetupManager: @unchecked Sendable {
         // Expected: e.g. "haos_generic-aarch64-13.2.img.xz.sha256"
         let checksumName = "\(imageName).sha256"
         return release.assets.first { $0.name == checksumName }
-    }
-
-    // MARK: - Retry logic
-
-    /// Fetch a URL with exponential backoff retry for transient errors.
-    /// Retries up to 3 times for 5xx and 429 responses.
-    private func fetchWithRetry(url: URL, description: String) async throws -> Data {
-        var lastError: Error?
-        for attempt in 0..<3 {
-            do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw SetupError.noAssetsFound("Not an HTTP response")
-                }
-                if (200...299).contains(httpResponse.statusCode) {
-                    return data
-                }
-                if httpResponse.statusCode == 429 || (500...599).contains(httpResponse.statusCode) {
-                    lastError = SetupError.downloadFailed(url.absoluteString,
-                        NSError(domain: havmErrorDomain, code: httpResponse.statusCode,
-                                userInfo: [NSLocalizedDescriptionKey:
-                                    "HTTP \(httpResponse.statusCode) (attempt \(attempt + 1)/3)"]))
-                } else {
-                    throw SetupError.noAssetsFound("HTTP \(httpResponse.statusCode)")
-                }
-            } catch let error as SetupError {
-                // Only retry download failures (transient). Permanent errors
-                // like 404 or invalid responses should escape immediately.
-                if case .noAssetsFound = error {
-                    throw error
-                }
-                lastError = error
-            } catch {
-                lastError = error
-            }
-
-            if attempt < 2 {
-                let delay = Double(1 << attempt)  // 1s, 2s backoff
-                logger.info("\(description): retrying in \(Int(delay))s...")
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            }
-        }
-        throw lastError ?? SetupError.noAssetsFound("Failed after 3 attempts")
     }
 
     // MARK: - Download
