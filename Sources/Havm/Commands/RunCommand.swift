@@ -1,7 +1,6 @@
 import ArgumentParser
 import Foundation
 import HavmCore
-import HavmRuntime
 import Logging
 
 struct RunCommand: AsyncParsableCommand {

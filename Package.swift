@@ -21,7 +21,6 @@ let package = Package(
             name: "Havm",
             dependencies: [
                 "HavmCore",
-                "HavmRuntime",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
             ]
@@ -34,14 +33,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
                 .product(name: "Prometheus", package: "swift-prometheus"),
-            ]
-        ),
-        .target(
-            name: "HavmRuntime",
-            dependencies: [
-                "HavmCore",
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "Metrics", package: "swift-metrics"),
             ],
             linkerSettings: [
                 .linkedFramework("AccessoryAccess"),

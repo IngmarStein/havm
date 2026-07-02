@@ -33,7 +33,7 @@ Havm (CLI, AsyncParsableCommand)
 ├── ImportUTMCommand → UTMImport
 └── VersionCommand
 
-HavmCore (library)
+HavmCore
 ├── Config           YAML config, paths, parsing (Yams)
 ├── HAOSSetup        GitHub release fetch, download .img.xz, xz decompress (CXZ/libzma),
 │                    copy+resize disk, SSH CONFIG disk
@@ -41,17 +41,15 @@ HavmCore (library)
 │                    machine identifier persistence, console mode
 │                    (VZVirtioConsoleDevice, VZFileHandleSerialPortAttachment),
 │                    @MainActor on start()
-├── (ServiceRuntime) AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
+├── ServiceRuntime   SIGTERM/SIGINT → SSH shutdown (port 22222/22) →
+│                    force-stop fallback, DHCP lease guest IP detection,
+│                    console mode: raw terminal, skip SIGINT, restore on exit,
+│                    AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
 ├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
 ├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP),
 │                    bootstrap, process gauges
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
-
-HavmRuntime
-└── ServiceRuntime   SIGTERM/SIGINT → SSH shutdown (port 22222/22) →
-                     force-stop fallback, DHCP lease guest IP detection,
-                     console mode: raw terminal, skip SIGINT, restore on exit
 
 CXZ (C target)
 └── xz_decompress    dlopen liblzma for XZ decompression (no external tools)
