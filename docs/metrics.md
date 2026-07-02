@@ -98,10 +98,6 @@ The dashboard covers:
 | Disk (Unallocated) | Stat | `logical - allocated` |
 | Storage Usage (History) | Time series | `havm_disk_usage_bytes` |
 
-**Alerts** — the dashboard includes an alert that fires when
-`havm_vm_state{state="running"} != 1` for more than 2 minutes,
-indicating the VM is not running or unreachable.
-
 [dashboard]: https://github.com/IngmarStein/havm/blob/main/grafana/dashboard.json
 
 ## Configuration Reference
