@@ -258,6 +258,10 @@ scrape_configs:
       - targets: ['localhost:9210']
 ```
 
+An example [Grafana dashboard](docs/metrics.md#grafana-dashboard) is included
+in the repository — import `grafana/dashboard.json` to visualize VM status,
+USB devices, and disk usage.
+
 The server binds to `127.0.0.1` by default. To allow LAN access (e.g., a
 dedicated Prometheus host), set the host to `0.0.0.0`:
 

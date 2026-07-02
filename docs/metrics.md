@@ -73,18 +73,33 @@ metrics:
     port: 8080
 ```
 
-## Example: Grafana Dashboard
+## Grafana Dashboard
 
-With Prometheus scraping `havm`, you can build a simple Grafana dashboard:
+An example Grafana dashboard is included in the repository at
+[`grafana/dashboard.json`][dashboard]. Import it via Grafana's UI
+(**Dashboards → New → Import**) or place it in a provisioned dashboard
+directory.
 
-- **Stat panel** — `havm_vm_state` to show current VM status
-- **Time series** — `havm_usb_accessories` to track accessory count over time
-- **Time series** — `havm_disk_usage_bytes` to track main disk allocation vs logical size
-- **Alert rule** — fire when `havm_vm_state != 1` (VM not running) for
-  more than 2 minutes
+[![Grafana dashboard preview](../../grafana/dashboard.png)][dashboard]
 
-The `up` metric from Prometheus itself acts as a heartbeat — if `up == 0`,
-`havm` is unreachable and the VM may be down.
+The dashboard covers:
+
+| Panel | Type | Metric |
+|-------|------|--------|
+| VM Status | Stat | `havm_vm_state` |
+| VM Status (History) | Time series | `havm_vm_state` |
+| USB Devices | Stat | `havm_usb_accessories` |
+| Disk (Logical) | Stat | `havm_disk_usage_bytes{type="logical"}` |
+| Disk (Allocated) | Stat | `havm_disk_usage_bytes{type="allocated"}` |
+| Usage (%) | Gauge | `allocated / logical * 100` |
+| Disk (Unallocated) | Stat | `logical - allocated` |
+| Storage Usage (History) | Time series | `havm_disk_usage_bytes` |
+
+**Alerts** — the dashboard includes an alert that fires when
+`havm_vm_state{state="running"} != 1` for more than 2 minutes,
+indicating the VM is not running or unreachable.
+
+[dashboard]: https://github.com/IngmarStein/havm/blob/main/grafana/dashboard.json
 
 ## Configuration Reference
 
