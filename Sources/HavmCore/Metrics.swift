@@ -23,6 +23,12 @@ public final class MetricsServer: @unchecked Sendable {
     private let queue: DispatchQueue
     private var listener: NWListener?
 
+    /// Optional closure called before each metrics scrape. Use for on-demand
+    /// gauges that should be computed fresh (e.g. disk usage) rather than on
+    /// a timer. Exposed as `var` so it can be wired up after the runtime is
+    /// created (the runtime owns the gauges, the server is created first).
+    public var preScrape: (() -> Void)?
+
     public init(registry: PrometheusCollectorRegistry, host: String, port: Int, logger: Logger) {
         self.registry = registry
         self.host = host
@@ -97,6 +103,7 @@ public final class MetricsServer: @unchecked Sendable {
 
         // GET /metrics — Prometheus scrape endpoint
         if line.hasPrefix("GET /metrics") {
+            preScrape?()
             let body = registry.emitToString()
             return Self.httpResponse(
                 status: "200 OK",

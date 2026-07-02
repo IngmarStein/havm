@@ -163,20 +163,15 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     }
 
     /// Switch from the fast boot poll to an event-driven idle run loop.
-    /// After this, the only scheduled work is a one-minute disk-metrics
-    /// timer (if metrics are enabled). VM stop and shutdown are handled
-    /// by ``VZVirtualMachineDelegate`` and ``DispatchSourceSignal``
-    /// callbacks — no recurring GCD timer.
+    /// No scheduled timers — VM stop and shutdown are handled by
+    /// ``VZVirtualMachineDelegate`` and ``DispatchSourceSignal``
+    /// callbacks. Disk metrics are computed on-demand in the Prometheus
+    /// scrape path (``MetricsServer/preScrape``).
     private func enterIdlePhase() {
-        if config.effectiveMetricsEnabled {
-            Foundation.Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-                self.collectDiskMetrics()
-            }
-        }
         // Block the main thread in the run loop. VZ delegate callbacks,
-        // signal dispatch sources, metrics timers, and config-watcher
-        // events all arrive via run-loop sources. GCD main-queue blocks
-        // are processed automatically by CFRunLoop integration.
+        // signal dispatch sources, and config-watcher events all arrive
+        // via run-loop sources. GCD main-queue blocks are processed
+        // automatically by CFRunLoop integration.
         RunLoop.main.run()
     }
 
@@ -364,6 +359,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                 port: newConfig.effectivePrometheusPort,
                 logger: logger
             )
+            server.preScrape = { [weak self] in self?.collectDiskMetrics() }
             do {
                 try server.start()
                 metricsServer = server
@@ -623,11 +619,14 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     // MARK: - Disk metrics
 
-    /// Collect disk usage metrics for VM disk images. Only called when metrics
-    /// are enabled, roughly once per minute. Uses URL resource values to get
-    /// both the logical size and the actual allocated size (APFS sparse files
-    /// typically allocate far less than their logical size).
-    private func collectDiskMetrics() {
+    /// Collect disk usage metrics for VM disk images. Called on each
+    /// Prometheus scrape via a ``MetricsServer/preScrape`` hook so the
+    /// gauge is always fresh without a recurring timer.
+    ///
+    /// Uses URL resource values to get both the logical size and the actual
+    /// allocated size (APFS sparse files typically allocate far less than
+    /// their logical size).
+    public func collectDiskMetrics() {
         let disks: [(String, String)] = [
             ("main", HavmConfig.persistentDiskPath),
         ]

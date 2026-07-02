@@ -99,6 +99,12 @@ struct RunCommand: AsyncParsableCommand {
         let vmController = VMController(config: havmConfig, logger: logger)
         let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, metricsServer: metricsServer, registry: registry, logger: logger)
 
+        // Wire on-demand disk-metrics collection to the Prometheus scrape path
+        // so gauges are computed fresh instead of on a timer.
+        metricsServer?.preScrape = { [weak runtime] in
+            runtime?.collectDiskMetrics()
+        }
+
         // runBlocking dispatches to the main thread and blocks via CFRunLoopRun().
         // All exit paths use _exit() — the return value is never actually reached.
         _ = runtime.runBlocking()
