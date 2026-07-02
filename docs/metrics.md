@@ -78,8 +78,10 @@ metrics:
 With Prometheus scraping `havm`, you can build a simple Grafana dashboard:
 
 - **Stat panel** — `havm_vm_state` to show current VM status
+- **Time series** — `havm_usb_accessories` to track accessory count over time
 - **Time series** — `havm_disk_usage_bytes` to track main disk allocation vs logical size
-- **Alert rule** — `havm_disk_usage_bytes{type="allocated"} / havm_disk_usage_bytes{type="logical"} > 0.85` warns when sparse allocation approaches capacity
+- **Alert rule** — fire when `havm_vm_state != 1` (VM not running) for
+  more than 2 minutes
 
 The `up` metric from Prometheus itself acts as a heartbeat — if `up == 0`,
 `havm` is unreachable and the VM may be down.
