@@ -212,6 +212,33 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
     }
 
+    // MARK: - Rate limit help
+
+    /// Extract the rate-limit reset time from an HTTP response, if present.
+    private func rateLimitReset(from response: HTTPURLResponse) -> Date? {
+        guard let raw = response.value(forHTTPHeaderField: "x-ratelimit-reset"),
+              let epoch = TimeInterval(raw) else { return nil }
+        return Date(timeIntervalSince1970: epoch)
+    }
+
+    /// Build a human-readable rate-limit error message.
+    private func rateLimitMessage(statusCode: Int, resetDate: Date?) -> String {
+        let prefix = statusCode == 429
+            ? "GitHub API rate limit exceeded"
+            : "GitHub API request blocked (HTTP \(statusCode))"
+        guard let reset = resetDate else { return prefix }
+        let interval = Int(reset.timeIntervalSinceNow)
+        if interval <= 0 {
+            return "\(prefix) — limit should reset momentarily"
+        }
+        let minutes = interval / 60
+        let seconds = interval % 60
+        if minutes > 0 {
+            return "\(prefix) — try again in \(minutes)m \(seconds)s"
+        }
+        return "\(prefix) — try again in \(seconds)s"
+    }
+
     // MARK: - ETag caching
 
     private struct CachedRelease: Codable {
@@ -252,12 +279,12 @@ public final class HAOSSetupManager: @unchecked Sendable {
             return nil  // Not modified — use cache
         }
         guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 403 && etag == nil {
-                // Rate-limited on first request (no cached ETag). Let the
-                // retry logic handle it.
+            if http.statusCode == 403 || http.statusCode == 429 {
+                let resetDate = rateLimitReset(from: http)
+                let message = rateLimitMessage(statusCode: http.statusCode, resetDate: resetDate)
                 throw SetupError.downloadFailed(url.absoluteString,
-                    NSError(domain: havmErrorDomain, code: 403,
-                            userInfo: [NSLocalizedDescriptionKey: "GitHub API rate limit exceeded"]))
+                    NSError(domain: havmErrorDomain, code: http.statusCode,
+                            userInfo: [NSLocalizedDescriptionKey: message]))
             }
             throw SetupError.noAssetsFound("HTTP \(http.statusCode)")
         }
