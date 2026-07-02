@@ -474,7 +474,9 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             return configured
         }
         if let ip = host ?? guestIP {
-            return "http://\(ip):8123"
+            // Bracket IPv6 addresses for URL authority: http://[::1]:8123
+            let authority = ip.contains(":") ? "[\(ip)]" : ip
+            return "http://\(authority):8123"
         }
         return nil
     }
@@ -659,17 +661,21 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         }
     }
 
-    /// If the string looks like an IPv4 address, return it as-is.
+    /// If the string looks like an IPv4 or IPv6 address, return it as-is.
     /// Otherwise, resolve it via getaddrinfo (which triggers mDNS for `.local` names).
     private func resolveOrUseIP(_ hostname: String) -> String? {
-        // Quick check: if it's already an IP, use it
-        var sin = sockaddr_in()
-        if inet_pton(AF_INET, hostname, &sin.sin_addr) == 1 {
+        // Quick check: if it's already an IP, use it (check both families).
+        var v4 = sockaddr_in()
+        if inet_pton(AF_INET, hostname, &v4.sin_addr) == 1 {
+            return hostname
+        }
+        var v6 = sockaddr_in6()
+        if inet_pton(AF_INET6, hostname, &v6.sin6_addr) == 1 {
             return hostname
         }
 
         var hints = addrinfo()
-        hints.ai_family = AF_INET
+        hints.ai_family = AF_UNSPEC
         var result: UnsafeMutablePointer<addrinfo>?
         defer { if let r = result { freeaddrinfo(r) } }
 
@@ -677,12 +683,30 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             return nil
         }
 
-        return result!.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { addr in
-            var buf = [CChar](repeating: 0, count: 16)
-            inet_ntop(AF_INET, &addr.pointee.sin_addr, &buf, socklen_t(16))
-            let nullTerm = buf.firstIndex(of: 0) ?? buf.count
-            let utf8Bytes = buf[0..<nullTerm].map { UInt8(bitPattern: $0) }
-            return String(bytes: utf8Bytes, encoding: .utf8) ?? ""
+        var addr = result!.pointee.ai_addr.pointee
+        switch Int32(addr.sa_family) {
+        case AF_INET:
+            return withUnsafeMutablePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+                    var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                    inet_ntop(AF_INET, &$0.pointee.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
+                    let bytes = buf.map(UInt8.init(bitPattern:))
+                    let end = bytes.firstIndex(of: 0) ?? bytes.count
+                    return String(bytes: bytes[0..<end], encoding: .utf8)
+                }
+            }
+        case AF_INET6:
+            return withUnsafeMutablePointer(to: &addr) {
+                $0.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) {
+                    var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                    inet_ntop(AF_INET6, &$0.pointee.sin6_addr, &buf, socklen_t(INET6_ADDRSTRLEN))
+                    let bytes = buf.map(UInt8.init(bitPattern:))
+                    let end = bytes.firstIndex(of: 0) ?? bytes.count
+                    return String(bytes: bytes[0..<end], encoding: .utf8)
+                }
+            }
+        default:
+            return nil
         }
     }
 
