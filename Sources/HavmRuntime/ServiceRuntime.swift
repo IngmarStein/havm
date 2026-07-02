@@ -48,8 +48,6 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var metricsServer: MetricsServer?
     private let registry: PrometheusCollectorRegistry
     private var usbAccessoryCount: Int = 0
-    private var diskMetricsTick: Int = 0
-    private let diskMetricsInterval = 240  // 240 × 250ms = 60 seconds
 
     public init(config: HavmConfig, vmController: VMController, metricsServer: MetricsServer? = nil, registry: PrometheusCollectorRegistry, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -62,6 +60,9 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         vmController.onStateChange = { [weak self] state in
             let name = Self.stateDescription(state)
             self?.logger.info("VM state: \(name)")
+            if state == .stopped {
+                self?.cleanupAndExit(0)
+            }
         }
     }
 
@@ -83,40 +84,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                 self.setupUSBDiscovery()
                 self.printBootingInstructions()
 
-                func poll(tick: Int = 0) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
-                        guard !self.shutdownRequested else { return }
-
-                        if self.vmController.state == .stopped {
-                            self.logger.info("VM stopped.")
-                            self.removePIDFile()
-                            fflush(stdout)
-                            _exit(0)
-                        }
-
-                        // Drain CFRunLoop — VZVirtualMachine uses XPC which
-                        // requires the run loop for Mach port event delivery.
-                        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
-
-                        let newTick = tick + 1
-                        if newTick % 4 == 0 {
-                            if !self.guestReachableNotified {
-                                self.checkGuestNetwork()
-                            } else if !self.webUIReadyNotified {
-                                self.checkWebUI()
-                            }
-                        }
-                        if self.config.effectiveMetricsEnabled {
-                            self.diskMetricsTick += 1
-                            if self.diskMetricsTick >= self.diskMetricsInterval {
-                                self.diskMetricsTick = 0
-                                self.collectDiskMetrics()
-                            }
-                        }
-                        poll(tick: newTick)
-                    }
-                }
-                poll()
+                self.bootPoll()
             }
         }
 
@@ -162,6 +130,63 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             ]
         }
         for line in lines { print(line) }
+    }
+
+    // MARK: - Boot & idle lifecycle
+
+    /// Fast poll (250 ms) during boot: discover guest IP, wait for web UI.
+    /// Once both are confirmed, transitions to the idle run loop.
+    /// The run loop is drained each tick so VZ XPC Mach-port callbacks are
+    /// delivered without a Cocoa application event loop.
+    private func bootPoll() {
+        guard !shutdownRequested else { return }
+        guard vmController.state != .stopped else { cleanupAndExit(0) }
+
+        // Drain run loop — VZVirtualMachine uses XPC which requires the
+        // run loop for Mach port event delivery.
+        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+
+        if !guestReachableNotified {
+            checkGuestNetwork()
+        } else if !webUIReadyNotified {
+            checkWebUI()
+        }
+
+        if guestReachableNotified && webUIReadyNotified {
+            enterIdlePhase()
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
+            self.bootPoll()
+        }
+    }
+
+    /// Switch from the fast boot poll to an event-driven idle run loop.
+    /// After this, the only scheduled work is a one-minute disk-metrics
+    /// timer (if metrics are enabled). VM stop and shutdown are handled
+    /// by ``VZVirtualMachineDelegate`` and ``DispatchSourceSignal``
+    /// callbacks — no recurring GCD timer.
+    private func enterIdlePhase() {
+        if config.effectiveMetricsEnabled {
+            Foundation.Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+                self.collectDiskMetrics()
+            }
+        }
+        // Block the main thread in the run loop. VZ delegate callbacks,
+        // signal dispatch sources, metrics timers, and config-watcher
+        // events all arrive via run-loop sources. GCD main-queue blocks
+        // are processed automatically by CFRunLoop integration.
+        RunLoop.main.run()
+    }
+
+    /// Remove PID file, flush stdout, and exit. Called from the poll loop
+    /// or the ``onStateChange`` delegate handler when the VM stops.
+    /// - Returns: `Never` — unconditionally terminates the process.
+    private func cleanupAndExit(_ code: Int32) -> Never {
+        removePIDFile()
+        fflush(stdout)
+        _exit(code)
     }
 
     // MARK: - Signal handling
