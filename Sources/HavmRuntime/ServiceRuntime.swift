@@ -84,13 +84,13 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                 self.setupUSBDiscovery()
                 self.printBootingInstructions()
 
-                self.bootPoll()
+                self.startBootPhase()
             }
         }
 
         // Block calling thread. The semaphore is never signaled — all exit
-        // paths use _exit() from the main queue poll loop (VM stopped, signal
-        // received, or start failure via exit()).
+        // paths use _exit() from GCD event handlers (VM stopped via VZ
+        // delegate, graceful shutdown, or signal received).
         DispatchSemaphore(value: 0).wait()
         return 0
     }
@@ -132,44 +132,34 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         for line in lines { print(line) }
     }
 
-    // MARK: - Boot & idle lifecycle
+    // MARK: - Boot phase
 
-    /// Poll loop: 250 ms during boot (guest IP + web UI discovery),
-    /// 1 s once the guest is ready (run-loop drain + state check only).
-    ///
-    /// The run loop is drained each tick so VZ XPC Mach-port callbacks and
-    /// GCD dispatch sources (signals) are delivered. ``CFRunLoopRun()`` is
-    /// deliberately avoided — when called from a GCD block (which this is),
-    /// it cannot process further GCD blocks due to serial-queue re-entrance
-    /// restrictions. The 1 s tick in idle ensures GCD and Swift concurrency
-    /// get a window between iterations while keeping wakeups low (60 /min
-    /// versus 240 /min before).
-    private func bootPoll() {
-        guard !shutdownRequested else { return }
-        guard vmController.state != .stopped else { cleanupAndExit(0) }
+    /// Runs at 250 ms intervals until the guest IP is discovered and the web
+    /// UI responds. After that, returns — no more scheduled work. Signals,
+    /// VZ delegate callbacks, and config-watcher events arrive through GCD
+    /// dispatch sources and terminate the process via `_exit()`.
+    private func startBootPhase() {
+        func tick() {
+            guard !shutdownRequested else { return }
+            guard vmController.state != .stopped else { cleanupAndExit(0) }
 
-        // Drain run loop — VZVirtualMachine uses XPC which requires the
-        // run loop for Mach port event delivery.
-        RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
-
-        let isIdle = guestReachableNotified && webUIReadyNotified
-        if !isIdle {
             if !guestReachableNotified {
                 checkGuestNetwork()
             } else if !webUIReadyNotified {
                 checkWebUI()
             }
-        }
 
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + (isIdle ? .seconds(1) : .milliseconds(250))
-        ) {
-            self.bootPoll()
+            guard !guestReachableNotified || !webUIReadyNotified else { return }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
+                tick()
+            }
         }
+        tick()
     }
 
-    /// Remove PID file, flush stdout, and exit. Called from the poll loop
-    /// or the ``onStateChange`` delegate handler when the VM stops.
+    /// Remove PID file, flush stdout, and exit. Called from GCD event
+    /// handlers (signal, VZ delegate, poll loop) when the VM stops.
     /// - Returns: `Never` — unconditionally terminates the process.
     private func cleanupAndExit(_ code: Int32) -> Never {
         removePIDFile()
