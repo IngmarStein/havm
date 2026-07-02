@@ -38,7 +38,7 @@ The server listens on `127.0.0.1:9210` by default and serves two endpoints:
 |--------|------|--------|-------------|
 | `havm_vm_state` | gauge | `state` | VM state (running, stopped, paused, starting, …) |
 | `havm_usb_accessories` | gauge | — | Number of connected USB accessories |
-| `havm_disk_usage_bytes` | gauge | `disk`, `type` | Disk image size: `type=logical` (configured size) or `allocated` (actual APFS allocation). Computed on scrape. |
+| `havm_disk_usage_bytes` | gauge | `disk`, `type` | Disk image size: `type=logical` (configured size) or `allocated` (actual APFS allocation) |
 
 Prometheus also adds its synthetic `up` metric — `1` when the scrape
 succeeds, `0` when `havm` is unreachable.

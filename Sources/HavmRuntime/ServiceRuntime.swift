@@ -153,26 +153,17 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         }
 
         if guestReachableNotified && webUIReadyNotified {
-            enterIdlePhase()
+            // Boot complete — block the main thread in the run loop.
+            // VZ delegate callbacks, signal dispatch sources, and
+            // config-watcher events arrive via run-loop sources.
+            // GCD main-queue blocks are processed automatically.
+            RunLoop.main.run()
             return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
             self.bootPoll()
         }
-    }
-
-    /// Switch from the fast boot poll to an event-driven idle run loop.
-    /// No scheduled timers — VM stop and shutdown are handled by
-    /// ``VZVirtualMachineDelegate`` and ``DispatchSourceSignal``
-    /// callbacks. Disk metrics are computed on-demand in the Prometheus
-    /// scrape path (``MetricsServer/preScrape``).
-    private func enterIdlePhase() {
-        // Block the main thread in the run loop. VZ delegate callbacks,
-        // signal dispatch sources, and config-watcher events all arrive
-        // via run-loop sources. GCD main-queue blocks are processed
-        // automatically by CFRunLoop integration.
-        RunLoop.main.run()
     }
 
     /// Remove PID file, flush stdout, and exit. Called from the poll loop
