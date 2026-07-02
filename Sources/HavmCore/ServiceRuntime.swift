@@ -4,7 +4,6 @@ import Logging
 import AppKit
 import AccessoryAccess
 import Metrics
-import Prometheus
 
 /// Manages the blocking service runtime: signal handling, VM lifecycle,
 /// graceful shutdown, guest IP discovery, and web UI readiness detection.
@@ -46,7 +45,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var healthPollCount = 0
     private let healthPollMax = 300  // 300 × 1s = 5 minutes
     private var metricsServer: MetricsServer?
-    private let registry: PrometheusCollectorRegistry
+    private let registry: SimpleRegistry
     private var usbAccessoryCount: Int = 0
     private var originalTermios: termios?
     private var rawModeEnabled = false
@@ -56,7 +55,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         vmController: VMController,
         consoleMode: Bool = false,
         metricsServer: MetricsServer? = nil,
-        registry: PrometheusCollectorRegistry,
+        registry: SimpleRegistry,
         logger: Logger = Logger(label: "havm.runtime")
     ) {
         self.config = config
