@@ -135,7 +135,7 @@ vm:
   disk_size: "32 GiB"     # default: 32 GiB — can be increased (not shrunk)
 
 network:
-  type: nat               # nat (default) or bridge
+  type: bridge            # bridge (default) or nat
   interface: "en0"        # override auto-detected bridge interface
   mac: "02:00:00:00:00:01"  # fixed MAC address (optional, random by default)
   hostname: "homeassistant.local"  # mDNS hostname or static IP
@@ -192,7 +192,7 @@ shutdown:
 | Memory | 4 GiB (configurable) | Balloon lets macOS reclaim idle guest memory under pressure |
 | Entropy | VirtIO entropy device | Random numbers for guest kernel crypto and ASLR |
 | Disk | 32 GiB raw image, VirtIO block | APFS sparse on disk (only ~6 GiB used after first boot) |
-| Network | NAT with stable MAC | Works without extra entitlements |
+| Network | Bridge with stable MAC | LAN-reachable IP; falls back to NAT without entitlement |
 | CONFIG disk | USB mass storage (XHCI) | HA OS imports SSH keys from USB, not VirtIO |
 | NVRAM | Persisted EFI variable store | GRUB boot state survives reboots |
 | Platform | `VZGenericPlatformConfiguration` | Stable machine ID → consistent MAC |

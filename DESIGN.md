@@ -58,7 +58,7 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
    - `VZEFIBootLoader` with persisted EFI variable store
    - `VZVirtioBlockDeviceConfiguration` with persistent disk
    - Optional CONFIG disk as USB mass storage (XHCI) for SSH key import
-   - `VZNATNetworkDeviceAttachment` (default) or `VZBridgedNetworkDeviceAttachment`
+   - `VZBridgedNetworkDeviceAttachment` (default, falls back to NAT)
    - Stable MAC address derived from persisted `VZGenericMachineIdentifier`
    - No graphics (headless)
 4. `vm.start()` → `ServiceRuntime.runBlocking()`
@@ -103,7 +103,7 @@ management and ignores ACPI events entirely.
 |-----------|--------|-----------|
 | Boot | UEFI (`VZEFIBootLoader`) | Boots directly from GPT disk — no kernel extraction |
 | Storage | VirtIO block, raw image | HA OS ships VirtIO drivers; APFS sparse for efficiency |
-| Network | NAT (default) or Bridge | NAT works without extra entitlements; bridge gets LAN IP |
+| Network | Bridge (default) or NAT | Bridge gets LAN IP; falls back to NAT if entitlement missing |
 | Machine ID | Persisted `VZGenericMachineIdentifier` | Stable MAC across reboots |
 | NVRAM | Persisted EFI variable store | GRUB boot state survives reboots |
 | Graphics | None (headless) | Minimizes overhead, not needed for HA OS |

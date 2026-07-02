@@ -95,6 +95,15 @@ public final class VMController: NSObject, @unchecked Sendable {
                 bridgeInterface = iface
             } else {
                 guard let primary = VZBridgedNetworkInterface.networkInterfaces.first else {
+                    // No bridge interfaces available — likely a binary without the
+                    // com.apple.vm.networking entitlement. If the user didn't
+                    // explicitly request bridge, fall back to NAT.
+                    if config.network?.type == nil {
+                        logger.warning("Bridge not available (missing entitlement?). Falling back to NAT.")
+                        net.attachment = VZNATNetworkDeviceAttachment()
+                        logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
+                        break
+                    }
                     throw VMConfigError.noNetworkInterfaces
                 }
                 bridgeInterface = primary

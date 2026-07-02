@@ -20,7 +20,7 @@ final class ConfigTests: XCTestCase {
         XCTAssertGreaterThan(config.effectiveCPUCount, 0)
         XCTAssertEqual(config.effectiveMemorySize, 4 * 1024 * 1024 * 1024)
         XCTAssertEqual(config.effectiveDiskSize, 32 * 1024 * 1024 * 1024)
-        XCTAssertEqual(config.effectiveNetworkType, .nat)
+        XCTAssertEqual(config.effectiveNetworkType, .bridge)
         XCTAssertEqual(config.effectiveReleaseChannel, .stable)
         XCTAssertEqual(config.effectiveShutdownTimeout, 30)
     }

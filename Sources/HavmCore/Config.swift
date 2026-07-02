@@ -211,10 +211,11 @@ public struct HavmConfig: Decodable, Sendable {
         vm?.diskSize?.bytes ?? (32 * 1024 * 1024 * 1024)
     }
 
-    /// Default network: NAT (works without extra entitlements).
-    /// Bridge available via config for LAN-reachable IP.
+    /// Default network: bridge (LAN-reachable IP for Home Assistant discovery).
+    /// Falls back to NAT at runtime if the binary lacks the
+    /// ``com.apple.vm.networking`` entitlement (e.g. self-compiled without tier 3).
     public var effectiveNetworkType: NetworkType {
-        network?.type ?? .nat
+        network?.type ?? .bridge
     }
 
     /// Default release channel: stable.

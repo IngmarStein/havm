@@ -147,7 +147,7 @@ fish completions have been installed to:
       </div>
       <div class="terminal-body"><pre>
 <span class="prompt">❯</span> <span class="cmd">havm run</span>
-<span class="out">2026-06-29T20:26:47+0200 info havm.run: [Havm] Config loaded: CPU=4 Memory=4 GiB Network=nat Log=text
+<span class="out">2026-06-29T20:26:47+0200 info havm.run: [Havm] Config loaded: CPU=4 Memory=4 GiB Network=bridge Log=text
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Starting HA OS setup...
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Found HA OS 18.0: haos_generic-aarch64-18.0.img.xz
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Using cached image: /Users/ingmar/Library/Caches/havm/haos_generic-aarch64-18.0.img
@@ -160,7 +160,7 @@ fish completions have been installed to:
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] CPU: 4, Memory: 4 GiB
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] SSH CONFIG disk attached (USB)
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] USB: 1 device(s)
-2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Network: NAT (MAC ca:cb:0a:be:56:71)
+2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Network: Bridge (en0, MAC ca:cb:0a:be:56:71)
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] VM configuration validated successfully
 2026-06-29T20:26:47+0200 info havm.run: [HavmCore] Starting VM...
 2026-06-29T20:26:48+0200 info havm.run: [HavmCore] VM started successfully
@@ -168,21 +168,21 @@ fish completions have been installed to:
 2026-06-29T20:26:48+0200 info havm.run: [HavmRuntime] VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.
 
 ╔══════════════════════════════════════════════════════════╗
-║  Home Assistant OS is booting (NAT mode).                ║
+║  Home Assistant OS is booting.                           ║
 ║                                                          ║
-║  SSH:  ssh root@&lt;guest-ip&gt; -p 22222                      ║
-║  Web:  http://&lt;guest-ip&gt;:8123                            ║
+║  Once ready, open:                                       ║
+║    http://homeassistant.local:8123                       ║
 ║                                                          ║
-║  havm will notify you when the guest responds.           ║
-║  First boot may take a few minutes.                      ║
+║  Or check your router's DHCP lease table for the VM's    ║
+║  IP address and open http://&lt;ip&gt;:8123                    ║
 ╚══════════════════════════════════════════════════════════╝
 
 2026-06-29T20:26:48+0200 info havm.run: [HavmRuntime] USB: Listener registered — 0 already connected
-2026-06-29T20:26:49+0200 info havm.run: [HavmRuntime] Waiting for guest DHCP lease (MAC ca:cb:0a:be:56:71)...
-2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime] Guest reachable at 192.168.64.33 — Home Assistant should be ready shortly
-2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   Web: http://192.168.64.33:8123
-2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   SSH: ssh root@192.168.64.33 -p 22222
-2026-06-29T20:27:31+0200 info havm.run: [HavmRuntime] Home Assistant is ready at http://192.168.64.33:8123</span>
+2026-06-29T20:26:49+0200 info havm.run: [HavmRuntime] Waiting for resolution of homeassistant.local...
+2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime] Guest reachable at 192.168.1.42 — Home Assistant should be ready shortly
+2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   Web: http://homeassistant.local:8123
+2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   SSH: ssh root@homeassistant.local -p 22222
+2026-06-29T20:27:31+0200 info havm.run: [HavmRuntime] Home Assistant is ready at http://homeassistant.local:8123</span>
 </pre>
       </div>
     </div>
@@ -205,7 +205,7 @@ fish completions have been installed to:
         <tr><td>Memory</td><td>4 GiB (configurable)</td><td>Balloon lets macOS reclaim idle guest memory</td></tr>
         <tr><td>Entropy</td><td>VirtIO entropy device</td><td>Random numbers for guest crypto and ASLR</td></tr>
         <tr><td>Disk</td><td>32 GiB raw image, VirtIO block</td><td>APFS sparse on disk (~6 GiB used after first boot)</td></tr>
-        <tr><td>Network</td><td>NAT with stable MAC</td><td>Works out of the box, no extra setup</td></tr>
+        <tr><td>Network</td><td>Bridge with stable MAC</td><td>LAN-reachable IP; falls back to NAT without entitlement</td></tr>
         <tr><td>CONFIG disk</td><td>USB mass storage (XHCI)</td><td>HA OS imports SSH keys from USB, not VirtIO</td></tr>
         <tr><td>NVRAM</td><td>Persisted EFI variable store</td><td>GRUB boot state survives reboots</td></tr>
         <tr><td>Platform</td><td><code>VZGenericPlatformConfiguration</code></td><td>Stable machine ID → consistent MAC</td></tr>
@@ -315,7 +315,7 @@ vm:
   memory_size: "4 GiB"
   disk_size: "32 GiB"
 network:
-  type: nat
+  type: bridge
 haos:
   release_channel: stable
 ssh:

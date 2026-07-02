@@ -30,7 +30,7 @@ vm:
   disk_size: "32 GiB"     # default: 32 GiB — can be increased (not shrunk)
 
 network:
-  type: nat               # nat (default) or bridge
+  type: bridge            # bridge (default) or nat
   interface: "en0"        # override auto-detected bridge interface
   mac: "02:00:00:00:00:01"  # fixed MAC address (optional, random by default)
   hostname: "homeassistant.local"  # mDNS hostname or static IP
@@ -82,10 +82,12 @@ so only actually-used blocks consume physical disk space.
 ## Network
 
 ### `type`
-- `nat` (default) — the VM shares the Mac's network connection. Works out
-  of the box.
-- `bridge` — connects the VM directly to your LAN. Requires a build with
-  bridge networking support (see [Building](building.html) for details).
+- `bridge` (default) — connects the VM directly to your LAN for mDNS
+  discovery and local integrations. Requires the `com.apple.vm.networking`
+  entitlement. Distributed binaries include it; self-compiled builds fall
+  back to NAT automatically if the entitlement is missing.
+- `nat` — the VM shares the Mac's network connection. Works everywhere
+  but the guest is behind a NAT with no LAN visibility.
 
 ### `interface`
 When using bridge networking, specifies the physical interface to bridge

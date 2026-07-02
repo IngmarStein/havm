@@ -56,7 +56,7 @@ CXZ (C target)
 ## Key Design Decisions
 
 - **VZEFIBootLoader** — boots directly from GPT disk via UEFI. No kernel extraction, no kernel command line, no initrd. Just point at the disk image.
-- **NAT networking by default** — no extra entitlements needed. Bridge available via config (`network.type: bridge`).
+- **Bridge networking by default** — LAN-reachable IP for Home Assistant discovery. Falls back to NAT at runtime if the binary lacks the `com.apple.vm.networking` entitlement (e.g. self-compiled). Explicit `network.type: nat` available for manual override.
 - **@MainActor on VM start** — `VZVirtualMachine.start()` has `dispatch_assert_queue` requiring the main queue.
 - **APFS sparse files** — disk resize uses `ftruncate` (seek + write zero byte). APFS automatically hole-punches.
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
