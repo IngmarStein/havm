@@ -80,7 +80,7 @@ An example Grafana dashboard is included in the repository at
 (**Dashboards → New → Import**) or place it in a provisioned dashboard
 directory.
 
-[![Grafana dashboard preview](../../grafana/dashboard.png)][dashboard]
+[![Grafana dashboard preview](https://raw.githubusercontent.com/IngmarStein/havm/refs/heads/main/grafana/dashboard.png)][dashboard]
 
 The dashboard covers:
 
