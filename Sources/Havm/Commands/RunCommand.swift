@@ -91,7 +91,7 @@ struct RunCommand: AsyncParsableCommand {
         do {
             try await setupManager.setupIfNeeded()
         } catch {
-            fputs("Error: HA OS setup failed: \(error)\n", stderr)
+            logger.error("HA OS setup failed: \(error)")
             throw ExitCode.failure
         }
 
