@@ -134,13 +134,16 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     // MARK: - Boot & idle lifecycle
 
-    /// Fast poll (250 ms) during boot: discover guest IP, wait for web UI.
-    /// Once both are confirmed, hands off to ``runEventLoop()`` which blocks
-    /// the main thread in ``CFRunLoopRun`` — a true event-driven idle with
-    /// zero polling.
+    /// Poll loop: 250 ms during boot (guest IP + web UI discovery),
+    /// 1 s once the guest is ready (run-loop drain + state check only).
     ///
-    /// The run loop is drained each tick so VZ XPC Mach-port callbacks are
-    /// delivered without a Cocoa application event loop.
+    /// The run loop is drained each tick so VZ XPC Mach-port callbacks and
+    /// GCD dispatch sources (signals) are delivered. ``CFRunLoopRun()`` is
+    /// deliberately avoided — when called from a GCD block (which this is),
+    /// it cannot process further GCD blocks due to serial-queue re-entrance
+    /// restrictions. The 1 s tick in idle ensures GCD and Swift concurrency
+    /// get a window between iterations while keeping wakeups low (60 /min
+    /// versus 240 /min before).
     private func bootPoll() {
         guard !shutdownRequested else { return }
         guard vmController.state != .stopped else { cleanupAndExit(0) }
@@ -149,23 +152,18 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         // run loop for Mach port event delivery.
         RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
 
-        if !guestReachableNotified {
-            checkGuestNetwork()
-        } else if !webUIReadyNotified {
-            checkWebUI()
+        let isIdle = guestReachableNotified && webUIReadyNotified
+        if !isIdle {
+            if !guestReachableNotified {
+                checkGuestNetwork()
+            } else if !webUIReadyNotified {
+                checkWebUI()
+            }
         }
 
-        if guestReachableNotified && webUIReadyNotified {
-            // Boot complete. Schedule CFRunLoopRun() as a *new* GCD block
-            // so it runs from a fresh queue context. Calling it directly
-            // from this asyncAfter callback would nest it inside a GCD
-            // block, preventing further GCD dispatch sources (signals)
-            // and Swift concurrency tasks from executing.
-            DispatchQueue.main.async { RunLoop.main.run() }
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + (isIdle ? .seconds(1) : .milliseconds(250))
+        ) {
             self.bootPoll()
         }
     }
