@@ -38,6 +38,7 @@ The server listens on `127.0.0.1:9210` by default and serves two endpoints:
 |--------|------|--------|-------------|
 | `havm_vm_state` | gauge | `state` | VM state (running, stopped, paused, starting, …) |
 | `havm_usb_accessories` | gauge | — | Number of connected USB accessories |
+| `havm_disk_usage_bytes` | gauge | `disk`, `type` | Disk image size: `type=logical` (configured size) or `allocated` (actual APFS allocation) |
 
 Prometheus also adds its synthetic `up` metric — `1` when the scrape
 succeeds, `0` when `havm` is unreachable.
@@ -77,9 +78,8 @@ metrics:
 With Prometheus scraping `havm`, you can build a simple Grafana dashboard:
 
 - **Stat panel** — `havm_vm_state` to show current VM status
-- **Time series** — `havm_usb_accessories` to track accessory count over time
-- **Alert rule** — fire when `havm_vm_state != 1` (VM not running) for
-  more than 2 minutes
+- **Time series** — `havm_disk_usage_bytes` to track main disk allocation vs logical size
+- **Alert rule** — `havm_disk_usage_bytes{type="allocated"} / havm_disk_usage_bytes{type="logical"} > 0.85` warns when sparse allocation approaches capacity
 
 The `up` metric from Prometheus itself acts as a heartbeat — if `up == 0`,
 `havm` is unreachable and the VM may be down.

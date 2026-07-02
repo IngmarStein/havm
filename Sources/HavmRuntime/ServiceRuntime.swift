@@ -48,6 +48,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var metricsServer: MetricsServer?
     private let registry: PrometheusCollectorRegistry
     private var usbAccessoryCount: Int = 0
+    private var diskMetricsTick: Int = 0
+    private let diskMetricsInterval = 240  // 240 × 250ms = 60 seconds
 
     public init(config: HavmConfig, vmController: VMController, metricsServer: MetricsServer? = nil, registry: PrometheusCollectorRegistry, logger: Logger = Logger(label: "havm.runtime")) {
         self.config = config
@@ -102,6 +104,13 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                                 self.checkGuestNetwork()
                             } else if !self.webUIReadyNotified {
                                 self.checkWebUI()
+                            }
+                        }
+                        if self.config.effectiveMetricsEnabled {
+                            self.diskMetricsTick += 1
+                            if self.diskMetricsTick >= self.diskMetricsInterval {
+                                self.diskMetricsTick = 0
+                                self.collectDiskMetrics()
                             }
                         }
                         poll(tick: newTick)
@@ -583,6 +592,36 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                 self.logger.info("Home Assistant is ready at \(baseURL)")
             } catch {
                 // UI not up yet — retry silently on next poll
+            }
+        }
+    }
+
+    // MARK: - Disk metrics
+
+    /// Collect disk usage metrics for VM disk images. Only called when metrics
+    /// are enabled, roughly once per minute. Uses URL resource values to get
+    /// both the logical size and the actual allocated size (APFS sparse files
+    /// typically allocate far less than their logical size).
+    private func collectDiskMetrics() {
+        let disks: [(String, String)] = [
+            ("main", HavmConfig.persistentDiskPath),
+        ]
+        for (label, path) in disks {
+            let url = URL(fileURLWithPath: path)
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .fileAllocatedSizeKey]) else {
+                continue
+            }
+            if let logical = values.fileSize {
+                Gauge(label: "havm_disk_usage_bytes", dimensions: [
+                    ("disk", label),
+                    ("type", "logical"),
+                ]).record(Double(logical))
+            }
+            if let allocated = values.fileAllocatedSize {
+                Gauge(label: "havm_disk_usage_bytes", dimensions: [
+                    ("disk", label),
+                    ("type", "allocated"),
+                ]).record(Double(allocated))
             }
         }
     }
