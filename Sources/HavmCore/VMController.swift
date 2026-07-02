@@ -19,8 +19,13 @@ public final class VMController: NSObject, @unchecked Sendable {
     /// Stable MAC address persisted across reboots.
     public private(set) var guestMAC: String?
 
-    public init(config: HavmConfig, logger: Logger = Logger(label: "havm.vm")) {
+    /// When true, attach a virtio serial console device for interactive
+    /// guest access via stdin/stdout (``--console``).
+    public let consoleMode: Bool
+
+    public init(config: HavmConfig, consoleMode: Bool = false, logger: Logger = Logger(label: "havm.vm")) {
         self.config = config
+        self.consoleMode = consoleMode
         self.logger = logger
         super.init()
         // Seed the initial state so the gauge is present in /metrics
@@ -126,6 +131,17 @@ public final class VMController: NSObject, @unchecked Sendable {
         // Memory balloon — allows macOS to reclaim idle guest memory when the
         // host is under memory pressure.
         vmConfig.memoryBalloonDevices = [VZVirtioTraditionalMemoryBalloonDeviceConfiguration()]
+
+        // Serial console — only when --console is active. Connects stdin/stdout
+        // to the guest's virtio console (hvc0) for interactive shell access.
+        if consoleMode {
+            let serialPort = VZVirtioConsoleDeviceSerialPortConfiguration()
+            serialPort.attachment = VZFileHandleSerialPortAttachment(
+                fileHandleForReading: FileHandle.standardInput,
+                fileHandleForWriting: FileHandle.standardOutput
+            )
+            vmConfig.serialPorts = [serialPort]
+        }
 
         try vmConfig.validate()
         logger.info("VM configuration validated successfully")

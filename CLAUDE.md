@@ -10,6 +10,7 @@
 ./scripts/build.sh release    # Release build: -O + strip → ~2.1 MB binary
 swift test                    # 10 tests in HavmCoreTests
 ./.build/release/havm run     # Run the VM (blocks; Ctrl+C to stop)
+./.build/release/havm run --console  # Interactive serial console (hvc0)
 ```
 
 Binary size is reduced via `strip` (removes ~2.4 MB of symbol tables from LINKEDIT)
@@ -37,7 +38,9 @@ HavmCore (library)
 ├── HAOSSetup        GitHub release fetch, download .img.xz, xz decompress (CXZ/libzma),
 │                    copy+resize disk, SSH CONFIG disk
 ├── VMController     VZEFIBootLoader + VZEFIVariableStore, storage, network, USB,
-│                    machine identifier persistence, @MainActor on start()
+│                    machine identifier persistence, console mode
+│                    (VZVirtioConsoleDevice, VZFileHandleSerialPortAttachment),
+│                    @MainActor on start()
 ├── (ServiceRuntime) AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
 ├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
@@ -47,7 +50,8 @@ HavmCore (library)
 
 HavmRuntime
 └── ServiceRuntime   SIGTERM/SIGINT → SSH shutdown (port 22222/22) →
-                     force-stop fallback, DHCP lease guest IP detection
+                     force-stop fallback, DHCP lease guest IP detection,
+                     console mode: raw terminal, skip SIGINT, restore on exit
 
 CXZ (C target)
 └── xz_decompress    dlopen liblzma for XZ decompression (no external tools)
@@ -70,6 +74,13 @@ CXZ (C target)
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
 - **Guest IP detection** — parses `/var/db/dhcpd_leases` by MAC address for instant, reliable IP discovery (no ping/ARP scanning).
 - **VFAT LFN** — the `0x40` (LAST_LONG_ENTRY) flag must be on the highest sequence number (end of filename), not the lowest (beginning). Getting this wrong causes both macOS and Linux to truncate the filename.
+- **`--console` interactive mode** — `VZVirtioConsoleDeviceSerialPortConfiguration` with
+  `VZFileHandleSerialPortAttachment(stdin, stdout)` maps the host terminal to the guest's
+  `/dev/hvc0` virtio console. Terminal is set to raw mode (`cfmakeraw` + `ONLCR` for CR-LF
+  translation) after VM start, restored on all exit paths. SIGINT is not intercepted — raw
+  mode's cleared ISIG means Ctrl+C passes `0x03` to the guest. Shutdown via `poweroff` in
+  guest, or SIGTERM from outside. Forces text log format (stderr) to keep stdout clean.
+  Primarily a debugging tool, not a headline feature.
 
 ## Entitlements
 

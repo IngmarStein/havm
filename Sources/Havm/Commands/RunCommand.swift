@@ -30,6 +30,10 @@ struct RunCommand: AsyncParsableCommand {
             help: "Data directory for persistent VM data (default: ~/Library/Application Support/havm/).")
     var dataDir: String?
 
+    @Flag(name: [.long],
+          help: "Interactive serial console — connect stdin/stdout to guest VM.")
+    var console: Bool = false
+
     func run() async throws {
         // 0. Set data directory override before anything touches the file system.
         if let dir = dataDir {
@@ -49,10 +53,17 @@ struct RunCommand: AsyncParsableCommand {
         // 2. Bootstrap the logging system based on the effective format.
         //    CLI flag overrides config file, which defaults to .text.
         //    --json (-j) is a shorthand; explicit --log-format wins.
+        //    Console mode forces text (stderr) to keep stdout clean for
+        //    guest serial output.
         let format = logFormat ?? (json ? .json : havmConfig.effectiveLogFormat)
         let effectiveLogLevel: Logger.Level = verbose ? .debug : havmConfig.effectiveLogLevel
 
-        if format == .json {
+        if console && format == .json {
+            fputs("Warning: --console forces text log format (JSON logs to stdout would mix with guest output).\n", stderr)
+        }
+        let useJSON = console ? false : (format == .json)
+
+        if useJSON {
             LoggingSystem.bootstrap { label in
                 var handler = JSONLogHandler(label: label, stream: FileHandle.standardOutput)
                 handler.logLevel = effectiveLogLevel
@@ -63,8 +74,11 @@ struct RunCommand: AsyncParsableCommand {
         var logger = Logger(label: "havm.run")
         logger.logLevel = effectiveLogLevel
 
+        let logMode = useJSON ? "json" : "text"
+        let extras = console ? " console" : ""
+        let mem = MemorySize(bytes: havmConfig.effectiveMemorySize)
         logger.info(
-            "Config loaded: CPU=\(havmConfig.effectiveCPUCount) Memory=\(MemorySize(bytes: havmConfig.effectiveMemorySize)) Network=\(havmConfig.effectiveNetworkType) Log=\(format.rawValue)"
+            "Config loaded: CPU=\(havmConfig.effectiveCPUCount) Memory=\(mem) Network=\(havmConfig.effectiveNetworkType) Log=\(logMode)\(extras)"
         )
 
         // 3. Bootstrap metrics (always — registry is needed for hot-reload)
@@ -96,8 +110,8 @@ struct RunCommand: AsyncParsableCommand {
         }
 
         // 5. Create and start the VM
-        let vmController = VMController(config: havmConfig, logger: logger)
-        let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, metricsServer: metricsServer, registry: registry, logger: logger)
+        let vmController = VMController(config: havmConfig, consoleMode: console, logger: logger)
+        let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, consoleMode: console, metricsServer: metricsServer, registry: registry, logger: logger)
 
         // Wire on-demand disk-metrics collection to the Prometheus scrape path
         // so gauges are computed fresh instead of on a timer.

@@ -36,10 +36,28 @@ havm run -v                     # debug logging
 havm run -j                     # NDJSON log output
 havm run --cpu-count 2          # override CPU cores for this session
 havm run --memory-size "2 GiB"  # override memory for this session
+havm run --console              # debug: interactive serial console (hvc0)
 ```
 
 Press Ctrl+C once for graceful shutdown (tries REST API → SSH → force-stop).
 Press Ctrl+C twice to skip and force-stop immediately.
+
+### Debug Console (`--console`)
+
+Connects your terminal to the VM's virtio serial console (`/dev/hvc0`)
+for debugging. You get a direct root shell — no SSH, no network required.
+Useful when networking is misconfigured or SSH is unavailable.
+
+```bash
+havm run --console
+```
+
+In console mode:
+- Keystrokes are passed directly to the guest (raw terminal mode)
+- Ctrl+C goes to the guest as `^C` — type `poweroff` to shut down
+- To force-stop, send SIGTERM from another terminal: `kill <pid>`
+- Log output goes to stderr, guest console output goes to stdout
+- `--json` is ignored — text log format is forced to keep stdout clean
 
 ## `havm import-utm`
 

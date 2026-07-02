@@ -32,6 +32,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var config: HavmConfig
     private let vmController: VMController
     private var logger: Logger
+    private let consoleMode: Bool
 
     private var shutdownRequested = false
     private var guestReachableNotified = false
@@ -48,10 +49,20 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var metricsServer: MetricsServer?
     private let registry: PrometheusCollectorRegistry
     private var usbAccessoryCount: Int = 0
+    private var originalTermios: termios?
+    private var rawModeEnabled = false
 
-    public init(config: HavmConfig, vmController: VMController, metricsServer: MetricsServer? = nil, registry: PrometheusCollectorRegistry, logger: Logger = Logger(label: "havm.runtime")) {
+    public init(
+        config: HavmConfig,
+        vmController: VMController,
+        consoleMode: Bool = false,
+        metricsServer: MetricsServer? = nil,
+        registry: PrometheusCollectorRegistry,
+        logger: Logger = Logger(label: "havm.runtime")
+    ) {
         self.config = config
         self.vmController = vmController
+        self.consoleMode = consoleMode
         self.metricsServer = metricsServer
         self.registry = registry
         self.logger = logger
@@ -80,9 +91,16 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                     exit(1)
                 }
 
-                self.logger.info("VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.")
+                if self.consoleMode {
+                    self.enableRawMode()
+                    self.logger.info("Console: interactive serial console active (hvc0). Type 'poweroff' or send SIGTERM to stop.")
+                } else {
+                    self.logger.info("VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.")
+                }
                 self.setupUSBDiscovery()
-                self.printBootingInstructions()
+                if !self.consoleMode {
+                    self.printBootingInstructions()
+                }
 
                 self.startBootPhase()
             }
@@ -162,6 +180,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     /// handlers (signal, VZ delegate, poll loop) when the VM stops.
     /// - Returns: `Never` — unconditionally terminates the process.
     private func cleanupAndExit(_ code: Int32) -> Never {
+        restoreTerminal()
         removePIDFile()
         fflush(stdout)
         _exit(code)
@@ -176,18 +195,22 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private func setupSignalHandlers() {
         // Block default signal behavior — DispatchSource monitors via kqueue.
         signal(SIGTERM, SIG_IGN)
-        signal(SIGINT, SIG_IGN)
         signalSourceTerm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         signalSourceTerm?.setEventHandler { [weak self] in
             self?.signalShutdown(name: "SIGTERM")
         }
         signalSourceTerm?.resume()
 
-        signalSourceInt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-        signalSourceInt?.setEventHandler { [weak self] in
-            self?.signalShutdown(name: "SIGINT")
+        // In console mode, raw terminal clears ISIG — Ctrl+C passes 0x03 to
+        // the guest instead of generating SIGINT. Don't intercept it here.
+        if !consoleMode {
+            signal(SIGINT, SIG_IGN)
+            signalSourceInt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+            signalSourceInt?.setEventHandler { [weak self] in
+                self?.signalShutdown(name: "SIGINT")
+            }
+            signalSourceInt?.resume()
         }
-        signalSourceInt?.resume()
 
         startConfigWatcher()
     }
@@ -357,6 +380,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         guard !shutdownRequested else {
             // Second signal — force immediate exit
             logger.warning("\(name) received again — exiting immediately")
+            restoreTerminal()
             removePIDFile()
             _exit(1)
         }
@@ -412,6 +436,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             logger.info("Force stop completed.")
         }
         catch { logger.error("Force stop failed: \(error)") }
+        restoreTerminal()
         removePIDFile()
         fflush(stdout)
         _exit(0)
@@ -424,6 +449,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         while Date() < deadline {
             if vmController.state == .stopped {
                 logger.info("VM stopped gracefully.")
+                restoreTerminal()
                 removePIDFile()
                 fflush(stdout)
                 _exit(0)
@@ -703,6 +729,40 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     private func removePIDFile() {
         try? FileManager.default.removeItem(atPath: HavmConfig.pidFilePath)
+    }
+
+    // MARK: - Terminal raw mode
+
+    /// Enable raw terminal mode so keystrokes pass directly to the guest
+    /// without line buffering, local echo, or signal generation (ISIG).
+    /// Stores the original termios for restoration on exit.
+    private func enableRawMode() {
+        guard !rawModeEnabled else { return }
+        var raw = termios()
+        guard tcgetattr(STDIN_FILENO, &raw) == 0 else {
+            logger.warning("Console: tcgetattr failed — terminal may behave unexpectedly")
+            return
+        }
+        originalTermios = raw
+        cfmakeraw(&raw)
+        // Re-enable NL→CR-NL translation so stderr log lines don't drift
+        // across the terminal at whatever column the guest cursor left off.
+        // OPOST must be set for ONLCR to take effect.
+        raw.c_oflag |= tcflag_t(OPOST | ONLCR)
+        guard tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0 else {
+            logger.warning("Console: tcsetattr failed — terminal may behave unexpectedly")
+            return
+        }
+        rawModeEnabled = true
+    }
+
+    /// Restore the original terminal settings saved by ``enableRawMode()``.
+    /// Safe to call even if raw mode was never enabled.
+    private func restoreTerminal() {
+        guard rawModeEnabled, let original = originalTermios else { return }
+        var copy = original
+        tcsetattr(STDIN_FILENO, TCSANOW, &copy)
+        rawModeEnabled = false
     }
 
     /// Human-readable VM state description.
