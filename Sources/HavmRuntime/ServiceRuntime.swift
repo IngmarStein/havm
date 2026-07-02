@@ -135,9 +135,10 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     // MARK: - Boot & idle lifecycle
 
     /// Fast poll (250 ms) during boot: discover guest IP, wait for web UI.
-    /// Once both are confirmed, transitions to the idle run loop.
-    /// The run loop is drained each tick so VZ XPC Mach-port callbacks are
-    /// delivered without a Cocoa application event loop.
+    /// Once both are confirmed, slows to 1-second idle polls that only
+    /// drain the run loop and check state — no guest/UI work.
+    /// The run loop is drained each tick so VZ XPC Mach-port callbacks and
+    /// GCD dispatch sources are delivered without a Cocoa event loop.
     private func bootPoll() {
         guard !shutdownRequested else { return }
         guard vmController.state != .stopped else { cleanupAndExit(0) }
@@ -146,22 +147,18 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         // run loop for Mach port event delivery.
         RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
 
-        if !guestReachableNotified {
-            checkGuestNetwork()
-        } else if !webUIReadyNotified {
-            checkWebUI()
+        let isIdle = guestReachableNotified && webUIReadyNotified
+        if !isIdle {
+            if !guestReachableNotified {
+                checkGuestNetwork()
+            } else if !webUIReadyNotified {
+                checkWebUI()
+            }
         }
 
-        if guestReachableNotified && webUIReadyNotified {
-            // Boot complete — block the main thread in the run loop.
-            // VZ delegate callbacks, signal dispatch sources, and
-            // config-watcher events arrive via run-loop sources.
-            // GCD main-queue blocks are processed automatically.
-            RunLoop.main.run()
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + (isIdle ? .seconds(1) : .milliseconds(250))
+        ) {
             self.bootPoll()
         }
     }
