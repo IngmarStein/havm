@@ -118,8 +118,8 @@ struct RunCommand: AsyncParsableCommand {
             runtime?.collectDiskMetrics()
         }
 
-        // runBlocking dispatches to the main thread and blocks via CFRunLoopRun().
-        // All exit paths use _exit() — the return value is never actually reached.
+        // runBlocking dispatches to the main thread and blocks via DispatchSemaphore.
+        // All exit paths call cleanupAndExit() — the return value is never reached.
         _ = runtime.runBlocking()
     }
 }

@@ -86,7 +86,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             self.vmController.startVMBlocking { startError in
                 if let error = startError {
                     self.logger.error("Failed to start VM: \(error)")
-                    exit(1)
+                    self.cleanupAndExit(1)
                 }
 
                 if self.consoleMode {
@@ -105,8 +105,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         }
 
         // Block calling thread. The semaphore is never signaled — all exit
-        // paths use _exit() from GCD event handlers (VM stopped via VZ
-        // delegate, graceful shutdown, or signal received).
+        // paths call cleanupAndExit() from GCD event handlers (VM stopped
+        // via VZ delegate, graceful shutdown, or signal received).
         DispatchSemaphore(value: 0).wait()
         return 0
     }
@@ -153,7 +153,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     /// Runs at 250 ms intervals until the guest IP is discovered and the web
     /// UI responds. After that, returns — no more scheduled work. Signals,
     /// VZ delegate callbacks, and config-watcher events arrive through GCD
-    /// dispatch sources and terminate the process via `_exit()`.
+    /// dispatch sources and terminate the process via `cleanupAndExit()`.
     private func startBootPhase() {
         func tick() {
             guard !shutdownRequested else { return }
@@ -177,11 +177,16 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     /// Remove PID file, flush stdout, and exit. Called from GCD event
     /// handlers (signal, VZ delegate, poll loop) when the VM stops.
     /// - Returns: `Never` — unconditionally terminates the process.
+    ///
+    /// Uses `exit()` rather than `_exit()` so the kernel properly closes
+    /// file descriptors and runs atexit handlers, giving frameworks
+    /// (including Virtualization.framework's NVRAM backing store) a
+    /// chance to flush pending writes.
     private func cleanupAndExit(_ code: Int32) -> Never {
         restoreTerminal()
         removePIDFile()
         fflush(stdout)
-        _exit(code)
+        exit(code)
     }
 
     // MARK: - Signal handling
@@ -378,9 +383,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         guard !shutdownRequested else {
             // Second signal — force immediate exit
             logger.warning("\(name) received again — exiting immediately")
-            restoreTerminal()
-            removePIDFile()
-            _exit(1)
+            cleanupAndExit(1)
         }
         shutdownRequested = true
         logger.info("\(name) received — initiating graceful shutdown...")
@@ -434,10 +437,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             logger.info("Force stop completed.")
         }
         catch { logger.error("Force stop failed: \(error)") }
-        restoreTerminal()
-        removePIDFile()
-        fflush(stdout)
-        _exit(0)
+        cleanupAndExit(0)
     }
 
     /// Wait for the VM to reach `.stopped` state.
@@ -447,10 +447,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         while Date() < deadline {
             if vmController.state == .stopped {
                 logger.info("VM stopped gracefully.")
-                restoreTerminal()
-                removePIDFile()
-                fflush(stdout)
-                _exit(0)
+                cleanupAndExit(0)
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
