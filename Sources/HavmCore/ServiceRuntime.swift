@@ -145,7 +145,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                 "",
             ]
         }
-        for line in lines { print(line) }
+        for line in lines { fputs(line + "\n", stderr) }
     }
 
     // MARK: - Boot phase

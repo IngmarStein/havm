@@ -23,6 +23,10 @@ public final class VMController: NSObject, @unchecked Sendable {
     /// guest access via stdin/stdout (``--console``).
     public let consoleMode: Bool
 
+    /// Set to true before calling `vm.stop()` so `didStopWithError` can
+    /// distinguish an intentional force-stop from an unexpected VM crash.
+    private var isForceStopping = false
+
     public init(config: HavmConfig, consoleMode: Bool = false, logger: Logger = Logger(label: "havm.vm")) {
         self.config = config
         self.consoleMode = consoleMode
@@ -320,6 +324,7 @@ public final class VMController: NSObject, @unchecked Sendable {
     @MainActor
     public func forceStop() async throws {
         guard let vm = vm else { return }
+        isForceStopping = true
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
             vm.stop { error in
                 if let error = error { c.resume(throwing: error) }
@@ -334,7 +339,11 @@ public final class VMController: NSObject, @unchecked Sendable {
 
 extension VMController: VZVirtualMachineDelegate {
     public func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
-        logger.error("VM stopped: \(error.localizedDescription)")
+        if isForceStopping {
+            logger.info("VM stopped (force stop)")
+        } else {
+            logger.error("VM stopped: \(error.localizedDescription)")
+        }
         transition(to: .stopped)
     }
 
