@@ -114,6 +114,11 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     // MARK: - Boot instructions
 
     private func printBootingInstructions() {
+        // Only print the banner for interactive terminal use.
+        // When stdout is not a TTY (launchd service, piped output,
+        // redirected to log file), nobody is watching and the ASCII
+        // art would break JSON consumers that parse stdout.
+        guard isatty(STDOUT_FILENO) != 0 else { return }
         let lines: [String]
         switch config.effectiveNetworkType {
         case .nat:
