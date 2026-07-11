@@ -34,6 +34,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     private var shutdownRequested = false
     private var guestReachableNotified = false
+    private var supervisorReachableNotified = false
     private var webUIReadyNotified = false
     private var firstProbeDone = false
     private var guestIP: String?
@@ -42,6 +43,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var configDirWatcher: DispatchSourceFileSystemObject?
     private var configDirDescriptor: Int32 = -1
     private var configFileWatcher: DispatchSourceFileSystemObject?
+    private var observerPollCount = 0
+    private let observerPollMax = 120  // 120 × 250 ms = 30 s
     private var healthPollCount = 0
     private let healthPollMax = 300  // 300 × 1s = 5 minutes
     private var metricsServer: MetricsServer?
@@ -167,6 +170,9 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             if !guestReachableNotified {
                 checkGuestNetwork()
             } else if !webUIReadyNotified {
+                if !supervisorReachableNotified {
+                    checkObserver()
+                }
                 checkWebUI()
             }
 
@@ -598,6 +604,33 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
             logger.info("  Web: http://\(ip):8123")
             logger.info("  SSH: ssh root@\(ip) -p 22222")
+        }
+    }
+
+    /// Poll the Supervisor's Observer `/ping` endpoint on port 4357.
+    /// The Observer is a Supervisor plugin that starts before Home Assistant Core,
+    /// so it can provide an earlier readiness signal. This check is fully optional —
+    /// it stops as soon as the web UI responds (or we've tried 120 times, ~30s).
+    private func checkObserver() {
+        guard observerPollCount < observerPollMax else { return }
+        observerPollCount += 1
+        guard let ip = guestIP else { return }
+
+        guard let url = URL(string: "http://\(ip):4357/ping") else { return }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+
+        Task { @MainActor in
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
+                guard !self.supervisorReachableNotified else { return }
+                self.supervisorReachableNotified = true
+                self.logger.info("Supervisor is running at \(ip):4357 — Home Assistant is starting up...")
+            } catch {
+                // Observer not up yet — retry silently on next poll
+            }
         }
     }
 
