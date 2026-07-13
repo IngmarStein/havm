@@ -541,7 +541,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         // VZVirtualMachine.start() asserts for the main queue, but
         // restartVM() is called from the defer of an async Task on the
         // global executor. Dispatch explicitly.
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [self] in
             newController.startVMBlocking { [weak self] startError in
                 guard let self else { return }
                 if let error = startError {
