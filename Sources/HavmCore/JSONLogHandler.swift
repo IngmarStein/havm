@@ -52,22 +52,17 @@ public struct JSONLogHandler: LogHandler, Sendable {
         }
         // encodeJSON never fails because we pre-convert all values to
         // JSON-safe representations.
-        if let data = encodeJSON(entry),
-           var line = String(data: data, encoding: .utf8) {
-            line.append("\n")
-            if let encoded = line.data(using: .utf8) {
-                try? stream.write(contentsOf: encoded)
-                try? stream.synchronize()
-            }
+        if var data = encodeJSON(entry) {
+            data.append(0x0A) // '\n'
+            try? stream.write(contentsOf: data)
         } else {
             // Fallback: write a log line that is still valid JSON, so log
             // parsers don't choke. This should never happen with the
             // pre-conversion above, but we guard anyway.
             let fallback = #"{"timestamp":"\#(Self.isoFormatter.string(from: Date()))","level":"error","label":"\#(self.label)","message":"Log serialization failed"}"#
-            if var line = String(data: Data(fallback.utf8), encoding: .utf8) {
-                line.append("\n")
-                try? stream.write(contentsOf: line.data(using: .utf8) ?? Data())
-            }
+            var data = Data(fallback.utf8)
+            data.append(0x0A)
+            try? stream.write(contentsOf: data)
         }
     }
 }

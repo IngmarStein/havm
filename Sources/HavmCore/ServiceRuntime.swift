@@ -79,7 +79,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     }
 
     /// Run the VM, blocking the calling thread until the VM exits or a signal is received.
-    public func runBlocking() -> Int32 {
+    public func runBlocking() async -> Int32 {
         // Write PID file for external tooling (Homebrew services, monitoring).
         writePIDFile()
 
@@ -107,10 +107,11 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             }
         }
 
-        // Block calling thread. The semaphore is never signaled — all exit
-        // paths call cleanupAndExit() from GCD event handlers (VM stopped
-        // via VZ delegate, graceful shutdown, or signal received).
-        DispatchSemaphore(value: 0).wait()
+        // Suspend the calling task instead of blocking a thread.
+        // The continuation is never resumed — all exit paths call
+        // cleanupAndExit() from GCD event handlers (VM stopped via
+        // VZ delegate, graceful shutdown, or signal received).
+        await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
         return 0
     }
 
@@ -398,10 +399,12 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         }
         shutdownRequested = true
         logger.info("\(name) received — initiating graceful shutdown...")
-        Task { await performGracefulShutdown() }
+        let ip = guestIP
+        let cfg = config
+        Task { await performGracefulShutdown(guestIP: ip, config: cfg) }
     }
 
-    private func performGracefulShutdown() async {
+    private func performGracefulShutdown(guestIP: String?, config: HavmConfig) async {
         let timeout = config.effectiveShutdownTimeout
 
         if let ip = guestIP {

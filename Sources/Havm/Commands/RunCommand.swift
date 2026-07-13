@@ -118,9 +118,10 @@ struct RunCommand: AsyncParsableCommand {
             runtime?.collectDiskMetrics()
         }
 
-        // runBlocking dispatches to the main thread and blocks via DispatchSemaphore.
-        // All exit paths call cleanupAndExit() — the return value is never reached.
-        _ = runtime.runBlocking()
+        // runBlocking dispatches VM setup to the main queue then suspends the
+        // calling task. All exit paths call cleanupAndExit() — the return value
+        // is never reached.
+        _ = await runtime.runBlocking()
     }
 }
 

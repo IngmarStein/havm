@@ -30,13 +30,13 @@ all actionable findings, grouped by priority. Corrections applied during review:
 
 ## 🟠 High Priority
 
-| # | Finding | File |
-|---|---|---|
-| 8 | **`DispatchSemaphore` blocks a cooperative thread pool slot permanently.** `runBlocking()` dispatches to main queue then blocks calling thread on a semaphore that's never signaled (all exits via `exit()`). Replace with `await withCheckedContinuation { _ in }`. | `ServiceRuntime.swift:113` |
-| 9 | **JSONLogHandler double-allocates on every log line.** Data → String → Data round-trip just to append `\n`. Write Data directly, append newline byte. | `JSONLogHandler.swift:56-59` |
-| 10 | **`stream.synchronize()` called on every log entry.** Issues `fsync` per log line to stdout (pipe/terminal). Remove — the OS flushes automatically. | `JSONLogHandler.swift:60` |
-| 11 | **Add cross-module optimization.** `-Xswiftc -cross-module-optimization` in build.sh. Estimated 100-300 KB binary size savings with zero code changes. | `scripts/build.sh:58` |
-| 12 | **Data race in `performGracefulShutdown`.** Unstructured `Task` reads `guestIP`, `config`, `vmController.state` while main queue concurrently writes them. Benign in practice but flagged by TSan. Capture values before spawning task, mark as `@MainActor`. | `ServiceRuntime.swift:401-451` |
+| # | Status | Finding | File |
+|---|---|---|---|
+| 8 | ✅ | **`DispatchSemaphore` blocks a cooperative thread pool slot permanently.** `runBlocking()` dispatches to main queue then blocks calling thread on a semaphore that's never signaled (all exits via `exit()`). Replaced with `await withCheckedContinuation { _ in }`. | `ServiceRuntime.swift:113` |
+| 9 | ✅ | **JSONLogHandler double-allocates on every log line.** Data → String → Data round-trip just to append `\n`. Write Data directly, append newline byte. | `JSONLogHandler.swift:56-59` |
+| 10 | ✅ | **`stream.synchronize()` called on every log entry.** Issues `fsync` per log line to stdout (pipe/terminal). Removed — the OS flushes automatically. | `JSONLogHandler.swift:60` |
+| 11 | ❌ | **Add cross-module optimization.** Tested `-Xswiftc -cross-module-optimization`. **Rejected:** binary grows from 2.0→2.1 MB (cross-module inlining outweighs dead-strip savings at this scale), build time increases ~10×, and the Xcode 27 beta linker drops protocol conformance descriptors for `Optional: ExpressibleByArgument` in ArgumentParser, requiring a code workaround (non-optional sentinels) that degrades code quality. Not worth it for a VM launcher where I/O and VM startup dominate. | `scripts/build.sh:58` |
+| 12 | ✅ | **Data race in `performGracefulShutdown`.** Unstructured `Task` reads `guestIP`, `config`, `vmController.state` while main queue concurrently writes them. Benign in practice but flagged by TSan. Captured values before spawning task. | `ServiceRuntime.swift:401-451` |
 
 ---
 
