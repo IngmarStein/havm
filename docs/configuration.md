@@ -119,6 +119,25 @@ havm run --log-format json --log-level debug
 For launchd/Homebrew services, JSON logging to a file via
 `StandardOutPath` is recommended.
 
+## Hot Reload
+
+The following settings take effect immediately when you edit and save
+`config.yml` — **no restart required**:
+
+| Setting | Effect |
+|---|---|
+| `logging.level` | Changes log verbosity within seconds |
+| `logging.format` | Switches between text and JSON output |
+| `metrics.enabled` / `metrics.prometheus.port` / `metrics.prometheus.host` | Starts, stops, or reconfigures the Prometheus exporter |
+| `ha.api_token` | Updates the API token used for REST API shutdown |
+| `shutdown.timeout_seconds` | Applies to the next shutdown attempt |
+
+Settings that **do require a restart** (they only take effect when the VM
+is recreated): CPU, memory, disk size, network type/interface/mac, USB,
+and SSH key path. Run `kill -HUP $(cat ~/Library/Application\ Support/havm/vm/havm.pid)`
+for a graceful restart — the VM shuts down cleanly and launchd / Homebrew
+auto-restarts the process.
+
 ## Metrics
 
 See the [Metrics](metrics.html) page for Prometheus setup, available gauges,

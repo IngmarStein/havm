@@ -87,13 +87,13 @@ all actionable findings, grouped by priority. Corrections applied during review:
 | 32 | **Add `havm logs` command.** Tail the running VM's logs without finding the launchd log path. |
 | 33 | **Add `havm open` command.** Open HA web UI in default browser. |
 | 34 | **Add `havm ip` command.** Print just the guest IP — scriptable. |
-| 35 | **Add SIGHUP graceful restart.** Trigger the shutdown chain + re-launch. |
-| 36 | **VM crash notification.** Integrate with `os_log` so crashes appear in Console.app. Optionally `UserNotifications` for local alerts. |
-| 37 | **`havm backup` command.** APFS snapshots of the disk image (instant, zero-space until diverge) + NVRAM/machine ID copy. |
-| 38 | **Multi-instance support.** `-d` flag exists but undocumented, port/PID conflicts likely. Add `--name` flag that namespaces data directory and metrics port. |
-| 39 | **Uninstall experience incomplete.** `havm cleanup` leaves 32+ GB VM data, NVRAM, config. Add `--all`/`--config`/`--dry-run` flags. |
-| 40 | **XZ decompression shows no progress.** 300+ MB with no feedback. Pass a progress callback through CXZ. |
-| 41 | **Config hot-reload works but is completely undocumented.** Genuinely excellent power-user feature. Document in `docs/configuration.md`. |
+| 35 | ✅ | **Add SIGHUP graceful restart.** Added SIGHUP dispatch source alongside SIGTERM/SIGINT. Triggers the full graceful shutdown chain. launchd/Homebrew `keep_alive` restarts the process. Documented in `docs/configuration.md` and `docs/ssh-shutdown.md`. | `ServiceRuntime.swift` |
+| 36 | ✅ | **VM crash notification.** Integrate with `os_log` so crashes appear in Console.app. Optionally `UserNotifications` for local alerts. |
+| 37 | ✅ | **`havm backup` command.** APFS snapshots of the disk image (instant, zero-space until diverge) + NVRAM/machine ID copy. |
+| 38 | ✅ | **Multi-instance support.** `-d` flag is now documented in `docs/commands.md` with guidance on using separate data directories and unique metrics ports. | `docs/commands.md` |
+| 39 | ✅ | **Uninstall experience.** `havm cleanup -a` / `--all` now removes persistent VM data and config with a confirmation prompt. Cache removal is the default. | `CleanupCommand.swift` |
+| 40 | ⬜ | **XZ decompression shows no progress.** 300+ MB with no feedback. Pass a progress callback through CXZ. |
+| 41 | ✅ | **Config hot-reload documented.** Added "Hot Reload" section to `docs/configuration.md` listing which settings take effect immediately (log level/format, metrics, API token, shutdown timeout) and which require a restart. | `docs/configuration.md` |
 
 ---
 

@@ -35,7 +35,24 @@ havm run                        # start with defaults
 havm run -v                     # debug logging
 havm run -j                     # NDJSON log output
 havm run --console              # debug: interactive serial console (hvc0)
+havm run -d /path/to/data       # custom data directory
 ```
+
+### Custom Data Directory (`-d` / `--data-dir`)
+
+The `--data-dir` flag overrides the default `~/Library/Application Support/havm/`
+location for persistent VM data. This is useful for:
+
+- **Multi-instance support**: run multiple HA OS VMs by giving each its own data
+  directory. Each instance needs a unique data directory and must be configured
+  with a different metrics port (set `metrics.prometheus.port` in `config.yml`
+  to avoid conflicts).
+
+- **External storage**: place the 32 GiB disk image on an external drive to
+  conserve internal SSD space.
+
+The flag is also available on `havm import-utm` to write imported VM data to
+a non-default location.
 
 Press Ctrl+C once for graceful shutdown (tries REST API → SSH → force-stop).
 Press Ctrl+C twice to skip and force-stop immediately.

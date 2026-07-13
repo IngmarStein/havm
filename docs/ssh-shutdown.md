@@ -91,6 +91,19 @@ network:
   hostname: "homeassistant.local"
 ```
 
+## Graceful Restart
+
+Send `SIGHUP` to trigger a clean shutdown and restart. launchd / Homebrew
+`keep_alive` will restart the process automatically:
+
+```bash
+kill -HUP $(cat ~/Library/Application\ Support/havm/vm/havm.pid)
+```
+
+This runs the full shutdown chain (REST API → SSH → force-stop) before
+exiting. Useful after changing config settings that require a restart
+(CPU, memory, disk size, network, USB).
+
 [token]: https://www.home-assistant.io/docs/authentication/#your-account-profile
 
 </div>

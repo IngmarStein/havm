@@ -28,11 +28,12 @@ import Metrics
 /// the accessory is hot-attached to the running VM.
 public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
     private var config: HavmConfig
-    private let vmController: VMController
+    private var vmController: VMController
     private var logger: Logger
     private let consoleMode: Bool
 
     private var shutdownRequested = false
+    private var restartRequested = false
     private var guestReachableNotified = false
     private var supervisorReachableNotified = false
     private var webUIReadyNotified = false
@@ -40,6 +41,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var guestIP: String?
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
+    private var signalSourceHup: DispatchSourceSignal?
     private var configDirWatcher: DispatchSourceFileSystemObject?
     private var configDirDescriptor: Int32 = -1
     private var configFileWatcher: DispatchSourceFileSystemObject?
@@ -75,9 +77,6 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         vmController.onStateChange = { [weak self] state in
             let name = Self.stateDescription(state)
             self?.logger.info("VM state: \(name)")
-            if state == .stopped {
-                self?.cleanupAndExit(0)
-            }
         }
     }
 
@@ -182,7 +181,14 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     private func bootTick() {
         guard !shutdownRequested else { return }
-        guard vmController.state != .stopped else { cleanupAndExit(0) }
+        guard vmController.state != .stopped else {
+            if restartRequested {
+                restartVM()
+            } else {
+                cleanupAndExit(0)
+            }
+            return
+        }
 
         if !guestReachableNotified {
             checkGuestNetwork()
@@ -240,6 +246,16 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             }
             signalSourceInt?.resume()
         }
+
+        // SIGHUP triggers graceful shutdown, then launchd / Homebrew
+        // keep_alive restarts the process — giving the user a clean
+        // config-change restart path.
+        signal(SIGHUP, SIG_IGN)
+        signalSourceHup = DispatchSource.makeSignalSource(signal: SIGHUP, queue: .main)
+        signalSourceHup?.setEventHandler { [weak self] in
+            self?.signalShutdown(name: "SIGHUP")
+        }
+        signalSourceHup?.resume()
 
         startConfigWatcher()
     }
@@ -412,13 +428,29 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             cleanupAndExit(1)
         }
         shutdownRequested = true
-        logger.info("\(name) received — initiating graceful shutdown...")
+        if name == "SIGHUP" {
+            restartRequested = true
+            logger.info("\(name) received — restarting VM...")
+        } else {
+            logger.info("\(name) received — initiating graceful shutdown...")
+        }
         let ip = guestIP
         let cfg = config
         Task { await performGracefulShutdown(guestIP: ip, config: cfg) }
     }
 
     private func performGracefulShutdown(guestIP: String?, config: HavmConfig) async {
+        // The defer fires on every exit path — graceful stop (early return),
+        // force-stop fallthrough, or error. For SIGHUP (restartRequested set),
+        // we restart the VM in-process instead of exiting.
+        defer {
+            if restartRequested {
+                restartVM()
+            } else {
+                cleanupAndExit(0)
+            }
+        }
+
         let timeout = config.effectiveShutdownTimeout
 
         if let ip = guestIP {
@@ -465,7 +497,64 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             logger.info("Force stop completed.")
         }
         catch { logger.error("Force stop failed: \(error)") }
-        cleanupAndExit(0)
+        // defer block above handles restart-vs-exit decision
+    }
+
+    /// Restart the VM in-process: reload config, create a fresh
+    /// `VMController`, and start the new VM with updated config.
+    /// Called after graceful shutdown when `restartRequested` is set
+    /// (e.g. SIGHUP). No process exit — the calling task continues.
+    private func restartVM() {
+        // Reload config from disk so VM settings (CPU, memory, disk,
+        // network) take effect on restart.
+        do {
+            config = try loadConfig()
+            logger.info("Config reloaded for restart")
+        } catch {
+            logger.warning("Failed to reload config: \(error) — keeping current config")
+        }
+
+        // Re-apply hot-reloadable settings (log level may have changed).
+        logger.logLevel = config.effectiveLogLevel
+
+        // Use a fresh logger for the new VM controller so its label
+        // doesn't carry the old instance's identity.
+        var vmLogger = Logger(label: "havm.vm")
+        vmLogger.logLevel = config.effectiveLogLevel
+
+        let newController = VMController(config: config, consoleMode: consoleMode, logger: vmLogger)
+
+        // Reset boot-phase state for the new VM.
+        guestReachableNotified = false
+        supervisorReachableNotified = false
+        webUIReadyNotified = false
+        firstProbeDone = false
+        guestIP = nil
+        observerPollCount = 0
+        healthPollCount = 0
+        shutdownRequested = false
+        restartRequested = false
+        bootTimer?.cancel()
+        observerTask?.cancel()
+        webUITask?.cancel()
+
+        newController.startVMBlocking { [weak self] startError in
+            guard let self else { return }
+            if let error = startError {
+                self.logger.error("Failed to restart VM: \(error)")
+                self.cleanupAndExit(1)
+            }
+
+            self.vmController = newController
+
+            // USB accessories are hot-attached — the new controller's
+            // XHCI configuration will pick up any devices the listener
+            // re-discovers after the new VM boots.
+            self.setupUSBDiscovery()
+
+            self.logger.info("VM restarted successfully")
+            self.startBootPhase()
+        }
     }
 
     /// Wait for the VM to reach `.stopped` state.
@@ -475,7 +564,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         while Date() < deadline {
             if vmController.state == .stopped {
                 logger.info("VM stopped gracefully.")
-                cleanupAndExit(0)
+                return true
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
