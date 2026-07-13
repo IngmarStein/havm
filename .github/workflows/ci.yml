@@ -31,6 +31,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Cache SPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
       - name: Select Xcode 27
         run: |
           for dir in \

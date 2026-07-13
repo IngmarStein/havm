@@ -178,8 +178,12 @@ public final class VMController: NSObject, @unchecked Sendable {
         if let store = try? VZEFIVariableStore(creatingVariableStoreAt: url) {
             return store
         }
-        // This should never happen
-        fatalError("Cannot create EFI variable store at \(url.path)")
+        // Disk full, permissions, or filesystem error — should be
+        // extremely rare, but give a readable message.
+        fatalError(
+            "Cannot create EFI variable store at \(url.path). "
+            + "Check disk space and permissions."
+        )
     }
 
     // MARK: - Blocking VM start (for ServiceRuntime, called from main dispatch queue)
@@ -299,24 +303,12 @@ public final class VMController: NSObject, @unchecked Sendable {
     // MARK: - State transitions
 
     private func transition(to newState: VZVirtualMachine.State) {
-        let oldLabel = stateDescription(state)
-        let newLabel = stateDescription(newState)
+        let oldLabel = state.description
+        let newLabel = newState.description
         Gauge(label: "havm_vm_state", dimensions: [("state", oldLabel)]).record(0)
         Gauge(label: "havm_vm_state", dimensions: [("state", newLabel)]).record(1)
         state = newState
         onStateChange?(newState)
-    }
-
-    private func stateDescription(_ state: VZVirtualMachine.State) -> String {
-        switch state {
-        case .stopped:   "stopped"
-        case .running:   "running"
-        case .paused:    "paused"
-        case .starting:  "starting"
-        case .saving:    "saving"
-        case .restoring: "restoring"
-        default:         "unknown"
-        }
     }
 
     // MARK: - Lifecycle
@@ -383,5 +375,20 @@ extension AAUSBAccessory {
         let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
         let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
         return (vid, pid)
+    }
+}
+
+extension VZVirtualMachine.State {
+    /// Human-readable state label for logging and metrics.
+    var description: String {
+        switch self {
+        case .stopped:   "stopped"
+        case .running:   "running"
+        case .paused:    "paused"
+        case .starting:  "starting"
+        case .saving:    "saving"
+        case .restoring: "restoring"
+        default:         "unknown (\(rawValue))"
+        }
     }
 }

@@ -116,7 +116,7 @@ title: Home
       <div class="terminal-body"><pre>
 <span class="prompt">$</span> <span class="cmd">brew install ingmarstein/havm/havm</span>
 <span class="out">==> Fetching downloads for: havm
-✔︎ Formula havm (0.1.4)                                              Verified    857.5KB/857.5KB
+✔︎ Formula havm (0.2.2)                                              Verified    857.5KB/857.5KB
 ==> Installing havm from ingmarstein/havm
 ==> Caveats
 Downloads and sets up Home Assistant OS automatically on first run.
@@ -129,7 +129,7 @@ To start ingmarstein/havm/havm now and restart at login:
 Or, if you don't want/need a background service you can just run:
   /opt/homebrew/opt/havm/bin/havm run -c /opt/homebrew/etc/havm/config.yml --data-dir /opt/homebrew/var/lib/havm
 ==> Summary
-🍺  /opt/homebrew/Cellar/havm/0.1.4: 12 files, 2.2MB, built in 2 seconds
+🍺  /opt/homebrew/Cellar/havm/0.2.2: 12 files, 2.2MB, built in 2 seconds
 ==> Running `brew cleanup havm`...
 ==> Caveats
 fish completions have been installed to:

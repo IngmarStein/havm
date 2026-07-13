@@ -176,6 +176,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 urlString += "?per_page=5"
                 key = "pre-release"
             }
+            // URL is built from hardcoded constants — cannot fail.
             return (URL(string: urlString)!, key)
         }()
 
@@ -307,13 +308,12 @@ public final class HAOSSetupManager: @unchecked Sendable {
     }
 
     private func findAArch64Image(in release: GitHubRelease) throws -> GitHubAsset {
-        let candidates = release.assets.filter { asset in
+        guard let image = release.assets.first(where: { asset in
             asset.name.hasPrefix("haos_generic-aarch64") && asset.name.hasSuffix(".img.xz")
-        }
-        guard let best = candidates.first else {
+        }) else {
             throw SetupError.noAssetsFound(release.tagName)
         }
-        return best
+        return image
     }
 
     /// Look for a SHA256 checksum file in the release assets.

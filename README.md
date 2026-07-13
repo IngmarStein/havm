@@ -354,6 +354,26 @@ Set `ENTITLEMENTS_TIER` and `DEVELOPMENT_TEAM` in `resources/build.xcconfig`.
 Build `havm.xcodeproj` once in Xcode to generate the provisioning profile
 for `ch.ingmar.havm`.
 
+## Comparison
+
+Why use havm instead of other ways to run Home Assistant?
+
+| | havm | UTM | Docker | Raspberry Pi |
+|---|---|---|---|---|
+| **Setup** | Zero config — `havm run` | Manual download + config | Docker Compose | Flash SD card + configure |
+| **HA version** | Full HA OS (Supervisor, add-ons) | Full HA OS | Container only (no add-ons, no Supervisor) | Full HA OS |
+| **Headless** | Designed for it | Possible but clunky | Yes | Yes |
+| **Background service** | Native launchd / Homebrew | Needs custom wrapper | Docker daemon | systemd |
+| **Performance** | Apple Silicon native | Apple Silicon native | Apple Silicon native | Slower (ARM SBC) |
+| **Resource use** | ~4 GB RAM (balloon-reclaimable) | ~4 GB RAM | Less (no full OS) | Dedicated device |
+| **USB passthrough** | Menu bar accessory | Built-in UI | Not practical | Native GPIO/USB |
+| **Snapshots** | Planned (APFS snapshots) | Built-in | Not applicable | Via HA backups |
+| **Cost** | $0 (uses existing Mac) | $0 | $0 | $50–200+ |
+| **Best for** | Mac users who want a "set and forget" HA | Users who want a VM GUI | Lightweight HA without add-ons | Dedicated always-on appliance |
+
+**In short:** If you have an Apple Silicon Mac that's always on, havm is the
+simplest way to run full Home Assistant OS with zero additional hardware.
+
 ## License
 
 MIT

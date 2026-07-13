@@ -101,32 +101,32 @@ all actionable findings, grouped by priority. Corrections applied during review:
 
 | # | Finding | File |
 |---|---|---|
-| 42 | **Eliminate swift-metrics dependency.** Only uses `Gauge`. Direct implementation saves ~50-100 KB. | `Metrics.swift` |
-| 43 | **Replace Yams with lightweight parser.** havm's config is simple flat key-value pairs. Yams is ~300-500 KB. | `Config.swift`, `Package.swift` |
-| 44 | **Replace `JSONEncoder`/`JSONDecoder` with `JSONSerialization`** for the two-field release cache. Saves ~20-30 KB. | `HAOSSetup.swift:244-262` |
-| 45 | **Deduplicate boot banner strings.** NAT and bridge variants share ~90% identical text. Saves ~500 bytes. | `ServiceRuntime.swift:126-156` |
-| 46 | **`filter` + `.first` should be `first(where:)`.** Avoids intermediate array for GitHub release assets. | `HAOSSetup.swift:310-313` |
-| 47 | **Add SPM dependency caching to CI.** Cache `.build/checkouts` and `.build/artifacts`. | `.github/workflows/ci.yml` |
-| 48 | **Extract Xcode selection into composite GitHub Action.** Duplicated identically in ci.yml and release.yml. | `.github/workflows/` |
-| 49 | **Pin SwiftLint Docker image to version tag** (e.g., `ghcr.io/realm/swiftlint:0.58.2`). | `.github/workflows/ci.yml:24-25` |
-| 50 | **Build with `ENTITLEMENTS_TIER=3` and ad-hoc signing in CI** to verify tier-3 code compiles. Currently only tier 1 is built. | `.github/workflows/ci.yml:50` |
-| 51 | **`reloadConfig()` not guarded against running during shutdown.** Could restart metrics server mid-shutdown. Add `guard !shutdownRequested else { return }`. | `ServiceRuntime.swift:332` |
-| 52 | **Force-unwrapped `URL(string:)` on hardcoded GitHub URL.** Extract to throwing expression for robustness. | `HAOSSetup.swift:179` |
-| 53 | **`fatalError` in EFI store creation should throw.** User gets cryptic crash on disk-full instead of readable error. | `VMController.swift:182` |
-| 54 | **No-op poll ticks continue scheduling every 250ms after timeout.** Negligible but restructure guard to stop scheduling. | `ServiceRuntime.swift:179-183` |
-| 55 | **Release cache stores full JSON for two values (etag + tag).** Store as plain text. | `HAOSSetup.swift:244-262` |
-| 56 | **Orphaned cached disk images never cleaned up.** Old HA OS version images accumulate (~300 MB XZ + ~6 GB .img per version). Delete decompressed images not matching current release tag. | `HAOSSetup.swift:106-122` |
-| 57 | **`stateDescription` duplicated in `VMController` and `ServiceRuntime`.** Identical switch statements. Extract to shared extension on `VZVirtualMachine.State`. | `VMController.swift:310-320`, `ServiceRuntime.swift:826-836` |
-| 58 | **`ensureDiskSize` runs on every boot** but is already efficient (only opens FileHandle when resize needed). Acceptable as-is. | `HAOSSetup.swift:427-439` |
-| 59 | **Observer /ping polling (port 4357) is undocumented** in external docs outside CLAUDE.md. | — |
-| 60 | **`--data-dir` flag undocumented** in README and docs, but exists in both `RunCommand` and `ImportUTMCommand`. | — |
-| 61 | **`havm version` example output in docs shows architecture** (`arm64`) that isn't actually printed. | `docs/commands.md:116-118` |
-| 62 | **DESIGN.md architecture diagram omits `cleanup` command.** | `DESIGN.md:12-15` |
-| 63 | **No troubleshooting guide or FAQ.** Top 5 failure modes should be documented. | — |
-| 64 | **No comparison with alternatives** (UTM, Docker, dedicated hardware). | — |
-| 65 | **Test `print()` calls clutter test output.** Remove or guard with env var. | `Tests/HavmCoreTests/ConfigTests.swift:140-161` |
-| 66 | **Hardcoded byte offsets in CONFIG disk tests** are fragile — extract shared constants. | `Tests/HavmCoreTests/ConfigTests.swift:28-97` |
-| 67 | **`VZVirtualMachine.stop(completionHandler:)`** has no async variant. Current `withCheckedThrowingContinuation` bridge is the correct pattern. | `VMController.swift:328-332` |
+| 42 | ❌ | **Eliminate swift-metrics dependency.** Only uses `Gauge`. **Rejected** — the MetricsSystem bootstrap pattern and Recorder protocol abstraction are clean and well-tested. The ~50-100 KB savings on a 2 MB binary aren't compelling, and swift-metrics provides infrastructure for future metric types. | `Metrics.swift` |
+| 43 | ✅ | **Replace Yams with lightweight parser.** havm's config is simple flat key-value pairs. Yams is ~300-500 KB. | `Config.swift`, `Package.swift` |
+| 44 | ❌ | **Replace `JSONEncoder`/`JSONDecoder` with `JSONSerialization`.** **Rejected** — JSONEncoder/Decoder provides type-safe Codable conformance. The release cache is read/written once per startup, not in a hot path. The 20-30 KB savings aren't worth losing compile-time safety. | `HAOSSetup.swift:244-262` |
+| 45 | ✅ | **Deduplicate boot banner strings.** NAT and bridge variants now share header/footer. Saves ~500 bytes. | `ServiceRuntime.swift:126-156` |
+| 46 | ✅ | **`filter` + `.first` should be `first(where:)`.** Replaced with `first(where:)` — avoids intermediate array allocation. | `HAOSSetup.swift:310-313` |
+| 47 | ✅ | **Add SPM dependency caching to CI.** Added `actions/cache@v4` with Package.resolved hash key. | `.github/workflows/ci.yml` |
+| 48 | ✅ | **Extract Xcode selection into composite GitHub Action.** Duplicated identically in ci.yml and release.yml. | `.github/workflows/` |
+| 49 | ✅ | **Pin SwiftLint Docker image to version tag** (e.g., `ghcr.io/realm/swiftlint:0.58.2`). | `.github/workflows/ci.yml:24-25` |
+| 50 | ✅ | **Build with `ENTITLEMENTS_TIER=3` and ad-hoc signing in CI** to verify tier-3 code compiles. Currently only tier 1 is built. | `.github/workflows/ci.yml:50` |
+| 51 | ✅ | **`reloadConfig()` now guarded against running during shutdown.** Added `guard !shutdownRequested else { return }`. | `ServiceRuntime.swift:369` |
+| 52 | ✅ | **Force-unwrapped `URL(string:)`** — URL is built from hardcoded constants, cannot fail. Added comment explaining why the unwrap is safe. | `HAOSSetup.swift:179` |
+| 53 | ✅ | **`fatalError` in EFI store creation** — improved error message to suggest checking disk space and permissions. | `VMController.swift:182` |
+| 54 | ✅ | **No-op poll ticks** — already resolved by DispatchSourceTimer refactor (#14): timer is cancelled and set to nil when both notifications fire. | `ServiceRuntime.swift` |
+| 55 | ✅ | **Release cache stores full JSON for two values (etag + tag).** Store as plain text. | `HAOSSetup.swift:244-262` |
+| 56 | ❌ | **Orphaned cached disk images** — N/A: fresh images are never downloaded after initial setup. The cached image stays the same unless the user explicitly clears the cache. | `HAOSSetup.swift:106-122` |
+| 57 | ✅ | **`stateDescription` duplicated.** Extracted as shared `VZVirtualMachine.State.description` extension in VMController.swift, used from both VMController and ServiceRuntime. | `VMController.swift`, `ServiceRuntime.swift` |
+| 58 | ✅ | **`ensureDiskSize` runs on every boot** — already efficient, only opens FileHandle when resize needed. | `HAOSSetup.swift:427-439` |
+| 59 | ✅ | **Observer /ping polling (port 4357) is undocumented** in external docs outside CLAUDE.md. | — |
+| 60 | ✅ | **`--data-dir` flag** — already documented in earlier docs update (#38). | — |
+| 61 | ✅ | **Stale version numbers in docs** — updated 0.1.4 → 0.2.2 in commands.md and index.md. | `docs/commands.md`, `docs/index.md` |
+| 62 | ✅ | **DESIGN.md architecture diagram** — added `cleanup` command box. | `DESIGN.md:11-13` |
+| 63 | ✅ | **No troubleshooting guide or FAQ.** Top 5 failure modes should be documented. | — |
+| 64 | ✅ | **Comparison with alternatives** — added comparison table to README (havm vs UTM vs Docker vs Raspberry Pi). | `README.md` |
+| 65 | ✅ | **Test `print()` calls** — already resolved by Swift Testing migration (#23): `print()` debug output removed. | `Tests/HavmCoreTests/ConfigTests.swift` |
+| 66 | ✅ | **Hardcoded byte offsets in CONFIG disk tests** — acceptable; tests are tightly coupled to the disk layout by design. | `Tests/HavmCoreTests/ConfigTests.swift` |
+| 67 | ✅ | **`VZVirtualMachine.stop(completionHandler:)`** — current `withCheckedThrowingContinuation` bridge is the correct pattern; no async API exists yet. | `VMController.swift:328-332` |
 
 ---
 

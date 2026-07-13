@@ -76,7 +76,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         super.init()
 
         vmController.onStateChange = { [weak self] state in
-            let name = Self.stateDescription(state)
+            let name = state.description
             self?.logger.info("VM state: \(name)")
         }
     }
@@ -128,37 +128,39 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         // redirected to log file), nobody is watching and the ASCII
         // art would break JSON consumers that parse stdout.
         guard isatty(STDOUT_FILENO) != 0 else { return }
-        let lines: [String]
+        var lines: [String]
+        let mode = config.effectiveNetworkType == .nat ? " (NAT mode)" : ""
+        // 57-character content area between ║ borders.
+        let header = "Home Assistant OS is booting\(mode)."
+        let pad = String(repeating: " ", count: 55 - header.count)
+        lines = [
+            "",
+            "╔══════════════════════════════════════════════════════════╗",
+            "║  \(header)\(pad) ║",
+            "║                                                          ║",
+        ]
         switch config.effectiveNetworkType {
         case .nat:
-            lines = [
-                "",
-                "╔══════════════════════════════════════════════════════════╗",
-                "║  Home Assistant OS is booting (NAT mode).                ║",
-                "║                                                          ║",
+            lines += [
                 "║  SSH:  ssh root@<guest-ip> -p 22222                      ║",
                 "║  Web:  http://<guest-ip>:8123                            ║",
-                "║                                                          ║",
-                "║  havm will notify you when the guest responds.           ║",
-                "║  First boot may take a few minutes.                      ║",
-                "╚══════════════════════════════════════════════════════════╝",
-                "",
             ]
         case .bridge:
-            lines = [
-                "",
-                "╔══════════════════════════════════════════════════════════╗",
-                "║  Home Assistant OS is booting.                           ║",
-                "║                                                          ║",
+            lines += [
                 "║  Once ready, open:                                       ║",
                 "║    http://homeassistant.local:8123                       ║",
                 "║                                                          ║",
                 "║  Or check your router's DHCP lease table for the VM's    ║",
                 "║  IP address and open http://<ip>:8123                    ║",
-                "╚══════════════════════════════════════════════════════════╝",
-                "",
             ]
         }
+        lines += [
+            "║                                                          ║",
+            "║  havm will notify you when the guest responds.           ║",
+            "║  First boot may take a few minutes.                      ║",
+            "╚══════════════════════════════════════════════════════════╝",
+            "",
+        ]
         for line in lines { fputs(line + "\n", stderr) }
     }
 
@@ -365,6 +367,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     }
 
     private func reloadConfig() {
+        guard !shutdownRequested else { return }
         guard let path = config.configPath else { return }
         guard let newConfig = try? loadConfig(path: path) else {
             logger.debug("Config reload: failed to parse — keeping current config")
@@ -943,16 +946,4 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         rawModeEnabled = false
     }
 
-    /// Human-readable VM state description.
-    private static func stateDescription(_ state: VZVirtualMachine.State) -> String {
-        switch state {
-        case .stopped:   "stopped"
-        case .running:   "running"
-        case .paused:    "paused"
-        case .starting:  "starting"
-        case .saving:    "saving"
-        case .restoring: "restoring"
-        default:         "unknown (\(state.rawValue))"
-        }
-    }
 }

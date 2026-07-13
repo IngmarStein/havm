@@ -128,7 +128,7 @@ next `havm run`.
 Prints the havm version, macOS version, and architecture:
 
 ```
-havm 0.1.4
+havm 0.2.2
 macOS 27.0 (arm64)
 ```
 
