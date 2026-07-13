@@ -538,22 +538,27 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         observerTask?.cancel()
         webUITask?.cancel()
 
-        newController.startVMBlocking { [weak self] startError in
-            guard let self else { return }
-            if let error = startError {
-                self.logger.error("Failed to restart VM: \(error)")
-                self.cleanupAndExit(1)
+        // VZVirtualMachine.start() asserts for the main queue, but
+        // restartVM() is called from the defer of an async Task on the
+        // global executor. Dispatch explicitly.
+        DispatchQueue.main.async {
+            newController.startVMBlocking { [weak self] startError in
+                guard let self else { return }
+                if let error = startError {
+                    self.logger.error("Failed to restart VM: \(error)")
+                    self.cleanupAndExit(1)
+                }
+
+                self.vmController = newController
+
+                // USB accessories are hot-attached — the new controller's
+                // XHCI configuration will pick up any devices the listener
+                // re-discovers after the new VM boots.
+                self.setupUSBDiscovery()
+
+                self.logger.info("VM restarted successfully")
+                self.startBootPhase()
             }
-
-            self.vmController = newController
-
-            // USB accessories are hot-attached — the new controller's
-            // XHCI configuration will pick up any devices the listener
-            // re-discovers after the new VM boots.
-            self.setupUSBDiscovery()
-
-            self.logger.info("VM restarted successfully")
-            self.startBootPhase()
         }
     }
 
