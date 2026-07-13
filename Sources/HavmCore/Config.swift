@@ -407,9 +407,6 @@ public func loadConfig(path: String? = nil) throws -> HavmConfig {
     guard !trimmed.isEmpty else {
         return HavmConfig.defaults
     }
-    guard (try? Yams.compose(yaml: yaml)) != nil else {
-        return HavmConfig.defaults
-    }
 
     let decoder = YAMLDecoder()
     var config = try decoder.decode(HavmConfig.self, from: yaml)

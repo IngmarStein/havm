@@ -69,16 +69,19 @@ extern void     lzma_end(lzma_stream *strm);
 
 // ---- Implementation ----
 
-#define INPUT_BUF_SIZE  (256 * 1024)
-#define OUTPUT_BUF_SIZE (256 * 1024)
+#define INPUT_BUF_SIZE  (1024 * 1024)
+#define OUTPUT_BUF_SIZE (1024 * 1024)
+#define DECODER_MEMLIMIT (128ULL * 1024 * 1024)
 
 int xz_decompress_file(const char *input_path, const char *output_path) {
-    // Open input file
+    // Open input file — disable stdio buffering since we manage our own
+    // 1 MiB buffers; this avoids double-buffering overhead.
     FILE *in = fopen(input_path, "rb");
     if (!in) {
         perror("fopen input");
         return 1;
     }
+    setvbuf(in, NULL, _IONBF, 0);
 
     // Open output file
     FILE *out = fopen(output_path, "wb");
@@ -87,6 +90,7 @@ int xz_decompress_file(const char *input_path, const char *output_path) {
         fclose(in);
         return 1;
     }
+    setvbuf(out, NULL, _IONBF, 0);
 
     // Allocate buffers
     uint8_t *in_buf = malloc(INPUT_BUF_SIZE);
@@ -102,7 +106,7 @@ int xz_decompress_file(const char *input_path, const char *output_path) {
 
     // Initialize decoder
     lzma_stream strm = LZMA_STREAM_INIT;
-    lzma_ret ret = lzma_stream_decoder(&strm, UINT64_MAX, 0);
+    lzma_ret ret = lzma_stream_decoder(&strm, DECODER_MEMLIMIT, 0);
     if (ret != LZMA_OK) {
         fprintf(stderr, "lzma_stream_decoder failed: %d\n", ret);
         goto cleanup;

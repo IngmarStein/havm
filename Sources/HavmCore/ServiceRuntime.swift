@@ -47,6 +47,9 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private let observerPollMax = 120  // 120 × 250 ms = 30 s
     private var healthPollCount = 0
     private let healthPollMax = 1200  // 1200 × 250 ms = 5 minutes
+    private var bootTimer: DispatchSourceTimer?
+    private var observerTask: Task<Void, Never>?
+    private var webUITask: Task<Void, Never>?
     private var metricsServer: MetricsServer?
     private let registry: SimpleRegistry
     private var usbAccessoryCount: Int = 0
@@ -160,30 +163,41 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     // MARK: - Boot phase
 
     /// Runs at 250 ms intervals until the guest IP is discovered and the web
-    /// UI responds. After that, returns — no more scheduled work. Signals,
-    /// VZ delegate callbacks, and config-watcher events arrive through GCD
-    /// dispatch sources and terminate the process via `cleanupAndExit()`.
+    /// UI responds. After that, the timer is cancelled — no more scheduled
+    /// work. Signals, VZ delegate callbacks, and config-watcher events arrive
+    /// through GCD dispatch sources and terminate the process via
+    /// `cleanupAndExit()`.
+    ///
+    /// Uses `DispatchSourceTimer` instead of recursive `asyncAfter` to avoid
+    /// creating a new scheduled work item every tick.
     private func startBootPhase() {
-        func tick() {
-            guard !shutdownRequested else { return }
-            guard vmController.state != .stopped else { cleanupAndExit(0) }
-
-            if !guestReachableNotified {
-                checkGuestNetwork()
-            } else if !webUIReadyNotified {
-                if !supervisorReachableNotified {
-                    checkObserver()
-                }
-                checkWebUI()
-            }
-
-            guard !guestReachableNotified || !webUIReadyNotified else { return }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(250)) {
-                tick()
-            }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(250), leeway: .milliseconds(50))
+        timer.setEventHandler { [weak self] in
+            self?.bootTick()
         }
-        tick()
+        timer.resume()
+        self.bootTimer = timer
+    }
+
+    private func bootTick() {
+        guard !shutdownRequested else { return }
+        guard vmController.state != .stopped else { cleanupAndExit(0) }
+
+        if !guestReachableNotified {
+            checkGuestNetwork()
+        } else if !webUIReadyNotified {
+            if !supervisorReachableNotified {
+                checkObserver()
+            }
+            checkWebUI()
+        }
+
+        guard !guestReachableNotified || !webUIReadyNotified else {
+            bootTimer?.cancel()
+            bootTimer = nil
+            return
+        }
     }
 
     /// Remove PID file, flush stdout, and exit. Called from GCD event
@@ -624,7 +638,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
 
-        Task { @MainActor in
+        observerTask?.cancel()
+        observerTask = Task { @MainActor in
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
@@ -651,7 +666,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         var request = URLRequest(url: url)
         request.timeoutInterval = 5
 
-        Task { @MainActor in
+        webUITask?.cancel()
+        webUITask = Task { @MainActor in
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
@@ -748,13 +764,17 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     /// Parse the macOS DHCP lease file to find the guest's IP by its MAC address.
     /// Only works in NAT mode where macOS vmnet acts as the DHCP server.
+    /// The MAC address is stable after VM start, so we parse the byte representation
+    /// once on first call.
+    private lazy var guestMACBytes: [UInt8]? = {
+        vmController.guestMAC?.split(separator: ":").compactMap { UInt8($0, radix: 16) }
+    }()
+
     private func discoverViaDHCPLeases() -> String? {
-        guard let mac = vmController.guestMAC else { return nil }
+        guard let guestMACBytes else { return nil }
 
         guard let leaseData = try? Data(contentsOf: URL(fileURLWithPath: "/var/db/dhcpd_leases")),
               let leaseText = String(data: leaseData, encoding: .utf8) else { return nil }
-
-        let guestMACBytes = mac.split(separator: ":").compactMap { UInt8($0, radix: 16) }
 
         let blocks = leaseText.components(separatedBy: "}\n")
         for block in blocks {

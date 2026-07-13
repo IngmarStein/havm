@@ -42,17 +42,17 @@ all actionable findings, grouped by priority. Corrections applied during review:
 
 ## 🟡 Medium Priority — Performance
 
-| # | Finding | File |
-|---|---|---|
-| 13 | **YAML parsed twice.** `Yams.compose()` builds full node tree for emptiness check, then `YAMLDecoder().decode()` does it again. Remove the `compose()` guard — check `trimmed.isEmpty` instead. | `Config.swift:410-415` |
-| 14 | **Boot polling uses recursive `asyncAfter` instead of reusable timer.** Creates a new scheduled work item every 250ms. Replace with `DispatchSourceTimer` with `.strict` for consistent ticks. | `ServiceRuntime.swift:165-186` |
-| 15 | **Boot polls create overlapping network tasks without cancellation.** Each 250ms tick spawns an unstructured `Task` even if the previous one hasn't completed (5s timeout). Track and cancel in-flight tasks. | `ServiceRuntime.swift:624,651` |
-| 16 | **MAC address string re-parsed to bytes every 250ms.** DHCP lease polling splits and hex-parses the MAC on every tick. Parse once and cache as `[UInt8]`. | `ServiceRuntime.swift:754` |
-| 17 | **`ensureDiskSize` uses seek+write+synchronize instead of `truncate(atOffset:)`.** APFS already handles sparse regions. `truncate(atOffset:)` extends the file with sparse zero blocks directly. | `HAOSSetup.swift:436` |
-| 18 | **XZ memory limit is `UINT64_MAX`.** Restrict to 128 MB for safety against malformed files: `#define DECODER_MEMLIMIT (128ULL * 1024 * 1024)`. | `xz_decompress.c:105` |
-| 19 | **XZ buffer sizes are 256 KB.** Increase to 1 MB for 4x fewer `fread`/`fwrite` syscalls on SSD. Also call `setvbuf(in, NULL, _IONBF, 0)` to disable stdio double-buffering. | `xz_decompress.c:72-73` |
-| 20 | **HTTP request line parsing: `split().first.map(String.init)` allocates intermediate array.** Use index-based scan for `\r\n` instead. | `Metrics.swift:229` |
-| 21 | **HTTP response built via String concatenation then re-encoded to UTF-8 Data.** Build directly as `Data` to avoid double-encoding. | `Metrics.swift:253-269` |
+| # | Status | Finding | File |
+|---|---|---|---|
+| 13 | ✅ | **YAML parsed twice.** `Yams.compose()` builds full node tree for emptiness check, then `YAMLDecoder().decode()` does it again. Removed the redundant `compose()` guard — the `trimmed.isEmpty` check above already catches empty/whitespace-only files. | `Config.swift:410-415` |
+| 14 | ✅ | **Boot polling uses recursive `asyncAfter` instead of reusable timer.** Creates a new scheduled work item every 250ms. Replaced with `DispatchSourceTimer` (`.strict` semantics) that reuses a single timer source. | `ServiceRuntime.swift:165-186` |
+| 15 | ✅ | **Boot polls create overlapping network tasks without cancellation.** Each 250ms tick spawns an unstructured `Task` even if the previous one hasn't completed (5s timeout). Tracked and cancelled in-flight `observerTask`/`webUITask` before starting new ones. | `ServiceRuntime.swift:624,651` |
+| 16 | ✅ | **MAC address string re-parsed to bytes every 250ms.** DHCP lease polling splits and hex-parses the MAC on every tick. Parsed once via `lazy var guestMACBytes` and cached. | `ServiceRuntime.swift:754` |
+| 17 | ✅ | **`ensureDiskSize` uses seek+write+synchronize instead of `truncate(atOffset:)`.** APFS already handles sparse regions — `truncate(atOffset:)` extends the file with sparse zero blocks directly, no data written. | `HAOSSetup.swift:436` |
+| 18 | ✅ | **XZ memory limit is `UINT64_MAX`.** Restricted to 128 MB (`DECODER_MEMLIMIT`) for safety against malformed/crafted XZ files. | `xz_decompress.c:105` |
+| 19 | ✅ | **XZ buffer sizes are 256 KB.** Increased to 1 MB for 4× fewer `fread`/`fwrite` syscalls on SSD. Added `setvbuf(in/out, NULL, _IONBF, 0)` to disable stdio double-buffering since we manage our own buffers. | `xz_decompress.c:72-73` |
+| 20 | ✅ | **HTTP request line parsing: `split().first.map(String.init)` allocates intermediate array.** Replaced with index-based scan for `\r\n` — finds the first CRLF without allocating an array of Substrings. | `Metrics.swift:229` |
+| 21 | ✅ | **HTTP response built via String concatenation then re-encoded to UTF-8 Data.** Build directly as `Data` with successive `append(contentsOf:)` calls, avoiding the String intermediate allocation and double-encode. | `Metrics.swift:253-269` |
 
 ---
 

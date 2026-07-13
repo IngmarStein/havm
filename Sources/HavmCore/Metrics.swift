@@ -226,7 +226,12 @@ public final class MetricsServer: @unchecked Sendable {
     }
 
     private func buildResponse(for request: String) -> Data {
-        let line = request.split(separator: "\r\n").first.map(String.init) ?? request
+        let line: String
+        if let crlf = request.firstIndex(of: "\r\n") {
+            line = String(request[..<crlf])
+        } else {
+            line = request
+        }
 
         // GET /metrics — Prometheus scrape endpoint
         if line.hasPrefix("GET /metrics") {
@@ -253,19 +258,17 @@ public final class MetricsServer: @unchecked Sendable {
     private static func httpResponse(
         status: String, contentType: String? = nil, body: String
     ) -> Data {
-        var lines = ["HTTP/1.1 \(status)"]
+        var response = Data()
+        response.append(contentsOf: "HTTP/1.1 \(status)\r\n".utf8)
         if let ct = contentType {
-            lines.append("Content-Type: \(ct)")
+            response.append(contentsOf: "Content-Type: \(ct)\r\n".utf8)
         }
         let bodyData = body.data(using: .utf8) ?? Data()
-        lines.append("Content-Length: \(bodyData.count)")
-        lines.append("")  // blank line separator
-        lines.append("")
-        var response = lines.joined(separator: "\r\n")
-        if !body.isEmpty {
-            response += body
+        response.append(contentsOf: "Content-Length: \(bodyData.count)\r\n\r\n".utf8)
+        if !bodyData.isEmpty {
+            response.append(contentsOf: bodyData)
         }
-        return response.data(using: .utf8) ?? Data()
+        return response
     }
 }
 

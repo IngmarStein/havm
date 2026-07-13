@@ -432,9 +432,8 @@ public final class HAOSSetupManager: @unchecked Sendable {
         logger.info("Resizing disk from \(MemorySize(bytes: currentSize)) to \(MemorySize(bytes: targetSize))...")
         let fh = try FileHandle(forWritingTo: URL(fileURLWithPath: HavmConfig.persistentDiskPath))
         defer { try? fh.close() }
-        try fh.seek(toOffset: targetSize - 1)
-        try fh.write(contentsOf: Data([0]))
-        try fh.synchronize()
+        // APFS extends files with sparse zero blocks — no actual data written.
+        try fh.truncate(atOffset: targetSize)
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
     }
 
