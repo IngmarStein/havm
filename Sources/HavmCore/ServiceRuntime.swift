@@ -32,6 +32,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var logger: Logger
     private let consoleMode: Bool
 
+    private var runContinuation: CheckedContinuation<Void, Never>?
     private var shutdownRequested = false
     private var restartRequested = false
     private var guestReachableNotified = false
@@ -110,10 +111,12 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         }
 
         // Suspend the calling task instead of blocking a thread.
-        // The continuation is never resumed — all exit paths call
-        // cleanupAndExit() from GCD event handlers (VM stopped via
-        // VZ delegate, graceful shutdown, or signal received).
-        await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+        // The continuation is stored and only resumed on actual process
+        // exit (cleanupAndExit). On restart, the task remains suspended
+        // so the Process stays alive for the next VM instance.
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            self.runContinuation = c
+        }
         return 0
     }
 
@@ -218,6 +221,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         restoreTerminal()
         removePIDFile()
         fflush(stdout)
+        runContinuation?.resume()
         exit(code)
     }
 
