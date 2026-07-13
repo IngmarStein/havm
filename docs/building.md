@@ -107,8 +107,7 @@ For a detailed architecture overview and key design decisions, see
 | Module | Role |
 |--------|------|
 | `Havm` | CLI entry point (Swift Argument Parser) |
-| `HavmCore` | Config parsing, HA OS download/setup, VM controller, CONFIG disk builder, metrics |
-| `HavmRuntime` | Graceful shutdown chain, DHCP lease parsing, USB accessory listener |
-| `CXZ` | C target — XZ decompression via `dlopen`'d `liblzma` |
+| `HavmCore` | Config parsing, HA OS download/setup, VM controller, CONFIG disk builder, metrics, service runtime (graceful shutdown chain, DHCP lease parsing, USB accessory listener) |
+| `CXZ` | C target — XZ decompression via statically-linked `liblzma` |
 
 </div>

@@ -46,7 +46,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var observerPollCount = 0
     private let observerPollMax = 120  // 120 × 250 ms = 30 s
     private var healthPollCount = 0
-    private let healthPollMax = 300  // 300 × 1s = 5 minutes
+    private let healthPollMax = 1200  // 1200 × 250 ms = 5 minutes
     private var metricsServer: MetricsServer?
     private let registry: SimpleRegistry
     private var usbAccessoryCount: Int = 0
@@ -636,7 +636,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     /// Poll the Home Assistant web UI health-check endpoint until it responds.
     /// Stops after the first successful response or after `healthPollMax` attempts
-    /// (~5 minutes at the 5-second poll cadence).
+    /// (~5 minutes at the 250 ms tick cadence).
     private func checkWebUI() {
         guard healthPollCount < healthPollMax else { return }
         healthPollCount += 1

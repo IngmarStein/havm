@@ -33,11 +33,10 @@ macOS 27 (Golden Gate) minimum. Swift 6.4.
 ├───────┬─────────────────────────────────────────┤
 │       ▼                                          │
 │  ┌──────────────────────────────────────────┐   │
-│  │  HavmRuntime                             │   │
+│  │  ServiceRuntime (in HavmCore)            │   │
 │  │  ┌──────────────────────────────────┐    │   │
-│  │  │ ServiceRuntime                   │    │   │
-│  │  │ SIGTERM/SIGINT → SSH shutdown    │    │   │
-│  │  │ (port 22222, then port 22)       │    │   │
+│  │  │ SIGTERM/SIGINT → REST API →     │    │   │
+│  │  │ SSH shutdown (port 22222, 22)    │    │   │
 │  │  │ → waitForStop → forceStop        │    │   │
 │  │  └──────────────────────────────────┘    │   │
 │  └──────────────────────────────────────────┘   │

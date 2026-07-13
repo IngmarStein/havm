@@ -67,9 +67,8 @@ version:
 | Module | Role |
 |--------|------|
 | `Havm` | CLI entry point (Swift Argument Parser) — `run`, `import-utm`, `cleanup`, `version` |
-| `HavmCore` | Core library — config parsing, HA OS download/setup, VM controller, CONFIG disk builder, metrics server |
-| `HavmRuntime` | Service runtime — graceful shutdown chain, DHCP lease parsing, USB accessory listener |
-| `CXZ` | C target — XZ decompression via `dlopen`'d `liblzma` (no external CLI tools) |
+| `HavmCore` | Core library — config parsing, HA OS download/setup, VM controller, CONFIG disk builder, metrics server, service runtime (graceful shutdown chain, DHCP lease parsing, USB accessory listener) |
+| `CXZ` | C target — XZ decompression via statically-linked `liblzma` (no external CLI tools) |
 
 Key design principles:
 

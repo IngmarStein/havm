@@ -374,11 +374,14 @@ public enum VMConfigError: Error, CustomStringConvertible {
 
 extension AAUSBAccessory {
     /// Extract vendor and product ID from the USB device descriptor.
+    /// USB device descriptor layout (USB 2.0 spec §9.6.1):
+    ///   offset 8-9:  idVendor  (little-endian)
+    ///   offset 10-11: idProduct (little-endian)
     public var vendorProductID: (UInt16, UInt16) {
         let data = deviceDescriptorData
-        return data.count >= 18
-            ? (UInt16(littleEndian: data[10..<12].reduce(0) { $0 << 8 | UInt16($1) }),
-               UInt16(littleEndian: data[12..<14].reduce(0) { $0 << 8 | UInt16($1) }))
-            : (0, 0)
+        guard data.count >= 12 else { return (0, 0) }
+        let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
+        let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
+        return (vid, pid)
     }
 }

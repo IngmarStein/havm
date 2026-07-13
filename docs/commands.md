@@ -34,8 +34,6 @@ Starts the VM. On first run, downloads and prepares HA OS automatically.
 havm run                        # start with defaults
 havm run -v                     # debug logging
 havm run -j                     # NDJSON log output
-havm run --cpu-count 2          # override CPU cores for this session
-havm run --memory-size "2 GiB"  # override memory for this session
 havm run --console              # debug: interactive serial console (hvc0)
 ```
 

@@ -71,8 +71,9 @@ with typical add-ons. Takes effect on the next boot.
 
 ### `memory_size`
 Memory allocated to the VM. Accepts human-readable sizes like `"4 GiB"`,
-`"2048 MiB"`, or `"1 GiB"`. No memory ballooning — the full amount is
-reserved. Takes effect on the next boot.
+`"2048 MiB"`, or `"1 GiB"`. The configured amount is the maximum — a memory
+balloon device allows macOS to reclaim idle guest memory under host memory
+pressure. Takes effect on the next boot.
 
 ### `disk_size`
 Size of the persistent disk image. Can be **increased** from the default

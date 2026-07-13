@@ -39,7 +39,8 @@ HavmCore
 │                    copy+resize disk, SSH CONFIG disk
 ├── VMController     VZEFIBootLoader + VZEFIVariableStore, storage, network, USB,
 │                    machine identifier persistence, console mode
-│                    (VZVirtioConsoleDevice, VZFileHandleSerialPortAttachment),
+│                    (VZVirtioConsoleDeviceSerialPortConfiguration,
+│                    VZFileHandleSerialPortAttachment),
 │                    @MainActor on start()
 ├── ServiceRuntime   SIGTERM/SIGINT → SSH shutdown (port 22222/22) →
 │                    force-stop fallback, DHCP lease guest IP detection,
@@ -52,7 +53,7 @@ HavmCore
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
 
 CXZ (C target)
-└── xz_decompress    dlopen liblzma for XZ decompression (no external tools)
+└── xz_decompress    Statically links liblzma (-llzma) for XZ decompression (no external tools)
 ```
 
 ## Key Design Decisions
