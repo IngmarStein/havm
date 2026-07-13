@@ -296,7 +296,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     private func startConfigWatcher() {
         guard let path = config.configPath else { return }
-        let dir = (path as NSString).deletingLastPathComponent
+        let dir = URL(fileURLWithPath: path).deletingLastPathComponent().path
 
         // 1. Directory watcher — catches atomic saves (temp file + rename).
         let dirFD = open(dir, O_EVTONLY)
@@ -801,7 +801,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     private func writePIDFile() {
         let pidPath = HavmConfig.pidFilePath
-        let pidDir = (pidPath as NSString).deletingLastPathComponent
+        let pidDir = URL(fileURLWithPath: pidPath).deletingLastPathComponent().path
         try? FileManager.default.createDirectory(atPath: pidDir, withIntermediateDirectories: true)
         let pidString = "\(getpid())\n"
         try? pidString.write(toFile: pidPath, atomically: true, encoding: .utf8)

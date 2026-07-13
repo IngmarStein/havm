@@ -32,7 +32,7 @@ public struct UTMBundle: Sendable {
     /// Parse a UTM bundle at the given path.
     /// - Parameter path: Path to the `.utm` bundle directory.
     /// - Throws: `UTMImportError` if the bundle is invalid or unsupported.
-    public init(path: String) throws {
+    public init(path: String) throws(UTMImportError) {
         let bundleURL = URL(fileURLWithPath: path, isDirectory: true)
         let configURL = bundleURL.appendingPathComponent("config.plist")
 
@@ -40,7 +40,12 @@ public struct UTMBundle: Sendable {
             throw UTMImportError.notAUTMBundle(path)
         }
 
-        let configData = try Data(contentsOf: configURL)
+        let configData: Data
+        do {
+            configData = try Data(contentsOf: configURL)
+        } catch {
+            throw UTMImportError.invalidConfig("Failed to read config.plist: \(error.localizedDescription)")
+        }
         let plist: [String: Any]
         do {
             guard let dict = try PropertyListSerialization.propertyList(

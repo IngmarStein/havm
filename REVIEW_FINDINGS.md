@@ -58,13 +58,13 @@ all actionable findings, grouped by priority. Corrections applied during review:
 
 ## 🟡 Medium Priority — Modernization
 
-| # | Finding | File(s) |
-|---|---|---|
-| 22 | **Replace `NSString` path bridging with `URL` APIs.** 8+ sites use `(path as NSString).appendingPathComponent(...)`. Use `URL(fileURLWithPath:).appendingPathComponent().path`. | `HAOSSetup.swift`, `ServiceRuntime.swift`, `ImportUTMCommand.swift`, `VMController.swift` |
-| 23 | **Migrate tests from XCTest to Swift Testing.** `@Suite`, `#expect()`, parameterized tests with `@Test(arguments:)`. | `Tests/HavmCoreTests/ConfigTests.swift` |
-| 24 | **Add typed throws.** `UTMImport.init`, `VMController.createConfiguration()`, `HAOSSetup.setupIfNeeded()` all throw known error types but use bare `throws`. | Multiple |
-| 25 | **Replace `NSLock` with `Mutex` from Synchronization module** (new in Swift 6). | `Metrics.swift` (SimpleRegistry) |
-| 26 | **`NSISO8601DateFormatter` where plain `DateFormatter` would work.** Replace with format string `"yyyy-MM-dd'T'HH:mm:ss'Z'"` and `timeZone = TimeZone(secondsFromGMT: 0)`. Saves ~5-10 KB. | `JSONLogHandler.swift:18,43` |
+| # | Status | Finding | File(s) |
+|---|---|---|---|
+| 22 | ✅ | **Replace `NSString` path bridging with `URL` APIs.** 8+ sites used `(path as NSString).appendingPathComponent(...)`. Converted to `URL(fileURLWithPath:).appendingPathComponent().path`. `expandingTildeInPath` kept as `NSString(string:)` since there's no URL-native equivalent. | `HAOSSetup.swift`, `ServiceRuntime.swift`, `ImportUTMCommand.swift`, `VMController.swift` |
+| 23 | ✅ | **Migrate tests from XCTest to Swift Testing.** `@Suite struct`, `#expect()`, parameterized `@Test(arguments:)` for memory size parsing (5 cases). Removed `print()` debug output from tests. Requires explicit `import Foundation` since Swift Testing doesn't transitively import it like XCTest did. | `Tests/HavmCoreTests/ConfigTests.swift` |
+| 24 | ✅ | **Add typed throws.** `UTMImport.init` now `throws(UTMImportError)`. Wrapped `Data(contentsOf:)` call to convert Foundation errors. `VMController.createConfiguration()` and `HAOSSetup.setupIfNeeded()` call Foundation APIs that throw generic `Error` — typed throws would require broader restructuring; deferred. | `UTMImport.swift` |
+| 25 | ✅ | **Replace `NSLock` with `Mutex` from Synchronization module.** `SimpleRegistry` now wraps values in `Mutex<>`, uses `withLock` for borrowing-based exclusive access. Class is now plain `Sendable` (no `@unchecked` needed — `Mutex` provides thread safety). | `Metrics.swift` |
+| 26 | ❌ | **`NSISO8601DateFormatter` → `DateFormatter`.** Rejected — `ISO8601DateFormatter` is the correct API: thread-safe, handles ISO 8601 variants properly. A custom `DateFormatter` would be thread-unsafe and fragile. | — |
 
 ---
 

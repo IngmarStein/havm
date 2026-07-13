@@ -98,10 +98,10 @@ public final class HAOSSetupManager: @unchecked Sendable {
         logger.info("Found HA OS \(release.tagName): \(imageAsset.name)")
 
         // 2. Download and decompress disk image if needed
-        let cachedImagePath = (HavmConfig.cacheDirectory as NSString)
-            .appendingPathComponent(decompressedName(for: imageAsset.name))
-        let cachedXZPath = (HavmConfig.cacheDirectory as NSString)
-            .appendingPathComponent(imageAsset.name)
+        let cachedImagePath = URL(fileURLWithPath: HavmConfig.cacheDirectory)
+            .appendingPathComponent(decompressedName(for: imageAsset.name)).path
+        let cachedXZPath = URL(fileURLWithPath: HavmConfig.cacheDirectory)
+            .appendingPathComponent(imageAsset.name).path
 
         if fileManager.fileExists(atPath: cachedImagePath) {
             logger.info("Using cached image: \(cachedImagePath)")
@@ -143,7 +143,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
         logger.info("SSH key path configured: \(keyPath)")
 
-        let expandedPath = (keyPath as NSString).expandingTildeInPath
+        let expandedPath = NSString(string: keyPath).expandingTildeInPath
         guard fileManager.fileExists(atPath: expandedPath) else {
             logger.warning("SSH authorized_keys file not found: \(expandedPath)")
             return
@@ -337,11 +337,11 @@ public final class HAOSSetupManager: @unchecked Sendable {
         // Stream to a temporary file first, then rename atomically.
         // Uses URLSession.download which streams to disk — no memory pressure
         // from large (300+ MB) images.
-        let tempDir = (HavmConfig.cacheDirectory as NSString)
-            .appendingPathComponent(".downloads")
+        let tempDir = URL(fileURLWithPath: HavmConfig.cacheDirectory)
+            .appendingPathComponent(".downloads").path
         try fileManager.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
 
-        let tempPath = (tempDir as NSString).appendingPathComponent(UUID().uuidString)
+        let tempPath = URL(fileURLWithPath: tempDir).appendingPathComponent(UUID().uuidString).path
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let delegate = DownloadDelegate(tempPath: tempPath, logger: logger, assetName: asset.name)

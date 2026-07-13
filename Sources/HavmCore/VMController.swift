@@ -235,7 +235,7 @@ public final class VMController: NSObject, @unchecked Sendable {
         }
         let mac = VZMACAddress.randomLocallyAdministered()
         do {
-            let dir = (path as NSString).deletingLastPathComponent
+            let dir = URL(fileURLWithPath: path).deletingLastPathComponent().path
             try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try mac.string.write(toFile: path, atomically: true, encoding: .utf8)
         } catch {
@@ -254,7 +254,7 @@ public final class VMController: NSObject, @unchecked Sendable {
         }
         let id = VZGenericMachineIdentifier()
         do {
-            let dir = (path as NSString).deletingLastPathComponent
+            let dir = URL(fileURLWithPath: path).deletingLastPathComponent().path
             try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try id.dataRepresentation.write(to: URL(fileURLWithPath: path))
         } catch {

@@ -1,46 +1,56 @@
-import XCTest
+import Foundation
+import Testing
 @testable import HavmCore
 
-final class ConfigTests: XCTestCase {
-    func testMemorySizeParsing() throws {
-        XCTAssertEqual(try MemorySize.parse("4 GiB"), 4 * 1024 * 1024 * 1024)
-        XCTAssertEqual(try MemorySize.parse("2048 MiB"), 2048 * 1024 * 1024)
-        XCTAssertEqual(try MemorySize.parse("1 GiB"), 1024 * 1024 * 1024)
-        XCTAssertEqual(try MemorySize.parse("256 MiB"), 256 * 1024 * 1024)
-        XCTAssertEqual(try MemorySize.parse("1024"), 1024)
+@Suite struct ConfigTests {
+
+    @Test("Memory size parsing", arguments: [
+        ("4 GiB", 4_294_967_296 as UInt64),
+        ("2048 MiB", 2_147_483_648 as UInt64),
+        ("1 GiB", 1_073_741_824 as UInt64),
+        ("256 MiB", 268_435_456 as UInt64),
+        ("1024", 1_024 as UInt64),
+    ])
+    func memorySizeParsing(input: String, expected: UInt64) throws {
+        #expect(try MemorySize.parse(input) == expected)
     }
 
-    func testMemorySizeDescription() {
-        XCTAssertEqual(MemorySize(bytes: 4 * 1024 * 1024 * 1024).description, "4 GiB")
-        XCTAssertEqual(MemorySize(bytes: 2048 * 1024 * 1024).description, "2 GiB")
+    @Test("Memory size description")
+    func memorySizeDescription() {
+        #expect(MemorySize(bytes: 4 * 1024 * 1024 * 1024).description == "4 GiB")
+        #expect(MemorySize(bytes: 2048 * 1024 * 1024).description == "2 GiB")
     }
 
-    func testEffectiveDefaults() {
+    @Test("Effective defaults")
+    func effectiveDefaults() {
         let config = HavmConfig.defaults
-        XCTAssertGreaterThan(config.effectiveCPUCount, 0)
-        XCTAssertEqual(config.effectiveMemorySize, 4 * 1024 * 1024 * 1024)
-        XCTAssertEqual(config.effectiveDiskSize, 32 * 1024 * 1024 * 1024)
-        XCTAssertEqual(config.effectiveNetworkType, .bridge)
-        XCTAssertEqual(config.effectiveReleaseChannel, .stable)
-        XCTAssertEqual(config.effectiveShutdownTimeout, 30)
+        #expect(config.effectiveCPUCount > 0)
+        #expect(config.effectiveMemorySize == 4 * 1024 * 1024 * 1024)
+        #expect(config.effectiveDiskSize == 32 * 1024 * 1024 * 1024)
+        #expect(config.effectiveNetworkType == .bridge)
+        #expect(config.effectiveReleaseChannel == .stable)
+        #expect(config.effectiveShutdownTimeout == 30)
     }
 
-    func testCONFIGDiskBuilder() throws {
+    @Test("CONFIG disk builder produces valid MBR + FAT structure")
+    func configDiskBuilder() throws {
         let key = Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test".utf8)
         let disk = CONFIGDiskBuilder.build(authorizedKey: key)
-        XCTAssertGreaterThan(disk.count, 1024)
+        #expect(disk.count > 1024)
         // MBR signature at sector 0
-        XCTAssertEqual(disk[510], 0x55)
-        XCTAssertEqual(disk[511], 0xAA)
+        #expect(disk[510] == 0x55)
+        #expect(disk[511] == 0xAA)
         // FAT boot sector signature at sector 1 (offset 512)
-        XCTAssertEqual(disk[512 + 510], 0x55)
-        XCTAssertEqual(disk[512 + 511], 0xAA)
+        #expect(disk[512 + 510] == 0x55)
+        #expect(disk[512 + 511] == 0xAA)
         // Volume label "CONFIG" in FAT boot sector at offset 512 + 43
-        let label = String(bytes: disk[512 + 43..<512 + 54], encoding: .ascii)?.trimmingCharacters(in: .whitespaces)
-        XCTAssertEqual(label, "CONFIG")
+        let label = String(bytes: disk[512 + 43..<512 + 54], encoding: .ascii)?
+            .trimmingCharacters(in: .whitespaces)
+        #expect(label == "CONFIG")
     }
 
-    func testCONFIGDiskAuthorizedKeys() throws {
+    @Test("CONFIG disk authorized_keys LFN entry")
+    func configDiskAuthorizedKeys() throws {
         let key = Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test".utf8)
         let disk = CONFIGDiskBuilder.build(authorizedKey: key)
 
@@ -79,85 +89,75 @@ final class ConfigTests: XCTestCase {
             }
         }
 
-        XCTAssertTrue(foundLFN, "VFAT LFN entry not found")
-        XCTAssertTrue(foundShort, "8.3 entry not found")
-        XCTAssertEqual(lfnName.trimmingCharacters(in: CharacterSet(["\0", "\u{FFFF}"])), "authorized_keys")
+        #expect(foundLFN, "VFAT LFN entry not found")
+        #expect(foundShort, "8.3 entry not found")
+        #expect(lfnName.trimmingCharacters(in: CharacterSet(["\0", "\u{FFFF}"])) == "authorized_keys")
     }
 
-    func testCONFIGDiskKeyContent() throws {
-        // Build a disk with known key data and verify the key is at cluster 2
+    @Test("CONFIG disk key content at cluster 2")
+    func configDiskKeyContent() throws {
         let keyContent = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test-key\n"
         let keyData = Data(keyContent.utf8)
         let disk = CONFIGDiskBuilder.build(authorizedKey: keyData)
 
-        // Data region: MBR(512) + FAT(512) + 2*4*512(FATs) + 32*512(root dir) = 5120 + 16384 = 21504
+        // Data region: MBR(512) + FAT(512) + 2*4*512(FATs) + 32*512(root dir) = 21504
         let dataRegionOffset = 512 + 512 + 2 * 4 * 512 + 32 * 512
         let cluster2 = disk[dataRegionOffset..<(dataRegionOffset + keyData.count)]
-        XCTAssertEqual(String(data: cluster2, encoding: .utf8), keyContent, "Key content at cluster 2 should match")
+        #expect(String(data: cluster2, encoding: .utf8) == keyContent,
+                "Key content at cluster 2 should match")
     }
 
-    func testMetricsConfigDefaults() throws {
+    @Test("Metrics config defaults")
+    func metricsConfigDefaults() throws {
         let config = HavmConfig.defaults
-        XCTAssertFalse(config.effectiveMetricsEnabled, "Metrics should be disabled by default")
-        XCTAssertEqual(config.effectiveMetricsType, .prometheus)
-        XCTAssertEqual(config.effectivePrometheusPort, 9210)
-        XCTAssertEqual(config.effectivePrometheusHost, "127.0.0.1")
+        #expect(!config.effectiveMetricsEnabled, "Metrics should be disabled by default")
+        #expect(config.effectiveMetricsType == .prometheus)
+        #expect(config.effectivePrometheusPort == 9210)
+        #expect(config.effectivePrometheusHost == "127.0.0.1")
     }
 
-    func testMetricsConfigExplicitValues() throws {
+    @Test("Metrics config explicit values")
+    func metricsConfigExplicitValues() throws {
         let metrics = HavmConfig.MetricsConfig(
             enabled: true,
             type: .prometheus,
             prometheus: HavmConfig.MetricsConfig.PrometheusConfig(port: 9876, host: "0.0.0.0")
         )
         let config = HavmConfig(metrics: metrics)
-        XCTAssertTrue(config.effectiveMetricsEnabled)
-        XCTAssertEqual(config.effectiveMetricsType, .prometheus)
-        XCTAssertEqual(config.effectivePrometheusPort, 9876)
-        XCTAssertEqual(config.effectivePrometheusHost, "0.0.0.0")
+        #expect(config.effectiveMetricsEnabled)
+        #expect(config.effectiveMetricsType == .prometheus)
+        #expect(config.effectivePrometheusPort == 9876)
+        #expect(config.effectivePrometheusHost == "0.0.0.0")
     }
 
-    func testMetricsConfigPartialDefaults() throws {
+    @Test("Metrics config partial defaults")
+    func metricsConfigPartialDefaults() throws {
         let metrics = HavmConfig.MetricsConfig(enabled: true)
         let config = HavmConfig(metrics: metrics)
-        XCTAssertTrue(config.effectiveMetricsEnabled)
-        XCTAssertEqual(config.effectiveMetricsType, .prometheus)  // default type
-        XCTAssertEqual(config.effectivePrometheusPort, 9210)      // default port
-        XCTAssertEqual(config.effectivePrometheusHost, "127.0.0.1") // default host
+        #expect(config.effectiveMetricsEnabled)
+        #expect(config.effectiveMetricsType == .prometheus)
+        #expect(config.effectivePrometheusPort == 9210)
+        #expect(config.effectivePrometheusHost == "127.0.0.1")
     }
 
-    func testCONFIGDiskRawDirectory() throws {
+    @Test("CONFIG disk raw directory structure")
+    func configDiskRawDirectory() throws {
         let keyData = Data("ssh-ed25519 test\n".utf8)
         let disk = CONFIGDiskBuilder.build(authorizedKey: keyData)
         // Root directory at MBR(512) + FAT(512) + 2*4*512(FATs) = 5120
         let rootDir = 5120
 
-        // Dump first 4 directory entries (32 bytes each)
-        let entries = (0..<4).map { i in
-            Array(disk[rootDir + i * 32..<rootDir + (i + 1) * 32])
-                .map { String(format: "%02x", $0) }.joined(separator: " ")
-        }
-        print("\n--- Root directory entries ---")
-        for (i, e) in entries.enumerated() {
-            let attr = disk[rootDir + i * 32 + 11]
-            let type = attr == 0x08 ? "VOLUME" : attr == 0x0F ? "LFN" : attr == 0x00 ? "FILE" : String(format: "0x%02x", attr)
-            print("Entry \(i) [\(type)]: \(e)")
-        }
-
         // Entry 0 should be volume "CONFIG"
-        let volName = String(bytes: disk[rootDir..<rootDir+11], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? ""
-        XCTAssertEqual(volName, "CONFIG", "Volume label")
+        let volName = String(bytes: disk[rootDir..<rootDir+11], encoding: .ascii)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        #expect(volName == "CONFIG", "Volume label")
 
         // Entry 1 should be LFN (attr 0x0F)
-        XCTAssertEqual(disk[rootDir + 32 + 11], 0x0F, "Entry 1 should be LFN")
+        #expect(disk[rootDir + 32 + 11] == 0x0F, "Entry 1 should be LFN")
 
         // Entry 3 should be 8.3 (attr 0x00 or 0x20)
         let shortAttr = disk[rootDir + 96 + 11]
-        XCTAssertTrue(shortAttr == 0x00 || shortAttr == 0x20, "Entry 3 should be 8.3 file, got 0x\(String(shortAttr, radix: 16))")
-
-        // Read short name from entry 3
-        let shortName = String(bytes: disk[rootDir+96..<rootDir+96+8], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? ""
-        let shortExt = String(bytes: disk[rootDir+96+8..<rootDir+96+11], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) ?? ""
-        print("Short name: '\(shortName).\(shortExt)'")
+        #expect(shortAttr == 0x00 || shortAttr == 0x20,
+                "Entry 3 should be 8.3 file")
     }
 }

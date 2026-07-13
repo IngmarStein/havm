@@ -160,7 +160,7 @@ struct ImportUTMCommand: AsyncParsableCommand {
         let sourceSize = (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
 
         // Ensure destination directory exists
-        let dir = (destination.path as NSString).deletingLastPathComponent
+        let dir = destination.deletingLastPathComponent().path
         try fileManager.createDirectory(atPath: dir, withIntermediateDirectories: true)
 
         // Try clonefile first — instant on same APFS volume, preserves sparseness.
@@ -210,7 +210,7 @@ struct ImportUTMCommand: AsyncParsableCommand {
     /// If a config already exists, prints the recommended settings instead of overwriting.
     private func generateConfig(from bundle: UTMBundle) throws {
         let configPath = HavmConfig.defaultConfigPath
-        let configDir = (configPath as NSString).deletingLastPathComponent
+        let configDir = URL(fileURLWithPath: configPath).deletingLastPathComponent().path
 
         // Build the config content
         var lines: [String] = [

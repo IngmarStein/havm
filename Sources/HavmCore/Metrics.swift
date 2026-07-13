@@ -2,46 +2,48 @@ import Foundation
 import Network
 import Metrics
 import Logging
+import Synchronization
 
 // MARK: - Simple Prometheus Registry
 
 /// Thread-safe in-memory registry of Prometheus gauge values.
-/// Uses `NSLock` so metrics can be recorded from any thread without
-/// async overhead.
-public final class SimpleRegistry: @unchecked Sendable {
-    private let lock = NSLock()
+/// Uses `Mutex` from the Swift Synchronization module — values are accessed
+/// through `withLock` which provides exclusive access with the borrowing
+/// model. `Mutex` is `Sendable`, so the class itself needs no concurrency
+/// annotation.
+public final class SimpleRegistry: Sendable {
     /// Metric name → (label-set key → value). The label-set key is
     /// Prometheus-format: `name="value",name2="value2"` or "" for no labels.
-    private var values: [String: [String: Double]] = [:]
+    private let values = Mutex<[String: [String: Double]]>([:])
 
     public init() {}
 
     public func record(name: String, labels: [(String, String)], value: Double) {
-        lock.lock()
-        defer { lock.unlock() }
-        let key = labels.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: ",")
-        values[name, default: [:]][key] = value
+        values.withLock { values in
+            let key = labels.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: ",")
+            values[name, default: [:]][key] = value
+        }
     }
 
     /// Emit the Prometheus exposition format.
     /// - Returns: Text compatible with `Content-Type: text/plain; version=0.0.4`.
     public func emit() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        var lines: [String] = []
-        for (name, samples) in values.sorted(by: { $0.key < $1.key }) {
-            if samples.isEmpty { continue }
-            lines.append("# TYPE \(name) gauge")
-            for (labelStr, value) in samples.sorted(by: { $0.key < $1.key }) {
-                if labelStr.isEmpty {
-                    lines.append("\(name) \(formatValue(value))")
-                } else {
-                    lines.append("\(name){\(labelStr)} \(formatValue(value))")
+        values.withLock { values in
+            var lines: [String] = []
+            for (name, samples) in values.sorted(by: { $0.key < $1.key }) {
+                if samples.isEmpty { continue }
+                lines.append("# TYPE \(name) gauge")
+                for (labelStr, value) in samples.sorted(by: { $0.key < $1.key }) {
+                    if labelStr.isEmpty {
+                        lines.append("\(name) \(formatValue(value))")
+                    } else {
+                        lines.append("\(name){\(labelStr)} \(formatValue(value))")
+                    }
                 }
             }
+            lines.append("")
+            return lines.joined(separator: "\n")
         }
-        lines.append("")
-        return lines.joined(separator: "\n")
     }
 }
 
