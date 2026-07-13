@@ -88,6 +88,7 @@ jobs:
           NOTARY_ISSUER: ${{ vars.NOTARY_ISSUER }}
         run: |
           echo "$NOTARY_KEY" > notary.p8
+          trap "rm -f notary.p8" EXIT
           echo "==> Submitting for notarization..."
           if xcrun notarytool submit havm.zip \
               --key notary.p8 \

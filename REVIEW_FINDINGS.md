@@ -70,11 +70,11 @@ all actionable findings, grouped by priority. Corrections applied during review:
 
 ## 🟡 Medium Priority — CI/CD & Build
 
-| # | Finding | File(s) |
-|---|---|---|
-| 27 | **Notary key file not cleaned up in release CI.** `echo "$NOTARY_KEY" > notary.p8` but never removed — persists on self-hosted runner. | `.github/workflows/release.yml:90` |
-| 28 | **Release workflow and publish.sh are partially duplicated.** Two release paths: CI-triggered (tag push) and manual (publish.sh). Consider deprecating one. | `scripts/publish.sh`, `.github/workflows/release.yml` |
-| 29 | **`default.profraw` tracked in repo.** 0-byte coverage data file. Add `*.profraw` to `.gitignore` and `git rm --cached`. | Root directory |
+| # | Status | Finding | File(s) |
+|---|---|---|---|
+| 27 | ✅ | **Notary key file not cleaned up in release CI.** `echo "$NOTARY_KEY" > notary.p8` but never removed — persists on self-hosted runner. Added `trap "rm -f notary.p8" EXIT` to clean up regardless of exit path. | `.github/workflows/release.yml:90` |
+| 28 | ⬜ | **Release workflow and publish.sh are partially duplicated.** Skipped — manual publish path intentionally kept for fallback. | `scripts/publish.sh` |
+| 29 | ✅ | **`default.profraw` tracked in repo.** Already done — file was already in `.gitignore` and untracked. | — |
 
 ---
 
