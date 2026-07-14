@@ -191,15 +191,16 @@ public final class MetricsServer: @unchecked Sendable {
             }
             listener.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
+                let addr = Self.formatHostPort(host: host, port: self.port)
                 switch state {
                 case .setup:
-                    self.logger.debug("Metrics server setting up on \(host):\(self.port)")
+                    self.logger.debug("Metrics server setting up on \(addr)")
                 case .waiting(let error):
-                    self.logger.warning("Metrics server waiting on \(host):\(self.port) — \(error.localizedDescription)")
+                    self.logger.warning("Metrics server waiting on \(addr) — \(error.localizedDescription)")
                 case .ready:
-                    self.logger.info("Metrics server listening on \(host):\(self.port)")
+                    self.logger.info("Metrics server listening on \(addr)")
                 case .failed(let error):
-                    self.logger.error("Metrics server failed on \(host):\(self.port) — \(error.localizedDescription)")
+                    self.logger.error("Metrics server failed on \(addr) — \(error.localizedDescription)")
                 case .cancelled:
                     self.logger.debug("Metrics server stopped on \(host)")
                 @unknown default:
@@ -209,6 +210,19 @@ public final class MetricsServer: @unchecked Sendable {
             listener.start(queue: queue)
             listeners.append(listener)
         }
+    }
+
+    /// Format a host:port pair, wrapping IPv6 addresses in brackets.
+    public static func formatHostPort(host: String, port: Int) -> String {
+        if host.contains(":") {
+            return "[\(host)]:\(port)"
+        }
+        return "\(host):\(port)"
+    }
+
+    /// Format a list of hosts with a port for log messages.
+    public static func formatHostsPort(_ hosts: [String], port: Int) -> String {
+        hosts.map { formatHostPort(host: $0, port: port) }.joined(separator: ", ")
     }
 
     /// Stop the HTTP server.

@@ -422,7 +422,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             do {
                 try server.start()
                 metricsServer = server
-                logger.info("Metrics: Prometheus exporter on \(hosts.joined(separator: ", ")):\(newConfig.effectivePrometheusPort)")
+                let addr = MetricsServer.formatHostsPort(hosts, port: newConfig.effectivePrometheusPort)
+                logger.info("Metrics: Prometheus exporter on \(addr)")
             } catch {
                 logger.warning("Metrics: Failed to start server on port \(newConfig.effectivePrometheusPort) — \(error).")
             }

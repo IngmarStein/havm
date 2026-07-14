@@ -94,7 +94,8 @@ struct RunCommand: AsyncParsableCommand {
             do {
                 try server.start()
                 metricsServer = server
-                logger.info("Metrics: Prometheus exporter on \(hosts.joined(separator: ", ")):\(havmConfig.effectivePrometheusPort)")
+                let addr = MetricsServer.formatHostsPort(hosts, port: havmConfig.effectivePrometheusPort)
+                logger.info("Metrics: Prometheus exporter on \(addr)")
             } catch {
                 logger.warning("Metrics: Failed to start server on port \(havmConfig.effectivePrometheusPort) — \(error). Continuing without metrics.")
             }
