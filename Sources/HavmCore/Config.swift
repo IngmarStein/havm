@@ -308,9 +308,10 @@ public struct HavmConfig: Decodable, Sendable {
         metrics?.prometheus?.port ?? 9210
     }
 
-    /// Prometheus metrics endpoint host (defaults to 127.0.0.1).
+    /// Prometheus metrics endpoint host. Defaults to ::1 (IPv6 loopback),
+    /// which accepts both IPv4 and IPv6 connections on macOS (dual-stack).
     public var effectivePrometheusHost: String {
-        metrics?.prometheus?.host ?? "127.0.0.1"
+        metrics?.prometheus?.host ?? "::1"
     }
 }
 

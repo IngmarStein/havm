@@ -113,7 +113,7 @@ import Testing
         #expect(!config.effectiveMetricsEnabled, "Metrics should be disabled by default")
         #expect(config.effectiveMetricsType == .prometheus)
         #expect(config.effectivePrometheusPort == 9210)
-        #expect(config.effectivePrometheusHost == "127.0.0.1")
+        #expect(config.effectivePrometheusHost == "::1")
     }
 
     @Test("Metrics config explicit values")
@@ -137,7 +137,7 @@ import Testing
         #expect(config.effectiveMetricsEnabled)
         #expect(config.effectiveMetricsType == .prometheus)
         #expect(config.effectivePrometheusPort == 9210)
-        #expect(config.effectivePrometheusHost == "127.0.0.1")
+        #expect(config.effectivePrometheusHost == "::1")
     }
 
     @Test("CONFIG disk raw directory structure")
