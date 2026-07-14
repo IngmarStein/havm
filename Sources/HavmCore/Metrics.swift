@@ -150,7 +150,7 @@ private final class NoOpHandler: CounterHandler, MeterHandler, TimerHandler {
 /// Designed for Prometheus scraping (every 15–60s), not high-throughput use.
 public final class MetricsServer: @unchecked Sendable {
     private let registry: SimpleRegistry
-    private let host: String
+    private let hosts: [String]
     private let port: Int
     private let logger: Logger
     private let queue: DispatchQueue
@@ -160,30 +160,20 @@ public final class MetricsServer: @unchecked Sendable {
     /// gauges that should be computed fresh (e.g. disk usage).
     public var preScrape: (() -> Void)?
 
-    public init(registry: SimpleRegistry, host: String, port: Int, logger: Logger) {
+    public init(registry: SimpleRegistry, hosts: [String], port: Int, logger: Logger) {
         self.registry = registry
-        self.host = host
+        self.hosts = hosts
         self.port = port
         self.logger = logger
         self.queue = DispatchQueue(label: "havm.metrics-server")
     }
 
-    /// Start the HTTP server. Throws if the port cannot be bound.
-    /// When the host is ::1, also binds 127.0.0.1 for dual-stack loopback
-    /// (NWListener's IPV6_V6ONLY prevents a single socket from covering both).
+    /// Start the HTTP server. Creates a listener for each configured host
+    /// so users can bind both IPv4 and IPv6 without relying on dual-stack
+    /// behaviour (Network.framework sets IPV6_V6ONLY).
     public func start() throws {
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             throw MetricsError.invalidPort(port)
-        }
-
-        // Resolve which addresses to bind. Network.framework sets
-        // IPV6_V6ONLY, so an IPv6 socket won't accept IPv4 connections.
-        // For loopback and wildcard, bind both stacks.
-        let hosts: [String]
-        switch host {
-        case "::1": hosts = ["::1", "127.0.0.1"]
-        case "::":  hosts = ["::", "0.0.0.0"]
-        default:    hosts = [host]
         }
 
         for host in hosts {

@@ -25,7 +25,7 @@ metrics:
   enabled: true
 ```
 
-The server listens on `[::1]:9210` and `127.0.0.1:9210` (dual-stack loopback) by default and serves two endpoints:
+The server binds to `127.0.0.1:9210` and `[::1]:9210` (both loopbacks) by default and serves two endpoints:
 
 | Endpoint | Description |
 |----------|-------------|
@@ -54,14 +54,14 @@ scrape_configs:
 
 ## LAN Access
 
-The server binds to `::1` (both IPv4 and IPv6 loopback) by default. To allow LAN access (e.g.,
-a dedicated Prometheus host), bind to all interfaces:
+The server binds to both loopback addresses by default. To allow LAN access
+(e.g., a dedicated Prometheus host), bind to all interfaces:
 
 ```yaml
 metrics:
   enabled: true
   prometheus:
-    host: "::"
+    host: ["::"]
 ```
 
 ## Custom Port
@@ -108,7 +108,7 @@ metrics:
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
     port: 9210            # default: 9210
-    host: "::1"           # default: "::1"
+    host: ["127.0.0.1", "::1"]  # default: both loopbacks
 ```
 
 <div class="note">

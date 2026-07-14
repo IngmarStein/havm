@@ -57,7 +57,7 @@ metrics:
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
     port: 9210            # default: 9210
-    host: "::1"           # default: "::1" (all loopback) — set to "::" for LAN access (dual-stack)
+    host: ["127.0.0.1", "::1"]  # default: both loopbacks — set to ["::"] for LAN access
 
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)

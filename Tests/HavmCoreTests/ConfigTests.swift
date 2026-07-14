@@ -113,7 +113,7 @@ import Testing
         #expect(!config.effectiveMetricsEnabled, "Metrics should be disabled by default")
         #expect(config.effectiveMetricsType == .prometheus)
         #expect(config.effectivePrometheusPort == 9210)
-        #expect(config.effectivePrometheusHost == "::1")
+        #expect(config.effectivePrometheusHosts == ["127.0.0.1", "::1"])
     }
 
     @Test("Metrics config explicit values")
@@ -121,13 +121,13 @@ import Testing
         let metrics = HavmConfig.MetricsConfig(
             enabled: true,
             type: .prometheus,
-            prometheus: HavmConfig.MetricsConfig.PrometheusConfig(port: 9876, host: "0.0.0.0")
+            prometheus: HavmConfig.MetricsConfig.PrometheusConfig(port: 9876, hosts: ["0.0.0.0"])
         )
         let config = HavmConfig(metrics: metrics)
         #expect(config.effectiveMetricsEnabled)
         #expect(config.effectiveMetricsType == .prometheus)
         #expect(config.effectivePrometheusPort == 9876)
-        #expect(config.effectivePrometheusHost == "0.0.0.0")
+        #expect(config.effectivePrometheusHosts == ["0.0.0.0"])
     }
 
     @Test("Metrics config partial defaults")
@@ -137,7 +137,7 @@ import Testing
         #expect(config.effectiveMetricsEnabled)
         #expect(config.effectiveMetricsType == .prometheus)
         #expect(config.effectivePrometheusPort == 9210)
-        #expect(config.effectivePrometheusHost == "::1")
+        #expect(config.effectivePrometheusHosts == ["127.0.0.1", "::1"])
     }
 
     @Test("CONFIG disk raw directory structure")

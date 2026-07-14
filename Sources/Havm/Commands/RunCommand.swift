@@ -84,18 +84,19 @@ struct RunCommand: AsyncParsableCommand {
         let registry = bootstrapMetrics(logger: logger)
         var metricsServer: MetricsServer?
         if havmConfig.effectiveMetricsEnabled {
+            let hosts = havmConfig.effectivePrometheusHosts
             let server = MetricsServer(
                 registry: registry,
-                host: havmConfig.effectivePrometheusHost,
+                hosts: hosts,
                 port: havmConfig.effectivePrometheusPort,
                 logger: logger
             )
             do {
                 try server.start()
                 metricsServer = server
-                logger.info("Metrics: Prometheus exporter on \(havmConfig.effectivePrometheusHost):\(havmConfig.effectivePrometheusPort)")
+                logger.info("Metrics: Prometheus exporter on \(hosts.joined(separator: ", ")):\(havmConfig.effectivePrometheusPort)")
             } catch {
-                logger.warning("Metrics: Failed to start server on \(havmConfig.effectivePrometheusHost):\(havmConfig.effectivePrometheusPort) — \(error). Continuing without metrics.")
+                logger.warning("Metrics: Failed to start server on port \(havmConfig.effectivePrometheusPort) — \(error). Continuing without metrics.")
             }
         }
 

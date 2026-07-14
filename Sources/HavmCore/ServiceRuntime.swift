@@ -379,7 +379,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         let tokenChanged = newConfig.effectiveHAAPIToken != oldConfig.effectiveHAAPIToken
 
         let metricsEnabledChanged = newConfig.effectiveMetricsEnabled != oldConfig.effectiveMetricsEnabled
-        let metricsHostChanged = newConfig.effectivePrometheusHost != oldConfig.effectivePrometheusHost
+        let metricsHostChanged = newConfig.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
         let metricsPortChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
         let metricsChanged = metricsEnabledChanged || metricsHostChanged || metricsPortChanged
 
@@ -406,14 +406,15 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         }
 
         // Enabled — if host or port changed (or first enable), restart.
-        let hostChanged = newConfig.effectivePrometheusHost != oldConfig.effectivePrometheusHost
+        let hostChanged = newConfig.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
         let portChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
 
         if hostChanged || portChanged || metricsServer == nil {
             metricsServer?.stop()
+            let hosts = newConfig.effectivePrometheusHosts
             let server = MetricsServer(
                 registry: registry,
-                host: newConfig.effectivePrometheusHost,
+                hosts: hosts,
                 port: newConfig.effectivePrometheusPort,
                 logger: logger
             )
@@ -421,9 +422,9 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             do {
                 try server.start()
                 metricsServer = server
-                logger.info("Metrics: Prometheus exporter on \(newConfig.effectivePrometheusHost):\(newConfig.effectivePrometheusPort)")
+                logger.info("Metrics: Prometheus exporter on \(hosts.joined(separator: ", ")):\(newConfig.effectivePrometheusPort)")
             } catch {
-                logger.warning("Metrics: Failed to start server on \(newConfig.effectivePrometheusHost):\(newConfig.effectivePrometheusPort) — \(error).")
+                logger.warning("Metrics: Failed to start server on port \(newConfig.effectivePrometheusPort) — \(error).")
             }
         }
     }

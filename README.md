@@ -162,7 +162,7 @@ metrics:
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
     port: 9210            # default: 9210
-    host: "::1"           # default: "::1" (all loopback) — set to "::" for LAN access (dual-stack)
+    host: ["127.0.0.1", "::1"]  # default: both loopbacks — set to ["::"] for LAN access
 
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
@@ -235,7 +235,7 @@ metrics:
   enabled: true
 ```
 
-With metrics enabled, `havm` serves `GET /metrics` on `[::1]:9210` (all loopback) by default.
+With metrics enabled, `havm` serves `GET /metrics` on `127.0.0.1:9210` and `[::1]:9210` (both loopbacks) by default.
 A `GET /health` endpoint is also available for simple liveness checks.
 
 **Available metrics:**
@@ -262,14 +262,14 @@ An example [Grafana dashboard](docs/metrics.md#grafana-dashboard) is included
 in the repository — import `grafana/dashboard.json` to visualize VM status,
 USB devices, and disk usage.
 
-The server binds to `::1` (both IPv4 and IPv6 loopback) by default. To allow LAN access (e.g., a
-dedicated Prometheus host), set the host to `::`:
+The server binds to both loopback addresses by default. To allow LAN access
+(e.g., a dedicated Prometheus host), bind to all interfaces:
 
 ```yaml
 metrics:
   enabled: true
   prometheus:
-    host: "::"
+    host: ["::"]
 ```
 
 Any host/port configuration works out of the box.

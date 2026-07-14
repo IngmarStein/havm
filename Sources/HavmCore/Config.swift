@@ -158,11 +158,28 @@ public struct HavmConfig: Decodable, Sendable {
 
         public struct PrometheusConfig: Decodable, Sendable {
             public var port: Int?
-            public var host: String?
+            /// Bind addresses for the HTTP listener. Accepts a single string
+            /// or an array in YAML. Defaults to both loopback addresses.
+            public var hosts: [String]?
 
-            public init(port: Int? = nil, host: String? = nil) {
+            enum CodingKeys: String, CodingKey {
+                case port, host
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                port = try container.decodeIfPresent(Int.self, forKey: .port)
+                // Accept both a single string and an array for backward compat.
+                if let single = try? container.decodeIfPresent(String.self, forKey: .host) {
+                    hosts = [single]
+                } else {
+                    hosts = try container.decodeIfPresent([String].self, forKey: .host)
+                }
+            }
+
+            public init(port: Int? = nil, hosts: [String]? = nil) {
                 self.port = port
-                self.host = host
+                self.hosts = hosts
             }
         }
 
@@ -308,10 +325,10 @@ public struct HavmConfig: Decodable, Sendable {
         metrics?.prometheus?.port ?? 9210
     }
 
-    /// Prometheus metrics endpoint host. Defaults to ::1 (IPv6 loopback),
-    /// which accepts both IPv4 and IPv6 connections on macOS (dual-stack).
-    public var effectivePrometheusHost: String {
-        metrics?.prometheus?.host ?? "::1"
+    /// Prometheus metrics bind addresses. Defaults to both IPv4 and IPv6
+    /// loopback so the endpoint is reachable regardless of client stack.
+    public var effectivePrometheusHosts: [String] {
+        metrics?.prometheus?.hosts ?? ["127.0.0.1", "::1"]
     }
 }
 
