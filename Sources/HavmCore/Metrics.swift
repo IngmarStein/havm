@@ -154,7 +154,7 @@ public final class MetricsServer: @unchecked Sendable {
     private let port: Int
     private let logger: Logger
     private let queue: DispatchQueue
-    private var listener: NWListener?
+    private var listeners: [NWListener] = []
 
     /// Optional closure called before each metrics scrape. Use for on-demand
     /// gauges that should be computed fresh (e.g. disk usage).
@@ -169,42 +169,58 @@ public final class MetricsServer: @unchecked Sendable {
     }
 
     /// Start the HTTP server. Throws if the port cannot be bound.
+    /// When the host is ::1, also binds 127.0.0.1 for dual-stack loopback
+    /// (NWListener's IPV6_V6ONLY prevents a single socket from covering both).
     public func start() throws {
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             throw MetricsError.invalidPort(port)
         }
 
-        let params = NWParameters.tcp
-        params.requiredLocalEndpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(host),
-            port: nwPort
-        )
+        // Resolve which addresses to bind. For the default ::1 loopback,
+        // we also bind 127.0.0.1 so both IPv4 and IPv6 clients can reach
+        // the metrics endpoint.
+        let hosts: [String]
+        if host == "::1" {
+            hosts = ["::1", "127.0.0.1"]
+        } else {
+            hosts = [host]
+        }
 
-        let listener = try NWListener(using: params)
-        listener.newConnectionHandler = { [weak self] connection in
-            self?.handleConnection(connection)
-        }
-        listener.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .ready:
-                self.logger.info("Metrics server listening on \(self.host):\(self.port)")
-            case .failed(let error):
-                self.logger.error("Metrics server failed: \(error.localizedDescription)")
-            case .cancelled:
-                self.logger.debug("Metrics server stopped")
-            default:
-                break
+        for host in hosts {
+            let params = NWParameters.tcp
+            params.requiredLocalEndpoint = NWEndpoint.hostPort(
+                host: NWEndpoint.Host(host),
+                port: nwPort
+            )
+
+            let listener = try NWListener(using: params)
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.handleConnection(connection)
             }
+            listener.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .ready:
+                    self.logger.info("Metrics server listening on \(host):\(self.port)")
+                case .failed(let error):
+                    self.logger.error("Metrics server failed: \(error.localizedDescription)")
+                case .cancelled:
+                    self.logger.debug("Metrics server stopped on \(host)")
+                default:
+                    break
+                }
+            }
+            listener.start(queue: queue)
+            listeners.append(listener)
         }
-        listener.start(queue: queue)
-        self.listener = listener
     }
 
     /// Stop the HTTP server.
     public func stop() {
-        listener?.cancel()
-        listener = nil
+        for listener in listeners {
+            listener.cancel()
+        }
+        listeners.removeAll()
     }
 
     // MARK: - Connection handling
