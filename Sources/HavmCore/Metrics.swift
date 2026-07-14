@@ -178,6 +178,8 @@ public final class MetricsServer: @unchecked Sendable {
 
         for host in hosts {
             let params = NWParameters.tcp
+            // Allow multiple listeners on the same port (e.g. 127.0.0.1 + ::1).
+            params.allowLocalEndpointReuse = true
             params.requiredLocalEndpoint = NWEndpoint.hostPort(
                 host: NWEndpoint.Host(host),
                 port: nwPort
@@ -190,13 +192,17 @@ public final class MetricsServer: @unchecked Sendable {
             listener.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 switch state {
+                case .setup:
+                    self.logger.debug("Metrics server setting up on \(host):\(self.port)")
+                case .waiting(let error):
+                    self.logger.warning("Metrics server waiting on \(host):\(self.port) — \(error.localizedDescription)")
                 case .ready:
                     self.logger.info("Metrics server listening on \(host):\(self.port)")
                 case .failed(let error):
-                    self.logger.error("Metrics server failed: \(error.localizedDescription)")
+                    self.logger.error("Metrics server failed on \(host):\(self.port) — \(error.localizedDescription)")
                 case .cancelled:
                     self.logger.debug("Metrics server stopped on \(host)")
-                default:
+                @unknown default:
                     break
                 }
             }
