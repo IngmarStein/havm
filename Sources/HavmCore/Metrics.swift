@@ -176,14 +176,14 @@ public final class MetricsServer: @unchecked Sendable {
             throw MetricsError.invalidPort(port)
         }
 
-        // Resolve which addresses to bind. For the default ::1 loopback,
-        // we also bind 127.0.0.1 so both IPv4 and IPv6 clients can reach
-        // the metrics endpoint.
+        // Resolve which addresses to bind. Network.framework sets
+        // IPV6_V6ONLY, so an IPv6 socket won't accept IPv4 connections.
+        // For loopback and wildcard, bind both stacks.
         let hosts: [String]
-        if host == "::1" {
-            hosts = ["::1", "127.0.0.1"]
-        } else {
-            hosts = [host]
+        switch host {
+        case "::1": hosts = ["::1", "127.0.0.1"]
+        case "::":  hosts = ["::", "0.0.0.0"]
+        default:    hosts = [host]
         }
 
         for host in hosts {

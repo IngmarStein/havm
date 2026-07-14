@@ -162,7 +162,7 @@ metrics:
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
     port: 9210            # default: 9210
-    host: "::1"           # default: "::1" (all loopback) — set to "0.0.0.0" for LAN access
+    host: "::1"           # default: "::1" (all loopback) — set to "::" for LAN access (dual-stack)
 
 shutdown:
   timeout_seconds: 30     # max wait for guest to halt (default: 30)
@@ -263,13 +263,13 @@ in the repository — import `grafana/dashboard.json` to visualize VM status,
 USB devices, and disk usage.
 
 The server binds to `::1` (both IPv4 and IPv6 loopback) by default. To allow LAN access (e.g., a
-dedicated Prometheus host), set the host to `0.0.0.0`:
+dedicated Prometheus host), set the host to `::`:
 
 ```yaml
 metrics:
   enabled: true
   prometheus:
-    host: "0.0.0.0"
+    host: "::"
 ```
 
 Any host/port configuration works out of the box.

@@ -25,7 +25,7 @@ metrics:
   enabled: true
 ```
 
-The server listens on `::1:9210` (IPv6 loopback, dual-stack) by default and serves two endpoints:
+The server listens on `[::1]:9210` and `127.0.0.1:9210` (dual-stack loopback) by default and serves two endpoints:
 
 | Endpoint | Description |
 |----------|-------------|
@@ -61,7 +61,7 @@ a dedicated Prometheus host), bind to all interfaces:
 metrics:
   enabled: true
   prometheus:
-    host: "0.0.0.0"
+    host: "::"
 ```
 
 ## Custom Port
