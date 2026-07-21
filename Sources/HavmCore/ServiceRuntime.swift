@@ -78,6 +78,9 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         vmController.onStateChange = { [weak self] state in
             let name = state.description
             self?.logger.info("VM state: \(name)")
+            if state == .stopped, self?.shutdownRequested != true {
+                self?.cleanupAndExit(0)
+            }
         }
     }
 

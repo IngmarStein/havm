@@ -340,11 +340,15 @@ public struct MemorySize: Sendable, CustomStringConvertible {
     public init(bytes: UInt64) { self.bytes = bytes }
 
     public var description: String {
-        if bytes >= 1024 * 1024 * 1024, bytes % (1024 * 1024 * 1024) == 0 {
-            return "\(bytes / (1024 * 1024 * 1024)) GiB"
+        if bytes >= 1024 * 1024 * 1024 {
+            let gb = Double(bytes) / (1024 * 1024 * 1024)
+            let formatted = String(format: "%.1f GiB", gb)
+            return formatted.hasSuffix(".0 GiB") ? "\(Int(gb)) GiB" : formatted
         }
-        if bytes >= 1024 * 1024, bytes % (1024 * 1024) == 0 {
-            return "\(bytes / (1024 * 1024)) MiB"
+        if bytes >= 1024 * 1024 {
+            let mb = Double(bytes) / (1024 * 1024)
+            let formatted = String(format: "%.1f MiB", mb)
+            return formatted.hasSuffix(".0 MiB") ? "\(Int(mb)) MiB" : formatted
         }
         return "\(bytes) B"
     }

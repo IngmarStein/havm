@@ -121,8 +121,16 @@ public final class HAOSSetupManager: @unchecked Sendable {
             logger.info("Decompressed to \(rawPath)")
         }
 
-        // 3. Copy disk image to persistent location
-        try copyDiskImage(from: cachedImagePath, to: HavmConfig.persistentDiskPath)
+        // 3. Clone disk image to persistent location (CoW on APFS, preserves sparseness)
+        let destURL = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
+        if FileManager.default.fileExists(atPath: destURL.path) {
+            try FileManager.default.removeItem(at: destURL)
+        }
+        let srcURL = URL(fileURLWithPath: cachedImagePath)
+        if clonefile(srcURL.path, destURL.path, 0) != 0 {
+            // Cross-volume fallback
+            try FileManager.default.copyItem(at: srcURL, to: destURL)
+        }
         logger.info("Copied disk image to \(HavmConfig.persistentDiskPath)")
 
         // 4. Resize disk image if needed
@@ -437,8 +445,129 @@ public final class HAOSSetupManager: @unchecked Sendable {
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
     }
 
-    private func copyDiskImage(from source: String, to destination: String) throws {
-        try fileManager.copyItem(atPath: source, toPath: destination)
+    // MARK: - Console cmdline patching
+
+    /// Patch the EFI partition `cmdline.txt` to include `console=hvc0` so
+    /// kernel messages appear on the virtio serial console. Idempotent.
+    public static func ensureConsoleCmdline() {
+        let logger = Logger(label: "havm.console-patch")
+        let diskPath = HavmConfig.persistentDiskPath
+        guard FileManager.default.fileExists(atPath: diskPath) else {
+            logger.debug("Disk image not found — skipping console cmdline patch")
+            return
+        }
+
+        guard let fh = try? FileHandle(forUpdating: URL(fileURLWithPath: diskPath)) else {
+            logger.warning("Could not open disk image for console cmdline patch")
+            return
+        }
+        defer { try? fh.close() }
+
+        // Read LBA 0 (protective MBR) and LBA 1 (GPT header).
+        guard let headerBlock = try? fh.read(upToCount: 1024), headerBlock.count >= 1024 else { return }
+        let headerBytes = [UInt8](headerBlock)
+        guard String(bytes: headerBytes[512..<520], encoding: .utf8) == "EFI PART" else { return }
+
+        // GPT header: entry count at byte 80, entry size at byte 84 (both uint32 LE).
+        let entryCount = Int(UInt32(littleEndian: headerBytes[512+80..<512+84].withUnsafeBytes { $0.load(as: UInt32.self) }))
+        let entrySize  = Int(UInt32(littleEndian: headerBytes[512+84..<512+88].withUnsafeBytes { $0.load(as: UInt32.self) }))
+        guard entryCount > 0, entrySize > 0 else { return }
+
+        // Partition entries start at LBA 2 (offset 1024).
+        let entryBufSize = entryCount * entrySize
+        try? fh.seek(toOffset: 1024)
+        guard let entryData = try? fh.read(upToCount: entryBufSize),
+              entryData.count >= entryBufSize else { return }
+        let entryBytes = [UInt8](entryData)
+
+        // EFI System Partition (standard GUID, not HA OS specific).
+        let espGUID: [UInt8] = [0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11,
+                                0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B]
+        var efiOffset: UInt64 = 0
+        var efiSize: UInt64 = 0
+        for i in 0..<entryCount {
+            let off = i * entrySize
+            guard off + 48 <= entryBytes.count else { break }
+            guard Array(entryBytes[off..<off+16]) == espGUID else { continue }
+            let startLBA = entryBytes[off+32..<off+40].withUnsafeBytes { $0.load(as: UInt64.self) }
+            let endLBA   = entryBytes[off+40..<off+48].withUnsafeBytes { $0.load(as: UInt64.self) }
+            efiOffset = startLBA * 512
+            efiSize = (endLBA - startLBA + 1) * 512
+            break
+        }
+        guard efiOffset > 0, efiSize > 0 else {
+            logger.debug("EFI partition not found — skipping console cmdline patch")
+            return
+        }
+
+        // Read the EFI partition.
+        try? fh.seek(toOffset: efiOffset)
+        guard let efiData = try? fh.read(upToCount: Int(efiSize)), !efiData.isEmpty else { return }
+        var efiBytes = [UInt8](efiData)
+
+        let consolePrefix: [UInt8] = [0x63, 0x6f, 0x6e, 0x73, 0x6f, 0x6c, 0x65, 0x3d]  // "console="
+        let hvc0: [UInt8] = [0x68, 0x76, 0x63, 0x30]  // "hvc0"
+
+        // Scan for "console=". Only replace console values that are known
+        // non-virtio types — never touch an unrecognized value.
+        var patched = false
+        var idx = 0
+        while idx <= efiBytes.count - consolePrefix.count {
+            guard Array(efiBytes[idx..<idx+consolePrefix.count]) == consolePrefix else { idx += 1; continue }
+            let valStart = idx + consolePrefix.count
+            let remain = efiBytes.count - valStart
+            if remain >= 4, Array(efiBytes[valStart..<valStart+4]) == hvc0 {
+                logger.debug("Console cmdline already set to hvc0")
+                return
+            }
+            // Determine the console value up to the next whitespace or null.
+            var end = valStart
+            while end < efiBytes.count, efiBytes[end] != 0x20, efiBytes[end] != 0x0a, efiBytes[end] != 0x00 {
+                end += 1
+            }
+            let oldValue = Array(efiBytes[valStart..<end])
+            let oldStr = String(bytes: oldValue, encoding: .utf8) ?? ""
+
+            // Only replace known non-virtio console devices. A future HA OS
+            // release might already ship with hvc0 or a different device we
+            // shouldn't touch.
+            let safeToReplace = oldStr.hasPrefix("tty") || oldStr.hasPrefix("hvc")
+            guard safeToReplace else {
+                logger.debug("Unrecognised console=\(oldStr) — leaving as-is")
+                idx = end; continue
+            }
+
+            // Consume following space-separated console= entries too.
+            while end < efiBytes.count, efiBytes[end] == 0x20 {
+                let next = end + 1
+                if next + consolePrefix.count <= efiBytes.count,
+                   Array(efiBytes[next..<next+consolePrefix.count]) == consolePrefix {
+                    end = next + consolePrefix.count
+                    while end < efiBytes.count, efiBytes[end] != 0x20, efiBytes[end] != 0x0a, efiBytes[end] != 0x00 {
+                        end += 1
+                    }
+                } else { break }
+            }
+
+            // Write "console=hvc0\0" and null remaining old bytes in place.
+            let replacement: [UInt8] = [0x63, 0x6f, 0x6e, 0x73, 0x6f, 0x6c, 0x65, 0x3d, 0x68, 0x76, 0x63, 0x30, 0x00]
+            for (j, byte) in replacement.enumerated() {
+                guard idx + j < efiBytes.count else { break }
+                efiBytes[idx + j] = byte
+            }
+            for j in (idx + replacement.count)..<end {
+                guard j < efiBytes.count else { break }
+                efiBytes[j] = 0
+            }
+            patched = true
+            idx = end
+        }
+        guard patched else { return }
+
+        try? fh.seek(toOffset: efiOffset)
+        try? fh.write(contentsOf: efiBytes)
+        try? fh.synchronize()
+        logger.info("Console: patched EFI cmdline.txt — console=hvc0")
     }
 
     private func createDirectories() {

@@ -105,6 +105,9 @@ struct RunCommand: AsyncParsableCommand {
         let setupManager = HAOSSetupManager(config: havmConfig, logger: logger)
         do {
             try await setupManager.setupIfNeeded()
+            if console {
+                HAOSSetupManager.ensureConsoleCmdline()
+            }
         } catch {
             logger.error("HA OS setup failed: \(error)")
             throw ExitCode.failure
