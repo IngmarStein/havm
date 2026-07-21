@@ -1,7 +1,6 @@
 import ArgumentParser
 import Foundation
 import HavmCore
-import Darwin
 
 struct ImportUTMCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
