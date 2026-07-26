@@ -58,6 +58,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var usbAccessoryCount: Int = 0
     private var originalTermios: termios?
     private var rawModeEnabled = false
+    private var lastDHCPLeaseModDate: Date?
+    private var cachedDHCPLeaseIP: String?
 
     public init(
         config: HavmConfig,
@@ -542,6 +544,8 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         webUIReadyNotified = false
         firstProbeDone = false
         guestIP = nil
+        lastDHCPLeaseModDate = nil
+        cachedDHCPLeaseIP = nil
         observerPollCount = 0
         healthPollCount = 0
         shutdownRequested = false
@@ -653,6 +657,11 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
 
     /// Send a shutdown command to the guest via SSH.
     /// - Returns: `true` if the SSH command succeeded (exit code 0).
+    ///
+    /// A deadline task terminates the process if it exceeds `timeout` seconds,
+    /// preventing SSH from hanging indefinitely when the guest kernel is blocked
+    /// (e.g. systemd shutdown ordering deadlock). The caller depends on this
+    /// returning so the defer block fires and the process exits or restarts.
     private func sshShutdown(host: String, port: Int, command: String, timeout: Int) async -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
@@ -673,8 +682,19 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         process.standardError = stderrPipe
 
         let logger = self.logger
+
+        // Terminate the process if it doesn't finish within the timeout.
+        let deadlineTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(timeout) * 1_000_000_000)
+            if process.isRunning {
+                logger.warning("SSH (port \(port)) timed out after \(timeout)s — terminating")
+                process.terminate()
+            }
+        }
+
         return await withCheckedContinuation { continuation in
             process.terminationHandler = { proc in
+                deadlineTask.cancel()
                 let succeeded = proc.terminationStatus == 0
                 if !succeeded {
                     let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
@@ -689,6 +709,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             do {
                 try process.run()
             } catch {
+                deadlineTask.cancel()
                 continuation.resume(returning: false)
             }
         }
@@ -872,6 +893,9 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     /// Only works in NAT mode where macOS vmnet acts as the DHCP server.
     /// The MAC address is stable after VM start, so we parse the byte representation
     /// once on first call.
+    ///
+    /// Caches the last-modification timestamp so we don't re-read the file on
+    /// every 250 ms tick when the lease hasn't been granted yet.
     private lazy var guestMACBytes: [UInt8]? = {
         vmController.guestMAC?.split(separator: ":").compactMap { UInt8($0, radix: 16) }
     }()
@@ -879,8 +903,22 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private func discoverViaDHCPLeases() -> String? {
         guard let guestMACBytes else { return nil }
 
-        guard let leaseData = try? Data(contentsOf: URL(fileURLWithPath: "/var/db/dhcpd_leases")),
+        let leaseURL = URL(fileURLWithPath: "/var/db/dhcpd_leases")
+
+        // Skip re-reading if the file hasn't changed since last check.
+        if let lastMod = lastDHCPLeaseModDate,
+           let attrs = try? FileManager.default.attributesOfItem(atPath: leaseURL.path),
+           let currentMod = attrs[.modificationDate] as? Date,
+           currentMod <= lastMod {
+            return cachedDHCPLeaseIP
+        }
+
+        guard let leaseData = try? Data(contentsOf: leaseURL),
               let leaseText = String(data: leaseData, encoding: .utf8) else { return nil }
+
+        // Update the mod-date cache before parsing so we track the latest read.
+        lastDHCPLeaseModDate = (try? FileManager.default.attributesOfItem(atPath: leaseURL.path))
+            .flatMap { $0[.modificationDate] as? Date }
 
         let blocks = leaseText.components(separatedBy: "}\n")
         for block in blocks {
@@ -896,10 +934,12 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
                 }
             }
             if blockMAC == guestMACBytes, let ip = blockIP, !ip.isEmpty {
+                cachedDHCPLeaseIP = ip
                 return ip
             }
         }
 
+        cachedDHCPLeaseIP = nil
         return nil
     }
 

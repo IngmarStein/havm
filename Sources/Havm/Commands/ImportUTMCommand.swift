@@ -1,4 +1,5 @@
 import ArgumentParser
+import Darwin
 import Foundation
 import HavmCore
 
@@ -169,7 +170,11 @@ struct ImportUTMCommand: AsyncParsableCommand {
             return
         }
 
-        // Fall back to sparse-aware copy for cross-volume scenarios.
+        // clonefile failed — log the reason before falling back.
+        // Common causes: EXDEV (cross-device), ENOTSUP (non-APFS source).
+        let reason = String(cString: strerror(errno))
+        print("    Note: clonefile skipped (\(reason)) — falling back to sparse copy")
+
         let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(sourceSize), countStyle: .file)
         print("    Copying \(description) (\(sizeStr), sparse-aware)...")
 

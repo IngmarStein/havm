@@ -468,14 +468,17 @@ public final class HAOSSetupManager: @unchecked Sendable {
         let headerBytes = [UInt8](headerBlock)
         guard String(bytes: headerBytes[512..<520], encoding: .utf8) == "EFI PART" else { return }
 
-        // GPT header: entry count at byte 80, entry size at byte 84 (both uint32 LE).
+        // GPT header: partition entry LBA at byte 72, entry count at byte 80,
+        // entry size at byte 84 (all little-endian).
+        let entryStartLBA = UInt64(littleEndian: headerBytes[512+72..<512+80].withUnsafeBytes { $0.load(as: UInt64.self) })
         let entryCount = Int(UInt32(littleEndian: headerBytes[512+80..<512+84].withUnsafeBytes { $0.load(as: UInt32.self) }))
         let entrySize  = Int(UInt32(littleEndian: headerBytes[512+84..<512+88].withUnsafeBytes { $0.load(as: UInt32.self) }))
         guard entryCount > 0, entrySize > 0 else { return }
 
-        // Partition entries start at LBA 2 (offset 1024).
+        // Partition entries as specified by the GPT header (typically LBA 2).
         let entryBufSize = entryCount * entrySize
-        try? fh.seek(toOffset: 1024)
+        let entryOffset = entryStartLBA * 512
+        try? fh.seek(toOffset: entryOffset)
         guard let entryData = try? fh.read(upToCount: entryBufSize),
               entryData.count >= entryBufSize else { return }
         let entryBytes = [UInt8](entryData)

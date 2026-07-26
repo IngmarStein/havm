@@ -104,11 +104,13 @@ public final class VMController: NSObject, @unchecked Sendable {
                 bridgeInterface = iface
             } else {
                 guard let primary = VZBridgedNetworkInterface.networkInterfaces.first else {
-                    // No bridge interfaces available — likely a binary without the
-                    // com.apple.vm.networking entitlement. If the user didn't
-                    // explicitly request bridge, fall back to NAT.
+                    // VZBridgedNetworkInterface.networkInterfaces is empty
+                    // when the process lacks the com.apple.vm.networking
+                    // entitlement (self-compiled / Tier 1–2). If the user
+                    // didn't explicitly request bridge, fall back to NAT
+                    // with a clear explanation.
                     if config.network?.type == nil {
-                        logger.warning("Bridge not available (missing entitlement?). Falling back to NAT.")
+                        logger.warning("Bridge not available — com.apple.vm.networking entitlement missing (self-compiled binary). Falling back to NAT.")
                         net.attachment = VZNATNetworkDeviceAttachment()
                         logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
                         break
@@ -211,7 +213,7 @@ public final class VMController: NSObject, @unchecked Sendable {
                 switch result {
                 case .success:
                     self.logger.info("VM started successfully")
-                    self.transition(to: .running)
+                    MainActor.assumeIsolated { self.transition(to: .running) }
                     onComplete(nil)
                 case .failure(let error):
                     self.logger.error("VM start failed: \(error.localizedDescription)")
@@ -302,6 +304,12 @@ public final class VMController: NSObject, @unchecked Sendable {
 
     // MARK: - State transitions
 
+    /// Update VM state, metrics, and notify observers. All callers (VZ delegate
+    /// callbacks, `forceStop`, `startVMBlocking` completion) are already on the
+    /// main dispatch queue — `@MainActor` makes this requirement explicit so a
+    /// future VZ update that delivers delegate callbacks on another queue won't
+    /// silently introduce a data race on ``state``.
+    @MainActor
     private func transition(to newState: VZVirtualMachine.State) {
         let oldLabel = state.description
         let newLabel = newState.description
@@ -336,12 +344,15 @@ extension VMController: VZVirtualMachineDelegate {
         } else {
             logger.error("VM stopped: \(error.localizedDescription)")
         }
-        transition(to: .stopped)
+        // VZ delivers delegate callbacks on the main queue — assumeMainActor
+        // avoids the compiler error without a full @MainActor conformance
+        // that would break the NSObject protocol conformance.
+        MainActor.assumeIsolated { transition(to: .stopped) }
     }
 
     public func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         logger.info("Guest OS stopped")
-        transition(to: .stopped)
+        MainActor.assumeIsolated { transition(to: .stopped) }
     }
 }
 
