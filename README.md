@@ -210,6 +210,12 @@ that appears when `havm run` starts. Select a device to attach it — it
 will be re-attached automatically shortly after boot on
 the next run. No restart needed.
 
+The menu bar shows, next to each passed-through accessory, the name of the
+app macOS attributes it to — the launching terminal (e.g. "Terminal",
+"Ghostty") or "unknown app" for a launchd service. This label is decided
+by macOS; the AccessoryAccess framework offers no way for havm to change
+it.
+
 ## Logging
 
 `havm` logs to stdout by default. The format and level are configurable both

@@ -39,6 +39,21 @@ immediately. No restart needed.
 Devices are remembered and re-attached automatically shortly after boot
 on the next run.
 
+### App name in the menu bar
+
+The menu bar lists each passed-through accessory together with the name of
+the app that macOS attributes it to. Because havm is a command-line tool,
+that name follows the launching app rather than havm:
+
+| How havm runs | Name shown next to a passed-through accessory |
+|---|---|
+| From a terminal | The terminal app (e.g. "Terminal", "Ghostty") |
+| As a launchd / Homebrew service | "unknown app" |
+| Accessory connected to the host (not passed through) | "This Mac" |
+
+This label is decided by macOS — the AccessoryAccess framework offers no
+way for an app to set it — so havm can't influence which name is shown.
+
 ## Troubleshooting
 
 **Menu bar item doesn't appear:**
