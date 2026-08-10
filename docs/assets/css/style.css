@@ -320,21 +320,20 @@ section.alt { background: var(--surface); }
 }
 
 /* ── Anchor Links ────────────────────────────────────────────── */
+/* GitHub-style: a bare link icon, shown only on heading hover
+   (or keyboard focus), with no background or box. */
 .anchor-link {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 1.5em;
-  height: 1.5em;
-  margin-left: 0.45em;
+  margin-left: 0.35em;
+  padding: 0;
   border: none;
-  border-radius: 6px;
-  background: transparent;
+  background: none;
   color: var(--text-dim);
   cursor: pointer;
   vertical-align: middle;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  transition: opacity 0.15s, color 0.15s;
 }
 h2:hover .anchor-link,
 h3:hover .anchor-link,
@@ -344,15 +343,9 @@ h4:hover .anchor-link,
 }
 .anchor-link:hover {
   color: var(--accent);
-  background: var(--surface2);
 }
 .anchor-link.copied {
   color: var(--green);
-  opacity: 1;
-}
-/* Touch devices have no hover — keep the button always visible. */
-@media (hover: none) {
-  .anchor-link { opacity: 1; }
 }
 
 /* ── Footer ──────────────────────────────────────────────────── */
