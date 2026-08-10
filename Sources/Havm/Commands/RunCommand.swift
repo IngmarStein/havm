@@ -73,6 +73,13 @@ struct RunCommand: AsyncParsableCommand {
         var logger = Logger(label: "havm.run")
         logger.logLevel = effectiveLogLevel
 
+        // Print where havm looked for config so users can see which file is
+        // in effect (or would be). Uses the configured format/level above.
+        let configPath = havmConfig.configPath ?? HavmConfig.defaultConfigPath
+        let configHint = FileManager.default.fileExists(atPath: configPath)
+            ? "" : " (not found — using defaults)"
+        logger.info("Config: \(configPath)\(configHint)")
+
         let logMode = useJSON ? "json" : "text"
         let extras = console ? " console" : ""
         let mem = MemorySize(bytes: havmConfig.effectiveMemorySize)

@@ -15,13 +15,24 @@ public struct HavmConfig: Decodable, Sendable {
     public var shutdown: ShutdownOverrides?
     public var logging: LoggingOverrides?
     public var metrics: MetricsConfig?
-    /// Path to the loaded config file, for file watching / hot-reload.
+    /// Path to the effective config file (where havm looks), for file
+    /// watching / hot-reload. `loadConfig` always sets this — even when the
+    /// file doesn't exist yet (defaults are used in that case).
     public var configPath: String?
 
     public struct VMOverrides: Decodable, Sendable {
         public var cpuCount: Int?
         public var memorySize: MemorySize?
         public var diskSize: MemorySize?
+
+        // Yams matches keys exactly (no snake_case strategy), so the documented
+        // snake_case keys need explicit CodingKeys. camelCase keys are not
+        // supported (breaking change allowed before 1.0).
+        private enum CodingKeys: String, CodingKey {
+            case cpuCount = "cpu_count"
+            case memorySize = "memory_size"
+            case diskSize = "disk_size"
+        }
 
         public init(cpuCount: Int? = nil, memorySize: MemorySize? = nil, diskSize: MemorySize? = nil) {
             self.cpuCount = cpuCount
@@ -61,6 +72,12 @@ public struct HavmConfig: Decodable, Sendable {
         public enum ReleaseChannel: String, Decodable, Sendable {
             case stable
             case preRelease = "pre-release"
+        }
+
+        // Documented key is `release_channel`; camelCase is not supported
+        // (breaking change allowed before 1.0).
+        private enum CodingKeys: String, CodingKey {
+            case releaseChannel = "release_channel"
         }
 
         public init(releaseChannel: ReleaseChannel? = nil) {
@@ -409,7 +426,9 @@ public enum ConfigError: Error, CustomStringConvertible {
     }
 }
 
-/// Load the config file at the given path (or return defaults if path doesn't exist).
+/// Load the config file at the given path (or return defaults if the path
+/// doesn't exist). The returned config always has `configPath` set to the
+/// resolved path that was checked.
 public func loadConfig(path: String? = nil) throws -> HavmConfig {
     let configPath: String
     if let path = path {
@@ -419,15 +438,20 @@ public func loadConfig(path: String? = nil) throws -> HavmConfig {
     }
 
     guard FileManager.default.fileExists(atPath: configPath) else {
-        // Missing config is fine — use defaults.
-        return HavmConfig.defaults
+        // Missing config is fine — use defaults, but still report the path
+        // havm looks at so it can tell the user where to put overrides.
+        var config = HavmConfig.defaults
+        config.configPath = configPath
+        return config
     }
 
     let yaml = try String(contentsOfFile: configPath, encoding: .utf8)
     // Empty, whitespace-only, or comment-only files are fine — use defaults.
     let trimmed = yaml.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
-        return HavmConfig.defaults
+        var config = HavmConfig.defaults
+        config.configPath = configPath
+        return config
     }
 
     let decoder = YAMLDecoder()

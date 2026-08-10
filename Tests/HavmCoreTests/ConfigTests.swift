@@ -21,6 +21,58 @@ import Testing
         #expect(MemorySize(bytes: 2048 * 1024 * 1024).description == "2 GiB")
     }
 
+    @Test("loadConfig sets configPath even when the file is missing")
+    func loadConfigMissingFile() throws {
+        let config = try loadConfig(path: "/nonexistent/path/config.yml")
+        #expect(config.configPath == "/nonexistent/path/config.yml")
+        #expect(config.vm == nil, "No overrides loaded — defaults used")
+    }
+
+    @Test("loadConfig sets configPath when the file exists")
+    func loadConfigExistingFile() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try "vm:\n  cpu_count: 2\n".write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        let config = try loadConfig(path: path.path)
+        #expect(config.effectiveCPUCount == 2)
+        #expect(config.configPath == URL(fileURLWithPath: path.path).standardizedFileURL.path)
+    }
+
+    @Test("loadConfig decodes documented snake_case keys")
+    func loadConfigSnakeCaseKeys() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        let yaml = """
+        vm:
+          cpu_count: 2
+          memory_size: "2 GiB"
+          disk_size: "16 GiB"
+        haos:
+          release_channel: pre-release
+        """
+        try yaml.write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        let config = try loadConfig(path: path.path)
+        #expect(config.effectiveCPUCount == 2)
+        #expect(config.effectiveMemorySize == 2 * 1024 * 1024 * 1024)
+        #expect(config.effectiveDiskSize == 16 * 1024 * 1024 * 1024)
+        #expect(config.effectiveReleaseChannel == .preRelease)
+    }
+
+    @Test("loadConfig ignores undocumented camelCase keys")
+    func loadConfigIgnoresCamelCaseKeys() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try "vm:\n  cpuCount: 2\n".write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        let config = try loadConfig(path: path.path)
+        #expect(config.effectiveCPUCount == 4, "camelCase key is ignored — default applies")
+    }
+
     @Test("Effective defaults")
     func effectiveDefaults() {
         let config = HavmConfig.defaults
