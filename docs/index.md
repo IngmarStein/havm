@@ -36,7 +36,7 @@ title: Home
 <section>
   <div class="container">
     <span class="section-label">What it does</span>
-    <h2>Your smart home, one command away</h2>
+    <h2 id="what-it-does">Your smart home, one command away</h2>
 
     <div class="feature-grid">
       <div class="feature-card">
@@ -87,7 +87,7 @@ title: Home
 <section class="alt">
   <div class="container">
     <span class="section-label">How it works</span>
-    <h2>First run does it all</h2>
+    <h2 id="how-it-works">First run does it all</h2>
 
     <div class="steps">
       <div class="step">
@@ -193,7 +193,7 @@ fish completions have been installed to:
 <section>
   <div class="container">
     <span class="section-label">Under the hood</span>
-    <h2>VM hardware</h2>
+    <h2 id="vm-hardware">VM hardware</h2>
 
     <table class="spec-table">
       <thead>
@@ -218,7 +218,7 @@ fish completions have been installed to:
 <section class="alt">
   <div class="container">
     <span class="section-label">Open by default</span>
-    <h2>Trust &amp; transparency</h2>
+    <h2 id="trust-and-transparency">Trust &amp; transparency</h2>
 
     <div class="trust-strip">
       <div class="trust-item"><span class="check">✓</span> MIT license</div>
@@ -235,9 +235,9 @@ fish completions have been installed to:
 <section id="get-it">
   <div class="container">
     <span class="section-label">Get it</span>
-    <h2>Install</h2>
+    <h2 id="install">Install</h2>
 
-    <h3>Homebrew (recommended)</h3>
+    <h3 id="homebrew">Homebrew (recommended)</h3>
     <div class="terminal">
       <div class="terminal-bar">
         <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
@@ -261,7 +261,7 @@ fish completions have been installed to:
     </div>
 
     <br>
-    <h3>Build from source</h3>
+    <h3 id="build-from-source">Build from source</h3>
     <div class="terminal">
       <div class="terminal-bar">
         <span class="terminal-dot"></span><span class="terminal-dot"></span><span class="terminal-dot"></span>
@@ -281,7 +281,7 @@ fish completions have been installed to:
 <section>
   <div class="container">
     <span class="section-label">Where things go</span>
-    <h2>Data layout</h2>
+    <h2 id="data-layout">Data layout</h2>
 
     <table class="spec-table">
       <thead>
@@ -300,7 +300,7 @@ fish completions have been installed to:
 <section class="alt">
   <div class="container">
     <span class="section-label">Optional</span>
-    <h2>Configuration</h2>
+    <h2 id="configuration">Configuration</h2>
     <p>Everything works with zero config. Tweak <code>~/.config/havm/config.yml</code> if you want:</p>
 
     <div class="terminal">
@@ -336,7 +336,7 @@ metrics:
 <section>
   <div class="container">
     <span class="section-label">Learn more</span>
-    <h2>Documentation</h2>
+    <h2 id="documentation">Documentation</h2>
 
     <div class="feature-grid">
       <a href="getting-started.html" class="feature-card" style="text-decoration: none;">

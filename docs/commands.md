@@ -78,6 +78,11 @@ In console mode:
 
 Import an existing Home Assistant VM from [UTM][utm] into havm.
 
+> **Note:** Only UTM VMs using the **Apple Virtualization** backend can be
+> imported. QEMU-based VMs (UTM's default for x86 guests) are not supported —
+> the import fails with `Unsupported UTM backend 'QEMU' — only Apple
+> Virtualization is supported`.
+
 ```bash
 havm import-utm ~/Library/Containers/com.utmapp.UTM/Data/Documents/Home\ Assistant.utm
 ```

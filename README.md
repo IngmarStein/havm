@@ -78,6 +78,11 @@ Run `havm --help` or `havm <command> --help` for flags and options.
 If you have an existing Home Assistant VM in [UTM][utm], you can import it
 into havm in one command:
 
+> **Note:** Only UTM VMs using the **Apple Virtualization** backend can be
+> imported. QEMU-based VMs (UTM's default for x86 guests) are not supported —
+> the import fails with `Unsupported UTM backend 'QEMU' — only Apple
+> Virtualization is supported`.
+
 ```bash
 havm import-utm ~/Library/Containers/com.utmapp.UTM/Data/Documents/Home\ Assistant.utm
 ```
@@ -126,7 +131,8 @@ After import, run `havm run` as usual.
 ## Configuration
 
 All fields optional — `havm run` works with zero config.
-Place overrides in `~/.config/havm/config.yml`:
+Place overrides in `~/.config/havm/config.yml` (or
+`/opt/homebrew/etc/havm/config.yml` when running as a service):
 
 ```yaml
 vm:
