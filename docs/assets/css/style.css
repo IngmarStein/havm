@@ -319,6 +319,42 @@ section.alt { background: var(--surface); }
   background: rgba(245, 166, 35, 0.06);
 }
 
+/* ── Anchor Links ────────────────────────────────────────────── */
+.anchor-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5em;
+  height: 1.5em;
+  margin-left: 0.45em;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+h2:hover .anchor-link,
+h3:hover .anchor-link,
+h4:hover .anchor-link,
+.anchor-link:focus-visible {
+  opacity: 1;
+}
+.anchor-link:hover {
+  color: var(--accent);
+  background: var(--surface2);
+}
+.anchor-link.copied {
+  color: var(--green);
+  opacity: 1;
+}
+/* Touch devices have no hover — keep the button always visible. */
+@media (hover: none) {
+  .anchor-link { opacity: 1; }
+}
+
 /* ── Footer ──────────────────────────────────────────────────── */
 footer {
   border-top: 1px solid var(--border);
