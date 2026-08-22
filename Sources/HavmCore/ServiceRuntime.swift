@@ -81,7 +81,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             let name = state.description
             self?.logger.info("VM state: \(name)")
             if state == .stopped, self?.shutdownRequested != true {
-                self?.cleanupAndExit(0)
+                self?.cleanupAndExit(1)
             }
         }
     }
@@ -375,7 +375,7 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
         guard !shutdownRequested else { return }
         guard let path = config.configPath else { return }
         guard let newConfig = try? loadConfig(path: path) else {
-            logger.debug("Config reload: failed to parse — keeping current config")
+            logger.error("Config reload: failed to parse — keeping current config")
             return
         }
         let oldConfig = config
@@ -783,7 +783,13 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     /// Stops after the first successful response or after `healthPollMax` attempts
     /// (~5 minutes at the 250 ms tick cadence).
     private func checkWebUI() {
-        guard healthPollCount < healthPollMax else { return }
+        guard healthPollCount < healthPollMax else {
+            if !webUIReadyNotified {
+                webUIReadyNotified = true
+                logger.warning("Timed out waiting for Home Assistant web UI after 5 minutes")
+            }
+            return
+        }
         healthPollCount += 1
 
         guard let baseURL = haBaseURL() else { return }
@@ -948,13 +954,20 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private func writePIDFile() {
         let pidPath = HavmConfig.pidFilePath
         let pidDir = URL(fileURLWithPath: pidPath).deletingLastPathComponent().path
-        try? FileManager.default.createDirectory(atPath: pidDir, withIntermediateDirectories: true)
-        let pidString = "\(getpid())\n"
-        try? pidString.write(toFile: pidPath, atomically: true, encoding: .utf8)
+        do {
+            try FileManager.default.createDirectory(atPath: pidDir, withIntermediateDirectories: true)
+            try "\(getpid())\n".write(toFile: pidPath, atomically: true, encoding: .utf8)
+        } catch {
+            logger.warning("PID file write failed (\(pidPath)): \(error)")
+        }
     }
 
     private func removePIDFile() {
-        try? FileManager.default.removeItem(atPath: HavmConfig.pidFilePath)
+        do {
+            try FileManager.default.removeItem(atPath: HavmConfig.pidFilePath)
+        } catch {
+            logger.debug("PID file remove failed: \(error)")
+        }
     }
 
     // MARK: - Terminal raw mode

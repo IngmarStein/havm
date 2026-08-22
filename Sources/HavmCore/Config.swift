@@ -217,7 +217,7 @@ public struct HavmConfig: Decodable, Sendable {
         switch logging?.level {
         case .debug: .debug
         case .warning: .warning
-        case .error: .critical
+        case .error: .error
         case .info, nil: .info
         }
     }
@@ -407,7 +407,7 @@ extension MemorySize: Codable {
         default: throw ConfigError.invalidMemorySize(string)
         }
         let bytes = value * multiplier
-        guard bytes <= Double(UInt64.max), bytes >= 0 else {
+        guard bytes >= 0, bytes < Double(UInt64.max) else {
             throw ConfigError.invalidMemorySize(string)
         }
         return UInt64(bytes)
@@ -483,7 +483,7 @@ extension HavmConfig {
 
     /// Base directory for havm persistent data.
     ///
-    /// Uses the `data_directory` config value if set, otherwise defaults to
+    /// Uses the `--data-dir` CLI flag if set, otherwise defaults to
     /// `~/Library/Application Support/havm/`.
     public static var dataDirectory: String {
         dataDirectoryOverride ?? _defaultDataDirectory

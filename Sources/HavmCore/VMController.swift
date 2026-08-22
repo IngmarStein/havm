@@ -239,6 +239,7 @@ public final class VMController: NSObject, @unchecked Sendable {
            let mac = VZMACAddress(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return mac
         }
+        logger.warning("Cannot read MAC address from \(path) — generating a new random one (guest IP may change)")
         let mac = VZMACAddress.randomLocallyAdministered()
         do {
             let dir = URL(fileURLWithPath: path).deletingLastPathComponent().path

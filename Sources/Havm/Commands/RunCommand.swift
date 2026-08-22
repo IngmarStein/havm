@@ -25,6 +25,10 @@ struct RunCommand: AsyncParsableCommand {
           help: "Shorthand for --log-level debug.")
     var verbose: Bool = false
 
+    @Option(name: .long,
+            help: "Log level: 'debug', 'info' (default), 'warning', or 'error'. Overrides config file setting.")
+    var logLevel: HavmConfig.LoggingOverrides.LogLevel?
+
     @Option(name: [.customShort("d"), .long],
             help: "Data directory for persistent VM data (default: ~/Library/Application Support/havm/).")
     var dataDir: String?
@@ -55,7 +59,18 @@ struct RunCommand: AsyncParsableCommand {
         //    Console mode forces text (stderr) to keep stdout clean for
         //    guest serial output.
         let format = logFormat ?? (json ? .json : havmConfig.effectiveLogFormat)
-        let effectiveLogLevel: Logger.Level = verbose ? .debug : havmConfig.effectiveLogLevel
+        let effectiveLogLevel: Logger.Level = {
+            if let cliLevel = logLevel {
+                switch cliLevel {
+                case .debug:  return .debug
+                case .info:   return .info
+                case .warning: return .warning
+                case .error:  return .error
+                }
+            }
+            if verbose { return .debug }
+            return havmConfig.effectiveLogLevel
+        }()
 
         if console && format == .json {
             fputs("Warning: --console forces text log format (JSON logs to stdout would mix with guest output).\n", stderr)
@@ -140,3 +155,7 @@ struct RunCommand: AsyncParsableCommand {
 // MARK: - ArgumentParser conformance for LogFormat
 
 extension HavmConfig.LoggingOverrides.LogFormat: ExpressibleByArgument {}
+
+// MARK: - ArgumentParser conformance for LogLevel
+
+extension HavmConfig.LoggingOverrides.LogLevel: ExpressibleByArgument {}

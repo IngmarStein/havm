@@ -567,10 +567,14 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
         guard patched else { return }
 
-        try? fh.seek(toOffset: efiOffset)
-        try? fh.write(contentsOf: efiBytes)
-        try? fh.synchronize()
-        logger.info("Console: patched EFI cmdline.txt — console=hvc0")
+        do {
+            try fh.seek(toOffset: efiOffset)
+            try fh.write(contentsOf: efiBytes)
+            try fh.synchronize()
+            logger.info("Console: patched EFI cmdline.txt — console=hvc0")
+        } catch {
+            logger.warning("Console: failed to patch EFI cmdline.txt: \(error) — serial console may not work")
+        }
     }
 
     private func createDirectories() {

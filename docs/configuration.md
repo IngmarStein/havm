@@ -113,7 +113,7 @@ config file and via CLI flags:
 ```bash
 havm run -v                    # debug level
 havm run -j                    # NDJSON output
-havm run --log-format json --log-level debug
+havm run --log-format json --log-level warning
 ```
 
 For launchd/Homebrew services, JSON logging to a file via
@@ -127,14 +127,13 @@ The following settings take effect immediately when you edit and save
 | Setting | Effect |
 |---|---|
 | `logging.level` | Changes log verbosity within seconds |
-| `logging.format` | Switches between text and JSON output |
 | `metrics.enabled` / `metrics.prometheus.port` / `metrics.prometheus.host` | Starts, stops, or reconfigures the Prometheus exporter |
 | `ha.api_token` | Updates the API token used for REST API shutdown |
 | `shutdown.timeout_seconds` | Applies to the next shutdown attempt |
 
 Settings that **do require a restart** (they only take effect when the VM
 is recreated): CPU, memory, disk size, network type/interface/mac, USB,
-and SSH key path. Run `kill -HUP $(cat ~/Library/Application\ Support/havm/vm/havm.pid)`
+SSH key path, and log format. Run `kill -HUP $(cat ~/Library/Application\ Support/havm/vm/havm.pid)`
 for a graceful restart — the VM shuts down cleanly and launchd / Homebrew
 auto-restarts the process.
 
