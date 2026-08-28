@@ -37,5 +37,5 @@ struct HavmCLI: AsyncParsableCommand {
 }
 
 enum HavmVersion {
-    static let current = "0.2.4"
+    static let current = "0.3.0"
 }
