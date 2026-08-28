@@ -716,8 +716,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
         if !guestReachableNotified {
             guestReachableNotified = true
+            // Bracket IPv6 for a valid URL authority (http://[::1]:8123).
+            let authority = ip.contains(":") ? "[\(ip)]" : ip
             logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
-            logger.info("  Web: http://\(ip):8123")
+            logger.info("  Web: http://\(authority):8123")
             logger.info("  SSH: ssh root@\(ip) -p 22222")
         }
     }
@@ -819,6 +821,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
     /// If the string looks like an IPv4 or IPv6 address, return it as-is.
     /// Otherwise, resolve it via getaddrinfo (which triggers mDNS for `.local` names).
+    ///
+    /// Iterates the full result list: IPv4 is preferred, and link-local IPv6
+    /// (fe80::/10) is skipped — it needs a scope ID to be usable in a URL or
+    /// SSH target, and mDNS resolvers frequently return it first. Returns the
+    /// first global IPv6 address as a fallback when no IPv4 result exists.
     private func resolveOrUseIP(_ hostname: String) -> String? {
         // Quick check: if it's already an IP, use it (check both families).
         var v4 = sockaddr_in()
@@ -835,35 +842,39 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         var result: UnsafeMutablePointer<addrinfo>?
         defer { if let r = result { freeaddrinfo(r) } }
 
-        guard getaddrinfo(hostname, nil, &hints, &result) == 0, result != nil else {
+        guard getaddrinfo(hostname, nil, &hints, &result) == 0, let first = result else {
             return nil
         }
 
-        var addr = result!.pointee.ai_addr.pointee
-        switch Int32(addr.sa_family) {
-        case AF_INET:
-            return withUnsafeMutablePointer(to: &addr) {
-                $0.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-                    var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                    inet_ntop(AF_INET, &$0.pointee.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
-                    let bytes = buf.map(UInt8.init(bitPattern:))
-                    let end = bytes.firstIndex(of: 0) ?? bytes.count
-                    return String(bytes: bytes[0..<end], encoding: .utf8)
+        var fallback: String?
+        for info in sequence(first: first, next: { $0.pointee.ai_next }) {
+            guard let sa = info.pointee.ai_addr else { continue }
+            switch Int32(sa.pointee.sa_family) {
+            case AF_INET:
+                // Copy the full sockaddr_in before formatting.
+                var sin = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
+                var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                inet_ntop(AF_INET, &sin.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
+                return String(cString: buf)
+            case AF_INET6:
+                // Copy the full 28-byte sockaddr_in6. Rebinding a 16-byte
+                // `sockaddr` copy would truncate the address to its first
+                // 8 bytes plus stack garbage (prints as "fe80::").
+                var sin6 = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee }
+                let bytes = withUnsafeBytes(of: sin6.sin6_addr) { Array($0) }
+                if bytes[0] == 0xfe, bytes[1] & 0xc0 == 0x80 {
+                    continue  // link-local — unusable without a scope ID
                 }
-            }
-        case AF_INET6:
-            return withUnsafeMutablePointer(to: &addr) {
-                $0.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) {
-                    var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
-                    inet_ntop(AF_INET6, &$0.pointee.sin6_addr, &buf, socklen_t(INET6_ADDRSTRLEN))
-                    let bytes = buf.map(UInt8.init(bitPattern:))
-                    let end = bytes.firstIndex(of: 0) ?? bytes.count
-                    return String(bytes: bytes[0..<end], encoding: .utf8)
+                var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                inet_ntop(AF_INET6, &sin6.sin6_addr, &buf, socklen_t(INET6_ADDRSTRLEN))
+                if fallback == nil {
+                    fallback = String(cString: buf)
                 }
+            default:
+                continue
             }
-        default:
-            return nil
         }
+        return fallback
     }
 
     /// Parse the macOS DHCP lease file to find the guest's IP by its MAC address.
