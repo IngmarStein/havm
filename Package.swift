@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "havm",
     platforms: [
-        .macOS(.v27)  // Golden Gate minimum
+        .macOS(.v15)
     ],
     products: [
         .executable(name: "havm", targets: ["Havm"]),

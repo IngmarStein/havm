@@ -16,7 +16,7 @@ title: Home
     <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
     <img src="https://img.shields.io/badge/Swift-6.4-orange?logo=swift&logoColor=white" alt="Swift 6.4">
     <img src="https://img.shields.io/badge/Apple-Virtualization%20Framework-blue?logo=apple&logoColor=white" alt="Apple Virtualization">
-    <img src="https://img.shields.io/badge/macOS-27%2B-lightgrey?logo=apple&logoColor=white" alt="macOS 27+">
+    <img src="https://img.shields.io/badge/macOS-15%2B-lightgrey?logo=apple&logoColor=white" alt="macOS 15+">
     <img src="https://img.shields.io/badge/%E2%99%A5-Sponsor-EC4899?logo=githubsponsors&logoColor=white" alt="Sponsor">
   </div>
 
@@ -57,7 +57,7 @@ title: Home
       <div class="feature-card">
         <div class="icon">🔌</div>
         <h3>USB accessories</h3>
-        <p>Attach coordinators via the menu bar item. Hot-plug, no restart needed.</p>
+        <p>Attach coordinators via the menu bar item. Hot-plug, no restart needed. macOS 27+.</p>
       </div>
       <div class="feature-card">
         <div class="icon">🔑</div>

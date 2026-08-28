@@ -19,7 +19,7 @@ title: Building from Source
 
 ## Prerequisites
 
-- macOS 27+ with Apple Silicon
+- macOS 15+ with Apple Silicon (USB accessory passthrough requires macOS 27+)
 - Xcode 27+ (for the toolchain and provisioning profile)
 - Swift 6.4
 

@@ -1,7 +1,7 @@
 # havm — Design
 
 **Zero-config Home Assistant OS VM runner for Apple Silicon.**
-macOS 27 (Golden Gate) minimum. Swift 6.4.
+macOS 15 minimum (USB accessory passthrough requires macOS 27). Swift 6.4.
 
 ## Architecture
 

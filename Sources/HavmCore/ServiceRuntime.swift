@@ -1,8 +1,6 @@
 import Foundation
 @preconcurrency import Virtualization
 import Logging
-import AppKit
-import AccessoryAccess
 import Metrics
 
 /// Manages the blocking service runtime: signal handling, VM lifecycle,
@@ -23,10 +21,12 @@ import Metrics
 /// responds (or 5 minutes elapse), then prints the ready URL.
 ///
 /// ## USB Accessory Discovery
-/// Registers an `AAUSBAccessoryListener` after VM start. macOS shows a menu
-/// bar item where the user selects which USB accessories to attach. On connect,
-/// the accessory is hot-attached to the running VM.
-public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
+/// On macOS 27+, registers a `USBAccessoryCoordinator` after VM start. macOS
+/// shows a menu bar item where the user selects which USB accessories to
+/// attach. On connect, the accessory is hot-attached to the running VM.
+/// On macOS 15–26, USB accessory passthrough is unavailable and the VM runs
+/// without it.
+public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var config: HavmConfig
     private var vmController: VMController
     private var logger: Logger
@@ -55,7 +55,10 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
     private var webUITask: Task<Void, Never>?
     private var metricsServer: MetricsServer?
     private let registry: SimpleRegistry
-    private var usbAccessoryCount: Int = 0
+    /// Strong reference to the macOS 27+ `USBAccessoryCoordinator`, if USB
+    /// discovery is active. Typed `Any?` because the coordinator's type is
+    /// only available on macOS 27.
+    private var usbCoordinator: Any?
     private var originalTermios: termios?
     private var rawModeEnabled = false
     private var lastDHCPLeaseModDate: Date?
@@ -276,47 +279,15 @@ public final class ServiceRuntime: NSObject, AAUSBAccessoryListener, @unchecked 
             logger.debug("USB: Not enabled in config — skipping accessory discovery")
             return
         }
-        // Initialize the gauge so it appears in /metrics even before
-        // any accessory connects (zero is a meaningful initial value).
-        Gauge(label: "havm_usb_accessories").record(0)
-
-        // AAUSBAccessoryManager needs a running NSApplication.
-        // Called from main queue via DispatchQueue.main.async, but NSApplication
-        // is @MainActor — use MainActor.assumeIsolated to satisfy the compiler.
-        MainActor.assumeIsolated {
-            NSApplication.shared.setActivationPolicy(.accessory)
-        } as Void
-
-        AAUSBAccessoryManager.shared.registerListener(
-            self, matchingCriteria: [],
-            completionHandler: { [weak self] accessories, error in
-                if let error {
-                    self?.logger.info("USB: Listener not available (restricted entitlement missing): \(error.localizedDescription)")
-                    return
-                }
-                self?.logger.info("USB: Listener registered — \(accessories.count) already connected")
-                for acc in accessories {
-                    self?.vmController.attachAccessory(acc)
-                }
-            }
-        )
-    }
-
-    // MARK: - AAUSBAccessoryListener
-
-    public func usbAccessoryDidConnect(_ accessory: AAUSBAccessory) {
-        let (vid, pid) = accessory.vendorProductID
-        logger.info("USB: Accessory connected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
-        vmController.attachAccessory(accessory)
-        usbAccessoryCount += 1
-        Gauge(label: "havm_usb_accessories").record(Double(usbAccessoryCount))
-    }
-
-    public func usbAccessoryDidDisconnect(_ accessory: AAUSBAccessory) {
-        let (vid, pid) = accessory.vendorProductID
-        logger.info("USB: Accessory disconnected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
-        usbAccessoryCount = max(0, usbAccessoryCount - 1)
-        Gauge(label: "havm_usb_accessories").record(Double(usbAccessoryCount))
+        if #available(macOS 27.0, *) {
+            // A fresh coordinator per VM instance — it holds a weak reference
+            // to the controller, and restartVM() installs a new controller.
+            let coordinator = USBAccessoryCoordinator(vmController: vmController, logger: logger)
+            coordinator.start()
+            usbCoordinator = coordinator
+        } else {
+            logger.info("USB accessory passthrough requires macOS 27 or later — continuing without USB")
+        }
     }
 
     // MARK: - Config hot-reload

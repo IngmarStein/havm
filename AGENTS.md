@@ -2,7 +2,7 @@
 
 ## Project
 
-`havm` — Zero-config CLI for running Home Assistant OS on Apple Silicon using the native Virtualization framework. macOS 27 minimum. Swift 6.4.
+`havm` — Zero-config CLI for running Home Assistant OS on Apple Silicon using the native Virtualization framework. macOS 15 minimum (USB accessory passthrough requires macOS 27). Swift 6.4.
 
 ## Build & Test
 
@@ -120,13 +120,18 @@ for `ch.ingmar.havm` — the CLI build script picks it up automatically.
 
 ## USB Accessories
 
-USB accessory passthrough uses `AAUSBAccessoryManager` (macOS 27). When `havm run`
-starts with `ENABLE_USB_ACCESSORY=YES`, it registers a listener and macOS shows
-a menu bar item. The user selects which devices to attach — they are
-hot-attached to the running VM via `VZUSBPassthroughDevice`.
+USB accessory passthrough uses `AAUSBAccessoryManager` (macOS 27 only). When `havm run`
+starts with `ENABLE_USB_ACCESSORY=YES` on macOS 27+, it registers a listener and macOS shows
+a menu bar item. On macOS 15–26, USB discovery is skipped with a log message. The user
+selects which devices to attach — they are hot-attached to the running VM via
+`VZUSBPassthroughDevice`.
 
 **Architecture:**
-- `ServiceRuntime.setupUSBDiscovery()` boots `NSApplication.accessory`, registers
+- All AccessoryAccess/`VZUSBPassthroughDevice` code lives in `USBAccessorySupport.swift`
+  (`USBAccessoryCoordinator`), annotated `@available(macOS 27.0, *)`; AccessoryAccess is
+  imported `@_weakLinked` so the binary runs on macOS 15+.
+- `ServiceRuntime.setupUSBDiscovery()` gates on `#available(macOS 27.0, *)`, then
+  `USBAccessoryCoordinator.start()` boots `NSApplication.accessory` and registers
   `AAUSBAccessoryListener`. The menu bar item is the user's selection UI.
 - On connect: listener hot-attaches via `VZUSBPassthroughDevice` +
   `usbControllers.first?.attach(device:)` with fresh registryIDs.

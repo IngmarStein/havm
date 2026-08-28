@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Swift 6.4](https://img.shields.io/badge/Swift-6.4-orange?logo=swift&logoColor=white)](https://swift.org)
 [![Apple Virtualization](https://img.shields.io/badge/Apple-Virtualization%20Framework-blue?logo=apple&logoColor=white)](https://developer.apple.com/documentation/virtualization)
-[![macOS 27+](https://img.shields.io/badge/macOS-27%2B-lightgrey?logo=apple&logoColor=white)](https://www.apple.com/macos)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-lightgrey?logo=apple&logoColor=white)](https://www.apple.com/macos)
 [![Sponsor](https://img.shields.io/badge/%E2%99%A5-Sponsor-EC4899?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/IngmarStein)
 
 Zero-config CLI for running [Home Assistant OS][haos] on Apple Silicon using
@@ -15,14 +15,14 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
   Fire-and-forget: your smart home boots with your Mac.
 - **Persistent** — all HA OS data (configs, add-ons, history) lives on a
   raw disk image. NVRAM and MAC address survive reboots.
-- **USB accessories** — attach coordinators and other USB devices via the
+- **USB accessories** (macOS 27+) — attach coordinators and other USB devices via the
   menu bar item. Hot-plug, no restart needed.
 - **SSH key import** — optional virtual CONFIG disk for root SSH on port 22222.
 - **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM.
 - **Prometheus metrics** — built-in HTTP endpoint for monitoring VM state and
   USB accessories. Feed into Grafana dashboards or alerting rules.
 
-**Requires macOS 27 (Golden Gate) or later with Apple Silicon.**
+**Requires macOS 15 or later with Apple Silicon.** USB accessory passthrough requires macOS 27 (Golden Gate) or later.
 
 https://github.com/user-attachments/assets/aed92929-dfea-4e6f-b62c-4fed7100d34e
 
@@ -153,7 +153,7 @@ ssh:
   authorized_keys: "~/.ssh/id_ed25519.pub"  # imported into HA OS for port 22222
 
 usb:
-  enabled: true           # default: true — enable USB accessory passthrough
+  enabled: true           # default: true — USB accessory passthrough (macOS 27+)
 
 ha:
   url: "https://homeassistant.local:443"  # default: http://<discovered-ip>:8123
@@ -204,6 +204,10 @@ shutdown:
 | Platform | `VZGenericPlatformConfiguration` | Stable machine ID → consistent MAC |
 
 ## USB Accessories
+
+> [!NOTE]
+> USB accessory passthrough requires macOS 27 (Golden Gate) or later.
+> On macOS 15–26, `havm run` logs a message and continues without it.
 
 To attach a USB accessory while the VM is running, use the menu bar item
 that appears when `havm run` starts. Select a device to attach it — it

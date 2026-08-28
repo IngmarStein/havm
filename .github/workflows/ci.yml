@@ -25,7 +25,7 @@ jobs:
           docker run --rm -v "$PWD:/code" ghcr.io/realm/swiftlint:latest lint --quiet --strict
 
   build-and-test:
-    # Requires macOS 27 (Golden Gate) — Xcode 27+.
+    # Requires macOS 27 (Golden Gate) — Xcode 27+. Builds against the macOS 15 deployment target.
     runs-on: [self-hosted, macOS, ARM64]
 
     steps:

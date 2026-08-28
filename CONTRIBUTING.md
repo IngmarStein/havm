@@ -7,7 +7,7 @@ Home Assistant OS on Apple Silicon using the native Virtualization framework.
 
 ### Prerequisites
 
-- **macOS 27 (Golden Gate) or later** with **Apple Silicon**
+- **macOS 15 or later** with **Apple Silicon** (USB accessory passthrough requires macOS 27)
 - **Xcode 27+** (for the toolchain and provisioning profile generation)
 - **Swift 6.4** (included with Xcode)
 - A **GitHub account** for submitting pull requests

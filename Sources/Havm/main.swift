@@ -7,7 +7,7 @@ import ArgumentParser
 /// automatically on first run. Designed for headless operation as a
 /// launchd service managed via Homebrew.
 ///
-/// Requires macOS 27 (Golden Gate) or later.
+/// Requires macOS 15 or later. USB accessory passthrough requires macOS 27.
 @main
 struct HavmCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -23,7 +23,8 @@ struct HavmCLI: AsyncParsableCommand {
             in the foreground (ideal for launchd / Homebrew services) or \
             Ctrl+C for graceful shutdown.
 
-            Requires macOS 27 (Golden Gate) or later with Apple Silicon.
+            Requires macOS 15 or later with Apple Silicon. USB accessory \
+            passthrough requires macOS 27 (Golden Gate) or later.
             """,
         version: HavmVersion.current,
         subcommands: [

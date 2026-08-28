@@ -21,6 +21,10 @@ USB accessory passthrough lets you attach physical devices — Zigbee
 coordinators, Z-Wave sticks, Bluetooth dongles — directly to the
 Home Assistant VM.
 
+> [!NOTE]
+> Requires macOS 27 (Golden Gate) or later. On macOS 15–26, `havm run`
+> logs a message and continues without USB accessory passthrough.
+
 ## Enabling
 
 USB accessories are enabled by default. You can explicitly toggle it:

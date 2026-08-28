@@ -19,7 +19,7 @@ title: Getting Started
 
 ## Prerequisites
 
-- macOS 27 (Golden Gate) or later
+- macOS 15 or later (USB accessory passthrough requires macOS 27)
 - Apple Silicon Mac
 
 ## Installation

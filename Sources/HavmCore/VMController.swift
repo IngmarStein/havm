@@ -1,7 +1,7 @@
 import Foundation
 @preconcurrency import Virtualization
 import Logging
-import AccessoryAccess
+@_weakLinked import AccessoryAccess  // weak-linked; only used in @available(macOS 27.0, *) code
 import Metrics
 
 // MARK: - VM Controller
@@ -273,7 +273,9 @@ public final class VMController: NSObject, @unchecked Sendable {
     // MARK: - USB hot-plug
 
     /// Attach an accessory to the running VM via the XHCI controller.
-    /// Uses the new `VZUSBPassthroughDevice` / `attach(device:)` API (macOS 27).
+    /// Uses the `VZUSBPassthroughDevice` / `attach(device:)` API (macOS 27).
+    /// Only called by `USBAccessoryCoordinator`, which is macOS 27+ only.
+    @available(macOS 27.0, *)
     public func attachAccessory(_ accessory: AAUSBAccessory) {
         guard let vm, state == .running else {
             logger.debug("USB: Skipping attach — VM not running")
@@ -371,22 +373,6 @@ public enum VMConfigError: Error, CustomStringConvertible {
         case .noNetworkInterfaces:
             return "No network interfaces available for bridging."
         }
-    }
-}
-
-// MARK: - AAUSBAccessory convenience
-
-extension AAUSBAccessory {
-    /// Extract vendor and product ID from the USB device descriptor.
-    /// USB device descriptor layout (USB 2.0 spec §9.6.1):
-    ///   offset 8-9:  idVendor  (little-endian)
-    ///   offset 10-11: idProduct (little-endian)
-    public var vendorProductID: (UInt16, UInt16) {
-        let data = deviceDescriptorData
-        guard data.count >= 12 else { return (0, 0) }
-        let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
-        let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
-        return (vid, pid)
     }
 }
 

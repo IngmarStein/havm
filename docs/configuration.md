@@ -42,7 +42,7 @@ ssh:
   authorized_keys: "~/.ssh/id_ed25519.pub"  # imported into HA OS for port 22222
 
 usb:
-  enabled: true           # default: true — enable USB accessory passthrough
+  enabled: true           # default: true — USB accessory passthrough (macOS 27+)
 
 ha:
   url: "https://homeassistant.local:443"  # default: http://<discovered-ip>:8123
