@@ -819,6 +819,13 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
     }
 
+    /// Render a NUL-terminated `[CChar]` buffer produced by `inet_ntop` as a String.
+    private func formatAddress(_ buf: [CChar]) -> String {
+        let bytes = buf.map(UInt8.init(bitPattern:))
+        let end = bytes.firstIndex(of: 0) ?? bytes.count
+        return String(bytes: bytes[0..<end], encoding: .utf8) ?? ""
+    }
+
     /// If the string looks like an IPv4 or IPv6 address, return it as-is.
     /// Otherwise, resolve it via getaddrinfo (which triggers mDNS for `.local` names).
     ///
@@ -855,7 +862,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 var sin = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
                 var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
                 inet_ntop(AF_INET, &sin.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
-                return String(cString: buf)
+                return formatAddress(buf)
             case AF_INET6:
                 // Copy the full 28-byte sockaddr_in6. Rebinding a 16-byte
                 // `sockaddr` copy would truncate the address to its first
@@ -868,7 +875,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
                 inet_ntop(AF_INET6, &sin6.sin6_addr, &buf, socklen_t(INET6_ADDRSTRLEN))
                 if fallback == nil {
-                    fallback = String(cString: buf)
+                    fallback = formatAddress(buf)
                 }
             default:
                 continue
