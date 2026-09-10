@@ -70,6 +70,11 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/havm"
 
+# Version for the bundle metadata. Sources/Havm/main.swift is the single source
+# of truth — the release workflow rewrites it from the tag before building, and
+# publish.sh does the same, so the bundle always matches `havm version`.
+VERSION=$(grep 'static let current' Sources/Havm/main.swift | sed 's/.*"\(.*\)".*/\1/')
+
 cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,11 +88,16 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <string>Havm</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>__VERSION__</string>
 </dict>
 </plist>
 PLIST
+
+# Substituted after the heredoc so the plist itself stays literal.
+sed -i '' "s/__VERSION__/$VERSION/g" "$APP_DIR/Contents/Info.plist"
 
 if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     # Real identity: embed provisioning profile for restricted entitlements.
