@@ -56,6 +56,13 @@ if ! gh auth status &>/dev/null; then
     exit 1
 fi
 
+# --- Toolchain ---------------------------------------------------------------
+# Same selection the release workflow uses. The default Xcode is not
+# necessarily the newest installed one, and we need 27+.
+echo "==> Selecting Xcode toolchain..."
+DEVELOPER_DIR="$(./scripts/select-xcode.sh)"
+export DEVELOPER_DIR
+
 # --- Build -------------------------------------------------------------------
 echo "==> Building havm v${VERSION} (tier 3, Developer ID)..."
 

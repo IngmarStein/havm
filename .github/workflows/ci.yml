@@ -25,8 +25,14 @@ jobs:
           docker run --rm -v "$PWD:/code" ghcr.io/realm/swiftlint:latest lint --quiet --strict
 
   build-and-test:
-    # Requires macOS 27 (Golden Gate) — Xcode 27+. Builds against the macOS 15 deployment target.
-    runs-on: [self-hosted, macOS, ARM64]
+    # Needs Xcode 27+ for the Swift 6.4 toolchain and the macOS 27 SDK.
+    # The deployment target is macOS 15 and the macOS 27 APIs are weakly
+    # linked, so the host does not have to run macOS 27 — GitHub's xcode-27
+    # image (macOS 26) qualifies. See scripts/select-xcode.sh.
+    #
+    # That image is a public preview, so expect queueing and the occasional
+    # flake (actions/runner-images#14404). Swap to macos-27 once it exists.
+    runs-on: xcode-27
 
     steps:
       - uses: actions/checkout@v7
@@ -38,19 +44,10 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Select Xcode 27
+      - name: Select Xcode 27+
         run: |
-          for dir in \
-            /Applications/Xcode-beta.app/Contents/Developer \
-            /Applications/Xcode_27*.app/Contents/Developer; do
-            if [ -d "$dir" ] && [ -x "$dir/usr/bin/xcodebuild" ]; then
-              echo "DEVELOPER_DIR=$dir" >> "$GITHUB_ENV"
-              echo "$($dir/usr/bin/xcodebuild -version | head -1)"
-              exit 0
-            fi
-          done
-          echo "Error: Xcode 27 not found" >&2
-          exit 1
+          DEVELOPER_DIR="$(scripts/select-xcode.sh)"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
 
       - name: Build
         run: |

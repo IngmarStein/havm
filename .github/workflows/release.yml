@@ -9,6 +9,10 @@ permissions:
 
 jobs:
   release:
+    # Needs Xcode 27+ — see scripts/select-xcode.sh. Deliberately self-hosted
+    # rather than GitHub's xcode-27 image: signing needs the Developer ID
+    # certificate and notary credentials already in the keychain, and the
+    # shortcut in "Ensure Developer ID certificate" assumes a persistent runner.
     runs-on: [self-hosted, macOS, ARM64]
     env:
       HAS_DEV_CERT: ${{ secrets.DEVELOPER_ID_CERT || '' }}
@@ -16,19 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Select Xcode 27
+      - name: Select Xcode 27+
         run: |
-          for dir in \
-            /Applications/Xcode-beta.app/Contents/Developer \
-            /Applications/Xcode_27*.app/Contents/Developer; do
-            if [ -d "$dir" ] && [ -x "$dir/usr/bin/xcodebuild" ]; then
-              echo "DEVELOPER_DIR=$dir" >> "$GITHUB_ENV"
-              echo "$($dir/usr/bin/xcodebuild -version | head -1)"
-              exit 0
-            fi
-          done
-          echo "Error: Xcode 27 not found" >&2
-          exit 1
+          DEVELOPER_DIR="$(scripts/select-xcode.sh)"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
 
       - name: Update version
         run: |

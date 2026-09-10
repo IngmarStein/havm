@@ -12,6 +12,14 @@ Home Assistant OS on Apple Silicon using the native Virtualization framework.
 - **Swift 6.4** (included with Xcode)
 - A **GitHub account** for submitting pull requests
 
+If you have more than one Xcode installed, `scripts/select-xcode.sh` picks the
+newest that satisfies the minimum (stable releases before betas) — the same
+script CI runs:
+
+```bash
+export DEVELOPER_DIR="$(scripts/select-xcode.sh)"
+```
+
 ### Clone and Build
 
 ```bash
