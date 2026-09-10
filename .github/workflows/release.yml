@@ -104,6 +104,22 @@ jobs:
             exit 1
           fi
 
+      - name: Staple notarization ticket
+        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        run: |
+          # notarytool submit only registers the build with Apple. Stapling
+          # embeds the ticket in the bundle so Gatekeeper can verify it without
+          # reaching Apple's servers. This must run before the final zip, since
+          # stapling modifies Havm.app.
+          echo "==> Stapling..."
+          xcrun stapler staple .build/Havm.app
+          xcrun stapler validate .build/Havm.app
+
+          # Repackage so the released asset carries the stapled bundle. VERSION
+          # is still on disk from the Package step.
+          rm -f havm.zip
+          (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
+
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

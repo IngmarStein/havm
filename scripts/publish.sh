@@ -105,11 +105,15 @@ ZIP=".build/release/havm.zip"
 
 # Zip the entire .app bundle so the provisioning profile stays with the binary.
 # Include a version file alongside to prevent Homebrew from cd-ing into
-# the single-directory archive during staging.
+# the single-directory archive during staging. Called again after stapling,
+# which modifies the bundle.
+package() {
+    rm -f "$ZIP"
+    (cd .build && zip -qr "$PROJECT_DIR/$ZIP" Havm.app VERSION)
+}
+
 echo "$VERSION" > .build/VERSION
-rm -f "$ZIP"
-(cd .build && zip -qr "$PROJECT_DIR/$ZIP" Havm.app VERSION)
-rm -f .build/VERSION
+package
 echo "    $ZIP ($(wc -c < "$ZIP" | xargs) bytes)"
 
 # --- Notarize ----------------------------------------------------------------
@@ -132,6 +136,18 @@ else
     fi
     exit 1
 fi
+
+# --- Staple ------------------------------------------------------------------
+# notarytool submit only registers the build with Apple. Stapling embeds the
+# ticket in the bundle so Gatekeeper can verify it without reaching Apple.
+echo "==> Stapling ticket..."
+xcrun stapler staple "$APP_DIR"
+xcrun stapler validate "$APP_DIR"
+
+# Repackage so the uploaded asset carries the stapled bundle.
+package
+rm -f .build/VERSION
+echo "    $ZIP ($(wc -c < "$ZIP" | xargs) bytes)"
 
 # --- GitHub release ----------------------------------------------------------
 echo "==> Creating GitHub release..."
