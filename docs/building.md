@@ -23,6 +23,16 @@ title: Building from Source
 - Xcode 27+ (for the toolchain and provisioning profile)
 - Swift 6.4
 
+The released Xcode 27 installs to `/Applications/Xcode.app`. If you keep
+several Xcodes around, `scripts/select-xcode.sh` picks the newest one that
+satisfies the minimum (stable releases before betas):
+
+```bash
+export DEVELOPER_DIR="$(scripts/select-xcode.sh)"
+```
+
+CI uses the same script, so builds and releases always agree on the toolchain.
+
 ## Quick Build
 
 ```bash
