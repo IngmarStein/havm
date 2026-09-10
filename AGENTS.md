@@ -2,19 +2,27 @@
 
 ## Project
 
-`havm` — Zero-config CLI for running Home Assistant OS on Apple Silicon using the native Virtualization framework. macOS 15 minimum (USB accessory passthrough requires macOS 27). Swift 6.4.
+`havm` — Zero-config CLI for running Home Assistant OS on Apple Silicon using the native Virtualization framework. macOS 15 minimum (USB accessory passthrough requires macOS 27). Swift 6.4, built with Xcode 27+ — see Build & Test.
 
 ## Build & Test
 
 ```bash
 ./scripts/build.sh release    # Release build: -O + strip → ~2.1 MB binary
-swift test                    # 10 tests in HavmCoreTests
+swift test                    # 29 tests in HavmCoreTests
 ./.build/release/havm run     # Run the VM (blocks; Ctrl+C to stop)
 ./.build/release/havm run --console  # Interactive serial console (hvc0)
 ```
 
 Binary size is reduced via `strip` (removes ~2.4 MB of symbol tables from LINKEDIT)
 before codesigning. Default `-O` is kept — `-Osize` only saves ~300 KB more.
+
+Building needs Xcode 27+ for the Swift 6.4 toolchain and the macOS 27 SDK, but
+the *host* need not run macOS 27: the deployment target is macOS 15 and the
+macOS 27 APIs are weakly linked. CI builds and tests on GitHub's `xcode-27`
+image, which is macOS 26. `scripts/select-xcode.sh` picks the toolchain by the
+version each bundle reports — `$DEVELOPER_DIR` if it qualifies, else the newest
+stable install, else the newest beta — and both workflows plus `publish.sh`
+use it.
 
 ## Release Process
 
