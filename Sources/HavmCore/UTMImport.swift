@@ -99,6 +99,9 @@ public struct UTMBundle: Sendable {
 
         // EFI variable storage
         if let efiPath = boot["EfiVariableStoragePath"] as? String {
+            guard Self.isSafeBundleRelativePath(efiPath) else {
+                throw UTMImportError.unsafePath(efiPath)
+            }
             self.efiVariableStoragePath = efiPath
         } else {
             self.efiVariableStoragePath = nil
@@ -114,18 +117,25 @@ public struct UTMBundle: Sendable {
 
         // Drives
         if let drivesArray = plist["Drive"] as? [[String: Any]] {
-            self.drives = drivesArray.compactMap { dict in
+            var parsedDrives: [Drive] = []
+            for dict in drivesArray {
+                // Entries without an identifier or image name are skipped, as
+                // they carry nothing importable.
                 guard let id = dict["Identifier"] as? String,
                       let imageName = dict["ImageName"] as? String else {
-                    return nil
+                    continue
                 }
-                return Drive(
+                guard Self.isSafeBundleRelativePath(imageName) else {
+                    throw UTMImportError.unsafePath(imageName)
+                }
+                parsedDrives.append(Drive(
                     identifier: id,
                     imageName: imageName,
                     isNVMe: dict["Nvme"] as? Bool ?? false,
                     isReadOnly: dict["ReadOnly"] as? Bool ?? false
-                )
+                ))
             }
+            self.drives = parsedDrives
         } else {
             self.drives = []
         }
@@ -168,13 +178,37 @@ public struct UTMBundle: Sendable {
 
     /// Resolved URL for the EFI variable store file, if it exists.
     public var efiVarsURL: URL? {
-        guard let path = efiVariableStoragePath else { return nil }
-        let url = resolveURL(path)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        guard let path = efiVariableStoragePath,
+              let url = resolveURL(path),
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
     }
 
-    /// Resolve a relative path (from config.plist) against the Data/ directory.
-    public func resolveURL(_ relativePath: String) -> URL {
+    /// Whether `path` is usable as a bundle-relative path.
+    ///
+    /// `config.plist` is untrusted input, so reject anything that addresses a
+    /// file outside the bundle: absolute paths and `.`/`..` components. This is
+    /// a purely lexical check — symlinks are caught by ``resolveURL(_:)``,
+    /// which resolves them before comparing.
+    static func isSafeBundleRelativePath(_ path: String) -> Bool {
+        guard !path.isEmpty, !path.hasPrefix("/") else { return false }
+        return path.split(separator: "/").allSatisfy { $0 != "." && $0 != ".." }
+    }
+
+    /// Resolve a path from `config.plist` against the bundle's `Data/`
+    /// directory, or return `nil` if it would address something outside the
+    /// bundle.
+    ///
+    /// The file this returns is copied verbatim into the guest's boot disk, and
+    /// the plist comes from whoever produced the bundle — so containment is
+    /// enforced here, at the chokepoint every caller goes through, rather than
+    /// trusting each call site. Paths are validated lexically and then checked
+    /// again after resolving symlinks: an extracted bundle can contain symlinks
+    /// (zips carry them), so either `Data` itself or an entry inside it could
+    /// point anywhere on the host.
+    public func resolveURL(_ relativePath: String) -> URL? {
+        guard Self.isSafeBundleRelativePath(relativePath) else { return nil }
+
         let dataDir = bundleURL.appendingPathComponent("Data", isDirectory: true)
         // The path may contain components — use appendingPathComponent for each
         // to ensure proper URL construction.
@@ -183,13 +217,19 @@ public struct UTMBundle: Sendable {
         for component in components {
             url = url.appendingPathComponent(String(component))
         }
-        return url
+
+        // Comparing resolved paths against the resolved bundle root (rather
+        // than `Data/`) also covers `Data` being a symlink out of the bundle.
+        let root = bundleURL.resolvingSymlinksInPath()
+        let resolved = url.resolvingSymlinksInPath()
+        guard resolved.pathComponents.starts(with: root.pathComponents) else { return nil }
+        return resolved
     }
 
     /// File size of a drive's image, or nil if it doesn't exist.
     private func imageFileSize(_ drive: Drive) -> Int64? {
-        let url = resolveURL(drive.imageName)
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+        guard let url = resolveURL(drive.imageName),
+              let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
             return nil
         }
         return (attrs[.size] as? NSNumber)?.int64Value
@@ -205,6 +245,7 @@ public enum UTMImportError: Error, CustomStringConvertible {
     case unsupportedArchitecture(String)
     case noSuitableDisk
     case existingVMData(String)
+    case unsafePath(String)
 
     public var description: String {
         switch self {
@@ -220,6 +261,8 @@ public enum UTMImportError: Error, CustomStringConvertible {
             return "No suitable writable non-NVMe disk found in the UTM bundle"
         case .existingVMData(let path):
             return "VM data already exists at \(path). Use --force to overwrite."
+        case .unsafePath(let path):
+            return "Refusing path from config.plist — it resolves outside the UTM bundle: \(path)"
         }
     }
 }

@@ -87,7 +87,10 @@ struct ImportUTMCommand: AsyncParsableCommand {
         // 4. Copy main disk
         print("")
         print("==> Copying main disk image...")
-        let sourceDiskURL = bundle.resolveURL(mainDisk.imageName)
+        guard let sourceDiskURL = bundle.resolveURL(mainDisk.imageName) else {
+            fputs("Error: \(UTMImportError.unsafePath(mainDisk.imageName))\n", stderr)
+            throw ExitCode.failure
+        }
         try copyFile(from: sourceDiskURL, to: URL(fileURLWithPath: targetDiskPath), description: "Disk image")
 
         // 5. Copy EFI variable store
@@ -134,7 +137,7 @@ struct ImportUTMCommand: AsyncParsableCommand {
         if !auxDisks.isEmpty {
             print("  ⚠️  Reminder: auxiliary disks were not imported:")
             for disk in auxDisks {
-                print("     \(bundle.resolveURL(disk.imageName).path)")
+                print("     \(bundle.resolveURL(disk.imageName)?.path ?? disk.imageName)")
             }
             print("")
         }

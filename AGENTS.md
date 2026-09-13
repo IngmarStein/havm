@@ -8,7 +8,7 @@
 
 ```bash
 ./scripts/build.sh release    # Release build: -O + strip → ~2.1 MB binary
-swift test                    # 29 tests in HavmCoreTests
+swift test                    # 38 tests in HavmCoreTests
 ./.build/release/havm run     # Run the VM (blocks; Ctrl+C to stop)
 ./.build/release/havm run --console  # Interactive serial console (hvc0)
 ```
