@@ -81,7 +81,18 @@ import Testing
         #expect(config.effectiveDiskSize == 32 * 1024 * 1024 * 1024)
         #expect(config.effectiveNetworkType == .bridge)
         #expect(config.effectiveReleaseChannel == .stable)
-        #expect(config.effectiveShutdownTimeout == 30)
+        #expect(config.effectiveShutdownTimeout == 90)
+    }
+
+    @Test("shutdown.timeout_seconds overrides the graceful-shutdown budget")
+    func shutdownTimeoutOverride() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try "shutdown:\n  timeout_seconds: 120\n".write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        let config = try loadConfig(path: path.path)
+        #expect(config.effectiveShutdownTimeout == 120)
     }
 
     @Test("CONFIG disk builder produces valid MBR + FAT structure")

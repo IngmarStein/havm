@@ -171,7 +171,7 @@ metrics:
     host: ["127.0.0.1", "::1"]  # default: both loopbacks — set to ["::"] for LAN access
 
 shutdown:
-  timeout_seconds: 30     # max wait for guest to halt (default: 30)
+  timeout_seconds: 90     # max wait for Home Assistant to halt (default: 90)
 ```
 
 ## Data Layout
@@ -320,7 +320,8 @@ through to the next if one fails:
    (requires `ssh.authorized_keys` for CONFIG disk import)
 3. **SSH add-on (port 22)** — `ssh root@<ip> -p 22 ha host shutdown`
    (requires the SSH add-on installed in HA)
-4. **Force-stop** — if all above fail, the VM is stopped immediately
+4. **Force-stop** — if Home Assistant has not halted by then, the VM is stopped
+   immediately (a hard power-off)
 
 The shutdown timeout and API token are configurable:
 
@@ -330,8 +331,16 @@ ha:
   url: "https://homeassistant.local:443"  # default: http://<ip>:8123
 
 shutdown:
-  timeout_seconds: 30     # max wait for guest to halt (default: 30)
+  timeout_seconds: 90     # max wait for Home Assistant to halt (default: 90)
 ```
+
+`timeout_seconds` covers the whole shutdown rather than each attempt, so it is
+the value to raise if the VM gets force-stopped while Home Assistant was still
+shutting down cleanly — Home Assistant OS can take a minute or more on installs
+with many add-ons or large databases. Under `brew services` keep it below about
+90: the service stops havm 120 seconds after asking it to quit, and havm needs
+room in that window to force-stop the VM. For a longer budget, run `havm run`
+outside `brew services`.
 
 Press Ctrl+C twice to skip the graceful shutdown and stop the VM immediately.
 

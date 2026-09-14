@@ -436,43 +436,65 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             }
         }
 
-        let timeout = config.effectiveShutdownTimeout
+        // A single deadline bounds the whole graceful phase. Every request
+        // attempt and every wait for the guest to halt is drawn from this same
+        // budget, so falling through to the next method can't hand it a fresh
+        // full timeout — which used to force-stop a guest that was still
+        // shutting down cleanly (see issue #11).
+        let deadline = Date().addingTimeInterval(TimeInterval(config.effectiveShutdownTimeout))
+        logger.info("Waiting up to \(config.effectiveShutdownTimeout)s for the guest to halt.")
+
+        // Set once a method has accepted the shutdown request — distinguishes
+        // "guest is halting, just slowly" from "no method worked at all".
+        var shutdownAccepted = false
 
         if let ip = guestIP {
             // 1. HA REST API on port 8123 (if api_token is configured)
-            if let token = config.effectiveHAAPIToken {
+            if let token = config.effectiveHAAPIToken, let budget = remaining(until: deadline) {
                 logger.info("Attempting shutdown via REST API...")
-                let result = await supervisorShutdown(host: ip, token: token, timeout: timeout)
+                let result = await supervisorShutdown(host: ip, token: token, timeout: budget)
                 switch result {
                 case .success:
-                    if await waitForStop(timeout: timeout) { return }
+                    shutdownAccepted = true
+                    if await waitForStop(until: deadline) { return }
                 case .timedOut:
                     // Request sent but host may be shutting down — response
                     // didn't come back. Wait for the VM to stop anyway.
                     logger.debug("REST API timed out — host may already be shutting down.")
-                    if await waitForStop(timeout: timeout) { return }
+                    shutdownAccepted = true
+                    if await waitForStop(until: deadline) { return }
                 case .failed:
                     break // fall through to SSH
                 }
             }
             // 2. Debug SSH on port 22222 (root on host, direct shutdown)
-            logger.info("Attempting SSH shutdown via port 22222...")
-            if await sshShutdown(host: ip, port: 22222, command: "shutdown -h now", timeout: timeout),
-               await waitForStop(timeout: timeout) {
-                return
+            if let budget = remaining(until: deadline) {
+                logger.info("Attempting SSH shutdown via port 22222...")
+                if await sshShutdown(host: ip, port: 22222, command: "shutdown -h now", timeout: budget) {
+                    shutdownAccepted = true
+                    if await waitForStop(until: deadline) { return }
+                }
             }
             // 3. Terminal & SSH add-on on port 22 (container, uses ha host shutdown)
-            logger.info("Attempting SSH shutdown via port 22...")
-            if await sshShutdown(host: ip, port: 22, command: "ha host shutdown", timeout: timeout),
-               await waitForStop(timeout: timeout) {
-                return
+            if let budget = remaining(until: deadline) {
+                logger.info("Attempting SSH shutdown via port 22...")
+                if await sshShutdown(host: ip, port: 22, command: "ha host shutdown", timeout: budget) {
+                    shutdownAccepted = true
+                    if await waitForStop(until: deadline) { return }
+                }
             }
             if config.effectiveHAAPIToken == nil {
                 logger.warning(
                     "Tip: configure ha.api_token (REST API), ssh.authorized_keys (debug SSH), or install the Terminal & SSH app in Home Assistant."
                 )
             }
-            logger.warning("All shutdown methods failed — force-stopping...")
+            if shutdownAccepted {
+                logger.warning(
+                    "Shutdown was accepted, but the guest had not halted after \(config.effectiveShutdownTimeout)s — force-stopping. Raise shutdown.timeout_seconds if the guest needs longer."
+                )
+            } else {
+                logger.warning("All shutdown methods failed — force-stopping...")
+            }
         } else {
             logger.warning("Guest IP unknown (network not ready) — force-stopping...")
         }
@@ -549,10 +571,18 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Wait for the VM to reach `.stopped` state.
-    /// - Returns: `true` if the VM stopped, `false` if timed out.
-    private func waitForStop(timeout: Int) async -> Bool {
-        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+    /// Seconds left before `deadline`, or `nil` once the graceful-shutdown
+    /// budget is spent. Callers skip an attempt entirely on `nil` rather than
+    /// issuing a request with no time to answer it.
+    private func remaining(until deadline: Date) -> Int? {
+        let seconds = Int(deadline.timeIntervalSinceNow.rounded(.down))
+        return seconds > 0 ? seconds : nil
+    }
+
+    /// Wait for the VM to reach `.stopped` state, within the shared
+    /// graceful-shutdown budget.
+    /// - Returns: `true` if the VM stopped, `false` if the deadline passed.
+    private func waitForStop(until deadline: Date) async -> Bool {
         while Date() < deadline {
             if vmController.state == .stopped {
                 logger.info("VM stopped gracefully.")
@@ -627,6 +657,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     }
 
     /// Send a shutdown command to the guest via SSH.
+    /// - Parameter timeout: Seconds left in the shared graceful-shutdown
+    ///   budget — not a fresh per-method allowance. Capped internally for the
+    ///   connect phase so an unreachable host can't eat the whole budget.
     /// - Returns: `true` if the SSH command succeeded (exit code 0).
     ///
     /// A deadline task terminates the process if it exceeds `timeout` seconds,

@@ -8,7 +8,7 @@
 
 ```bash
 ./scripts/build.sh release    # Release build: -O + strip → ~2.1 MB binary
-swift test                    # 38 tests in HavmCoreTests
+swift test                    # 39 tests in HavmCoreTests
 ./.build/release/havm run     # Run the VM (blocks; Ctrl+C to stop)
 ./.build/release/havm run --console  # Interactive serial console (hvc0)
 ```
@@ -78,6 +78,14 @@ CXZ (C target)
   2. `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, requires `ssh.authorized_keys`)
   3. `ssh root@<ip> -p 22 ha host shutdown` (SSH add-on)
   4. `vm.stop()` — force-stop fallback
+  All four share a **single deadline** (`shutdown.timeout_seconds`, default 90) rather
+  than each getting a fresh timeout: the request attempts are capped inside it (10 s REST,
+  5 s SSH connect) and the wait for `.stopped` consumes the rest. Restarting the budget per
+  method used to force-stop a guest that was still halting cleanly after an accepted
+  shutdown request (issue #11), and grew the total to `min(budget, 10) + 3 x budget`.
+  Budget + force-stop + cleanup must stay under the Homebrew formula's
+  `stop_timeout 120` (launchd `ExitTimeOut`), or launchd `SIGKILL`s havm mid-shutdown —
+  and with `KeepAlive true` restarts it, booting a guest whose disk was yanked mid-halt.
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
 - **Guest IP detection** — parses `/var/db/dhcpd_leases` by MAC address for instant, reliable IP discovery (no ping/ARP scanning).
 - **VFAT LFN** — the `0x40` (LAST_LONG_ENTRY) flag must be on the highest sequence number (end of filename), not the lowest (beginning). Getting this wrong causes both macOS and Linux to truncate the filename.

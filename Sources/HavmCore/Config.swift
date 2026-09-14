@@ -257,11 +257,21 @@ public struct HavmConfig: Decodable, Sendable {
         haos?.releaseChannel ?? .stable
     }
 
-    /// Default shutdown timeout: 30 seconds.
-    /// SSH-based shutdown sends `shutdown -h now` or `ha host shutdown` to the
-    /// guest, then waits this long for systemd to stop services and halt.
+    /// Default shutdown timeout: 90 seconds — the budget for the *entire*
+    /// graceful phase, not per shutdown method. Covers reaching the guest
+    /// (REST request, SSH connect) plus waiting for systemd to stop services
+    /// and halt. 90 s matches systemd's `DefaultTimeoutStopSec`, so a single
+    /// slow-stopping unit can't push the guest past the budget.
+    ///
+    /// Home Assistant OS can take ~55 s to halt on a modest install with a few
+    /// add-ons; under-shooting this budget means havm hard-powers-off the VM
+    /// (`forceStop`) while the guest is still shutting down cleanly.
+    ///
+    /// Keep the budget comfortably below the 120 s `ExitTimeOut` the Homebrew
+    /// formula sets (`stop_timeout 120`): launchd `SIGKILL`s the process once
+    /// that elapses, so a larger budget would skip the force-stop entirely.
     public var effectiveShutdownTimeout: Int {
-        shutdown?.timeoutSeconds ?? 30
+        shutdown?.timeoutSeconds ?? 90
     }
 
     /// Home Assistant long-lived access token for REST API use.
