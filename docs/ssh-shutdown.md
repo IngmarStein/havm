@@ -81,14 +81,15 @@ restrictive (<code>chmod 600 ~/.config/havm/config.yml</code>).
 
 ### Guest IP detection
 
-`havm` discovers the guest IP by parsing `/var/db/dhcpd_leases` and matching
-the VM's MAC address — instant and reliable, no ping or ARP scanning needed.
+In bridge mode (the default) `havm` reaches the guest by its mDNS name —
+`network.hostname`, defaulting to `homeassistant.local`. In NAT mode there is no
+name, so it parses `/var/db/dhcpd_leases` and matches the VM's MAC address.
 
-If you set a static IP or mDNS hostname in the config, that takes precedence:
+Set a static IP or a unique name to override the default:
 
 ```yaml
 network:
-  hostname: "homeassistant.local"
+  hostname: "192.168.1.42"
 ```
 
 ## Graceful Restart

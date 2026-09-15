@@ -87,7 +87,12 @@ CXZ (C target)
   `stop_timeout 120` (launchd `ExitTimeOut`), or launchd `SIGKILL`s havm mid-shutdown —
   and with `KeepAlive true` restarts it, booting a guest whose disk was yanked mid-halt.
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
-- **Guest IP detection** — parses `/var/db/dhcpd_leases` by MAC address for instant, reliable IP discovery (no ping/ARP scanning).
+- **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
+  and HA API calls all target `network.hostname` (bridge-mode default `homeassistant.local`)
+  and let the resolver try a name's addresses at connect time. Resolving once and committing
+  to the first result pins a stale address when mDNS serves records from an earlier DHCP lease
+  (issue #10). NAT mode has no name and parses `/var/db/dhcpd_leases` by MAC address instead
+  (no ping/ARP scanning).
 - **VFAT LFN** — the `0x40` (LAST_LONG_ENTRY) flag must be on the highest sequence number (end of filename), not the lowest (beginning). Getting this wrong causes both macOS and Linux to truncate the filename.
 - **`--console` interactive mode** — `VZVirtioConsoleDeviceSerialPortConfiguration` with
   `VZFileHandleSerialPortAttachment(stdin, stdout)` maps the host terminal to the guest's

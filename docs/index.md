@@ -178,10 +178,9 @@ fish completions have been installed to:
 ╚══════════════════════════════════════════════════════════╝
 
 2026-06-29T20:26:48+0200 info havm.run: [HavmRuntime] USB: Listener registered — 0 already connected
-2026-06-29T20:26:49+0200 info havm.run: [HavmRuntime] Waiting for resolution of homeassistant.local...
-2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime] Guest reachable at 192.168.1.42 — Home Assistant should be ready shortly
-2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   Web: http://homeassistant.local:8123
-2026-06-29T20:27:03+0200 info havm.run: [HavmRuntime]   SSH: ssh root@homeassistant.local -p 22222
+2026-06-29T20:26:49+0200 info havm.run: [HavmRuntime] Waiting for Home Assistant at homeassistant.local...
+2026-06-29T20:26:49+0200 info havm.run: [HavmRuntime]   Web: http://homeassistant.local:8123
+2026-06-29T20:26:49+0200 info havm.run: [HavmRuntime]   SSH: ssh root@homeassistant.local -p 22222
 2026-06-29T20:27:31+0200 info havm.run: [HavmRuntime] Home Assistant is ready at http://homeassistant.local:8123</span>
 </pre>
       </div>

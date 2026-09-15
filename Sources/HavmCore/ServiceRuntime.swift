@@ -47,7 +47,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var configDirDescriptor: Int32 = -1
     private var configFileWatcher: DispatchSourceFileSystemObject?
     private var observerPollCount = 0
-    private let observerPollMax = 120  // 120 × 250 ms = 30 s
+    private let observerPollMax = 1200  // 1200 × 250 ms = 5 minutes
     private var healthPollCount = 0
     private let healthPollMax = 1200  // 1200 × 250 ms = 5 minutes
     private var bootTimer: DispatchSourceTimer?
@@ -728,8 +728,12 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         let ip: String?
 
         if let hostname = config.effectiveGuestHostname {
-            // If it looks like an IP, use it directly; otherwise resolve via DNS/mDNS
-            ip = resolveOrUseIP(hostname)
+            // Hand the name to the network stack as-is rather than resolving it
+            // here: a name can map to several addresses at once, including
+            // stale records left over from an earlier DHCP lease, and letting
+            // the resolver try them at connect time beats pinning whichever one
+            // came back first (issue #10).
+            ip = hostname
         } else {
             // NAT mode without explicit hostname: parse DHCP lease file by MAC
             ip = discoverViaDHCPLeases()
@@ -737,9 +741,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
         if ip == nil, !firstProbeDone {
             firstProbeDone = true
-            if let hostname = config.effectiveGuestHostname {
-                logger.info("Waiting for resolution of \(hostname)...")
-            } else if let mac = vmController.guestMAC {
+            if let mac = vmController.guestMAC {
                 logger.info("Waiting for guest DHCP lease (MAC \(mac))...")
             }
         }
@@ -751,7 +753,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             guestReachableNotified = true
             // Bracket IPv6 for a valid URL authority (http://[::1]:8123).
             let authority = ip.contains(":") ? "[\(ip)]" : ip
-            logger.info("Guest reachable at \(ip) — Home Assistant should be ready shortly")
+            logger.info("Waiting for Home Assistant at \(ip)...")
             logger.info("  Web: http://\(authority):8123")
             logger.info("  SSH: ssh root@\(ip) -p 22222")
         }
@@ -760,7 +762,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// Poll the Supervisor's Observer `/ping` endpoint on port 4357.
     /// The Observer is a Supervisor plugin that starts before Home Assistant Core,
     /// so it can provide an earlier readiness signal. This check is fully optional —
-    /// it stops as soon as the web UI responds (or we've tried 120 times, ~30s).
+    /// it stops as soon as the web UI responds, which also ends the boot phase.
     private func checkObserver() {
         guard observerPollCount < observerPollMax else { return }
         observerPollCount += 1
@@ -850,71 +852,6 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 ]).record(Double(allocated))
             }
         }
-    }
-
-    /// Render a NUL-terminated `[CChar]` buffer produced by `inet_ntop` as a String.
-    private func formatAddress(_ buf: [CChar]) -> String {
-        let bytes = buf.map(UInt8.init(bitPattern:))
-        let end = bytes.firstIndex(of: 0) ?? bytes.count
-        return String(bytes: bytes[0..<end], encoding: .utf8) ?? ""
-    }
-
-    /// If the string looks like an IPv4 or IPv6 address, return it as-is.
-    /// Otherwise, resolve it via getaddrinfo (which triggers mDNS for `.local` names).
-    ///
-    /// Iterates the full result list: IPv4 is preferred, and link-local IPv6
-    /// (fe80::/10) is skipped — it needs a scope ID to be usable in a URL or
-    /// SSH target, and mDNS resolvers frequently return it first. Returns the
-    /// first global IPv6 address as a fallback when no IPv4 result exists.
-    private func resolveOrUseIP(_ hostname: String) -> String? {
-        // Quick check: if it's already an IP, use it (check both families).
-        var v4 = sockaddr_in()
-        if inet_pton(AF_INET, hostname, &v4.sin_addr) == 1 {
-            return hostname
-        }
-        var v6 = sockaddr_in6()
-        if inet_pton(AF_INET6, hostname, &v6.sin6_addr) == 1 {
-            return hostname
-        }
-
-        var hints = addrinfo()
-        hints.ai_family = AF_UNSPEC
-        var result: UnsafeMutablePointer<addrinfo>?
-        defer { if let r = result { freeaddrinfo(r) } }
-
-        guard getaddrinfo(hostname, nil, &hints, &result) == 0, let first = result else {
-            return nil
-        }
-
-        var fallback: String?
-        for info in sequence(first: first, next: { $0.pointee.ai_next }) {
-            guard let sa = info.pointee.ai_addr else { continue }
-            switch Int32(sa.pointee.sa_family) {
-            case AF_INET:
-                // Copy the full sockaddr_in before formatting.
-                var sin = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
-                var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                inet_ntop(AF_INET, &sin.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
-                return formatAddress(buf)
-            case AF_INET6:
-                // Copy the full 28-byte sockaddr_in6. Rebinding a 16-byte
-                // `sockaddr` copy would truncate the address to its first
-                // 8 bytes plus stack garbage (prints as "fe80::").
-                var sin6 = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee }
-                let bytes = withUnsafeBytes(of: sin6.sin6_addr) { Array($0) }
-                if bytes[0] == 0xfe, bytes[1] & 0xc0 == 0x80 {
-                    continue  // link-local — unusable without a scope ID
-                }
-                var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
-                inet_ntop(AF_INET6, &sin6.sin6_addr, &buf, socklen_t(INET6_ADDRSTRLEN))
-                if fallback == nil {
-                    fallback = formatAddress(buf)
-                }
-            default:
-                continue
-            }
-        }
-        return fallback
     }
 
     /// Parse the macOS DHCP lease file to find the guest's IP by its MAC address.

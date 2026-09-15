@@ -102,8 +102,13 @@ reboots anyway.
 
 ### `hostname`
 mDNS hostname (e.g., `"homeassistant.local"`) or static IP. Used for SSH
-shutdown connections and HA API calls. If not set, havm discovers the
-guest IP from DHCP leases.
+shutdown connections and HA API calls. Defaults to `homeassistant.local` in
+bridge mode; in NAT mode havm discovers the guest address from DHCP leases
+instead.
+
+If another Home Assistant on your network already answers to
+`homeassistant.local`, set this explicitly so havm doesn't address the wrong
+device — including for shutdown.
 
 ## Logging
 
