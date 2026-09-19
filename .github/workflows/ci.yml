@@ -27,8 +27,8 @@ jobs:
   build-and-test:
     # Needs Xcode 27+ for the Swift 6.4 toolchain and the macOS 27 SDK.
     # The deployment target is macOS 15 and the macOS 27 APIs are weakly
-    # linked, so the host does not have to run macOS 27 — GitHub's xcode-27
-    # image (macOS 26) qualifies. See scripts/select-xcode.sh.
+    # linked, so the binary still runs on macOS 15 even though the image
+    # itself is macOS 27. See scripts/select-xcode.sh.
     #
     # That image is a public preview, so expect queueing and the occasional
     # flake (actions/runner-images#14404). Swap to macos-27 once it exists.

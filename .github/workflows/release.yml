@@ -3,17 +3,26 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Dry run: build, sign, notarize, and staple on a GitHub-hosted runner, then
+  # upload the zip as an artifact instead of creating a release. A dispatch
+  # never publishes, so there is no way to cut a release by accident. To retry
+  # a tag that already exists, re-run the failed run from the Actions UI —
+  # that keeps the original push event.
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   release:
-    # Needs Xcode 27+ — see scripts/select-xcode.sh. Deliberately self-hosted
-    # rather than GitHub's xcode-27 image: signing needs the Developer ID
-    # certificate and notary credentials already in the keychain, and the
-    # shortcut in "Ensure Developer ID certificate" assumes a persistent runner.
-    runs-on: [self-hosted, macOS, ARM64]
+    # GitHub's xcode-27 image (macOS 27, arm64) carries Xcode 27 — see
+    # scripts/select-xcode.sh. The runner is ephemeral, so every credential
+    # arrives as a secret and dies with it: the Developer ID certificate is
+    # imported into a throwaway keychain, and the Developer ID provisioning
+    # profile is installed per run. That profile is not optional — the
+    # restricted entitlements sign fine without it and are then ignored at
+    # runtime, so see the "Verify signature" step.
+    runs-on: xcode-27
     env:
       HAS_DEV_CERT: ${{ secrets.DEVELOPER_ID_CERT || '' }}
 
@@ -25,32 +34,75 @@ jobs:
           DEVELOPER_DIR="$(scripts/select-xcode.sh)"
           echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
 
-      - name: Update version
+      - name: Set version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           CURRENT=$(grep 'static let current' Sources/Havm/main.swift | sed 's/.*"\(.*\)".*/\1/')
-          if [ "$CURRENT" != "$VERSION" ]; then
-            echo "    $CURRENT -> $VERSION"
-            sed -i '' "s/static let current = \"$CURRENT\"/static let current = \"$VERSION\"/" Sources/Havm/main.swift
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$CURRENT" != "$VERSION" ]; then
+              echo "    $CURRENT -> $VERSION"
+              sed -i '' "s/static let current = \"$CURRENT\"/static let current = \"$VERSION\"/" Sources/Havm/main.swift
+            fi
+          else
+            # A dispatch checks out a branch, so GITHUB_REF_NAME is not a tag.
+            VERSION="$CURRENT"
           fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "    version: $VERSION"
 
-      - name: Ensure Developer ID certificate
+      - name: Import Developer ID certificate
         if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
         env:
           DEVELOPER_ID_CERT: ${{ env.HAS_DEV_CERT }}
           DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
         run: |
-          # Self-hosted runner: cert already in keychain, skip import.
-          if security find-identity -v -p basic | grep -q "Developer ID"; then
-            echo "Developer ID certificate found in keychain."
-            exit 0
+          # Throwaway keychain. The image's login keychain has a password we
+          # don't know, and set-key-partition-list wants the *keychain*
+          # password.
+          KEYCHAIN="$RUNNER_TEMP/havm-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$DEVELOPER_ID_CERT" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$DEVELOPER_ID_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          # Without a partition list entry codesign blocks on a UI prompt and
+          # the job hangs until it times out.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p basic | grep "Developer ID"
+
+      - name: Install provisioning profile
+        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        env:
+          PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
+        run: |
+          PROFILE_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          if [ -z "$PROVISIONING_PROFILE" ]; then
+            echo "Error: the PROVISIONING_PROFILE secret is empty."
+            echo "Set it to the base64 of the 'HAVM Developer ID' profile:"
+            echo "  base64 -i \"\$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/HAVM_Developer_ID.provisionprofile\" \\"
+            echo "    | gh secret set PROVISIONING_PROFILE"
+            exit 1
           fi
-          # Ephemeral runner: import from secrets.
-          echo "$DEVELOPER_ID_CERT" | base64 -d > /tmp/cert.p12
-          security import /tmp/cert.p12 -k ~/Library/Keychains/login.keychain-db \
-            -P "$DEVELOPER_ID_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: \
-            -k "$DEVELOPER_ID_PASSWORD" ~/Library/Keychains/login.keychain-db
+          mkdir -p "$PROFILE_DIR"
+          printf '%s' "$PROVISIONING_PROFILE" | base64 -d \
+            > "$PROFILE_DIR/havm.provisionprofile"
+          # build.sh prefers a Developer ID profile. It also accepts any profile
+          # matching the bundle id, so reject a development profile here, where
+          # the error can still name the cause.
+          security cms -D -i "$PROFILE_DIR/havm.provisionprofile" \
+            | grep -q "ProvisionsAllDevices" || {
+              echo "Error: profile is not a Developer ID (ProvisionsAllDevices) profile."
+              exit 1
+            }
+          echo "    Profile installed."
 
       - name: Build and sign (Developer ID — tier 3)
         if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
@@ -67,12 +119,41 @@ jobs:
           CODE_SIGN_IDENTITY: "-"
         run: ./scripts/build.sh release
 
+      - name: Verify signature
+        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        run: |
+          APP=".build/Havm.app"
+
+          # codesign embeds restricted entitlements with or without a profile,
+          # so a missing profile produces no error — it just means macOS
+          # ignores them and the released binary silently loses USB
+          # passthrough and bridge networking. Fail before notarizing.
+          test -f "$APP/Contents/embedded.provisionprofile" \
+            || { echo "Error: $APP has no embedded.provisionprofile."; exit 1; }
+
+          SIGN_INFO=$(codesign -dvvv "$APP" 2>&1)
+          echo "$SIGN_INFO" | grep -q "runtime" \
+            || { echo "Error: hardened runtime not enabled."; echo "$SIGN_INFO"; exit 1; }
+
+          SIGNED_ENTS=$(codesign -d --entitlements - "$APP" 2>/dev/null)
+          for ENT in com.apple.developer.accessory-access.usb \
+                     com.apple.vm.networking \
+                     com.apple.security.virtualization \
+                     com.apple.security.network.server \
+                     com.apple.security.device.usb; do
+            echo "$SIGNED_ENTS" | grep -q "$ENT" \
+              || { echo "Error: $ENT missing from signature."; exit 1; }
+          done
+
+          echo "$SIGN_INFO" | grep -i "Authority" || true
+          echo "    Profile embedded, hardened runtime on, entitlements present."
+
       - name: Package
         run: |
           # VERSION prevents Homebrew from cd-ing into the single-directory
           # archive. Without it, libexec.install "Havm.app" would fail because
           # Homebrew stages into Havm.app/ and can't find Havm.app inside it.
-          echo "${GITHUB_REF_NAME#v}" > .build/VERSION
+          echo "$VERSION" > .build/VERSION
           (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
       - name: Notarize
@@ -120,7 +201,16 @@ jobs:
           rm -f havm.zip
           (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
+      - name: Upload dry-run artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: havm-${{ env.VERSION }}-${{ github.run_number }}
+          path: havm.zip
+          if-no-files-found: error
+
       - name: Create Release
+        if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref_name }}

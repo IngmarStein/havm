@@ -16,21 +16,45 @@ swift test                    # 39 tests in HavmCoreTests
 Binary size is reduced via `strip` (removes ~2.4 MB of symbol tables from LINKEDIT)
 before codesigning. Default `-O` is kept — `-Osize` only saves ~300 KB more.
 
-Building needs Xcode 27+ for the Swift 6.4 toolchain and the macOS 27 SDK, but
-the *host* need not run macOS 27: the deployment target is macOS 15 and the
-macOS 27 APIs are weakly linked. CI builds and tests on GitHub's `xcode-27`
-image, which is macOS 26. `scripts/select-xcode.sh` picks the toolchain by the
-version each bundle reports — `$DEVELOPER_DIR` if it qualifies, else the newest
-stable install, else the newest beta — and both workflows plus `publish.sh`
-use it.
+Building needs Xcode 27+ for the Swift 6.4 toolchain and the macOS 27 SDK. The
+deployment target is macOS 15 and the macOS 27 APIs are weakly linked, so the
+binary still runs on macOS 15 even though the host (and GitHub's `xcode-27`
+image, itself macOS 27/arm64) does not. `scripts/select-xcode.sh` picks the
+toolchain by the version each bundle reports — `$DEVELOPER_DIR` if it qualifies,
+else the newest stable install, else the newest beta — and both workflows plus
+`publish.sh` use it.
 
 ## Release Process
 
 1. Bump `HavmVersion.current` in `Sources/Havm/main.swift` (CI also auto-bumps from tag).
-2. Tag: `git tag -a v0.1.4 -m "v0.1.4" && git push --tags`
-3. CI picks up the `v*` tag, builds + notarizes, publishes a GitHub release with
+2. Dry-run on a branch to exercise signing and notarization without publishing:
+   `gh workflow run release.yml --ref <branch>` — a dispatch never creates a
+   release, it uploads `havm.zip` as an artifact instead.
+3. Tag: `git tag -a v0.1.4 -m "v0.1.4" && git push --tags`
+4. CI picks up the `v*` tag, builds + notarizes, publishes a GitHub release with
    `gh release create --generate-notes`. The auto-generated notes are a starting
-   point — edit the release on GitHub to add a curated changelog.
+   point — edit the release on GitHub to add a curated changelog. To retry a
+   failed tag run, re-run it from the Actions UI (keeps the original push event).
+
+The release job runs on GitHub's `xcode-27` image, where the runner is
+ephemeral and carries no signing credentials, so every credential arrives as a
+secret in that run:
+
+| Secret | Contents |
+|---|---|
+| `DEVELOPER_ID_CERT` | base64 of the Developer ID Application `.p12` |
+| `DEVELOPER_ID_PASSWORD` | that `.p12`'s password |
+| `PROVISIONING_PROFILE` | base64 of the `HAVM Developer ID` profile |
+| `NOTARY_KEY` | App Store Connect API key (`.p8`) |
+
+Plus the `DEVELOPMENT_TEAM`, `DEVELOPER_ID`, `NOTARY_KEY_ID`, and `NOTARY_ISSUER`
+variables. `PROVISIONING_PROFILE` is load-bearing: without the embedded profile
+the restricted entitlements (`accessory-access.usb`, `vm.networking`) still sign
+but are ignored at runtime, so the release loses USB passthrough and bridge
+networking silently. A "Verify signature" step fails the job if the profile or
+any entitlement is missing — do not remove it. The `.p12` is imported into a
+throwaway keychain, since the image's login keychain password is unknown and
+`set-key-partition-list` needs the *keychain* password, not the `.p12`'s.
 
 ## Architecture
 

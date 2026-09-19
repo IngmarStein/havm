@@ -64,6 +64,20 @@ fi
 # --- Sign --------------------------------------------------------------------
 SIGN_IDENTITY="$CODE_SIGN_IDENTITY"
 
+# codesign chatters on stderr even when it succeeds ("replacing existing
+# signature"), so its output is filtered. Filter it without losing the exit
+# status: codesign's own status decides success, never grep's.
+sign_app() {
+    local out
+    if ! out=$(codesign "$@" 2>&1); then
+        printf '%s\n' "$out" >&2
+        return 1
+    fi
+    # "|| true": when the only output was the filtered line, grep selects
+    # nothing and exits 1, which would read as a signing failure.
+    printf '%s\n' "$out" | grep -v "replacing" || true
+}
+
 # Always create .app bundle for consistent output structure.
 APP_DIR=".build/Havm.app"
 rm -rf "$APP_DIR"
@@ -129,21 +143,27 @@ if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     if [ -n "$FOUND_PROFILE" ]; then
         cp "$FOUND_PROFILE" "$APP_DIR/Contents/embedded.provisionprofile"
         echo "    Profile:   $(basename "$FOUND_PROFILE")"
+    else
+        # Signing succeeds without a profile — the restricted entitlements
+        # are embedded and then ignored at runtime — so this has to be loud.
+        echo "    Warning:   no provisioning profile for ch.ingmar.havm in" >&2
+        echo "               $PROFILE_DIR" >&2
+        echo "               Restricted entitlements (USB accessory, bridge networking) will be ignored." >&2
     fi
 
-    codesign --sign "$SIGN_IDENTITY" \
+    sign_app --sign "$SIGN_IDENTITY" \
         --entitlements "$ENTITLEMENTS" \
         --force \
         --options runtime --timestamp \
-        "$APP_DIR" 2>&1 | grep -v "replacing" || true
+        "$APP_DIR"
 else
     # Ad-hoc signing — restricted entitlements are stripped.
     echo "    (ad-hoc signing — restricted entitlements unavailable)"
-    codesign --sign - \
+    sign_app --sign - \
         --entitlements "$ENTITLEMENTS" \
         --force \
         --options runtime --timestamp \
-        "$APP_DIR" 2>&1 | grep -v "replacing" || true
+        "$APP_DIR"
 fi
 
 ln -sf "$PWD/$APP_DIR/Contents/MacOS/havm" "$BINARY"
