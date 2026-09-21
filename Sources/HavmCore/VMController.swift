@@ -62,24 +62,21 @@ public final class VMController: NSObject, @unchecked Sendable {
             VZVirtioBlockDeviceConfiguration(attachment: mainDisk)
         ]
 
-        // USB: always provision the XHCI controller when USB is enabled so
-        // passthrough devices can be hot-attached later. Only the CONFIG disk
-        // is added at boot.
-        var usbDevices: [VZUSBDeviceConfiguration] = []
-        let configDiskPath = HavmConfig.configDiskPath
-        if FileManager.default.fileExists(atPath: configDiskPath) {
-            let configAttachment = try VZDiskImageStorageDeviceAttachment(
-                url: URL(fileURLWithPath: configDiskPath),
-                readOnly: true
-            )
-            usbDevices.append(VZUSBMassStorageDeviceConfiguration(attachment: configAttachment))
-            logger.info("SSH CONFIG disk attached (USB)")
-        }
-        if config.effectiveUSBEnabled {
-            let xhci = VZXHCIControllerConfiguration()
-            xhci.usbDevices = usbDevices
+        // USB: the XHCI controller carries the CONFIG disk at boot and is the
+        // route passthrough devices are hot-attached through later.
+        if let xhci = try Self.makeUSBController(
+            configDiskPath: HavmConfig.configDiskPath,
+            usbEnabled: config.effectiveUSBEnabled
+        ) {
             vmConfig.usbControllers = [xhci]
-            logger.info("USB: \(usbDevices.count) device(s)")
+            let attached = xhci.usbDevices.count
+            if attached == 0 {
+                logger.info("USB: enabled, no devices to attach")
+            } else {
+                logger.info("USB: \(attached) device(s) — SSH CONFIG disk attached")
+            }
+        } else {
+            logger.debug("USB: disabled and no CONFIG disk — no USB controller")
         }
 
         vmConfig.storageDevices = storageDevices
@@ -152,6 +149,40 @@ public final class VMController: NSObject, @unchecked Sendable {
         try vmConfig.validate()
         logger.info("VM configuration validated successfully")
         return vmConfig
+    }
+
+    // MARK: - USB controller
+
+    /// Build the XHCI controller for the VM, or `nil` when there is nothing to
+    /// attach and passthrough is off.
+    ///
+    /// `usb.enabled` governs USB *accessory passthrough* — not the SSH CONFIG
+    /// disk. Because a `VZUSBMassStorageDeviceConfiguration` only exists as a
+    /// child of a controller, gating the controller on that flag alone created
+    /// the disk image and then dropped it on the floor: the guest never saw a
+    /// `CONFIG` filesystem, HA OS skipped its `authorized_keys` import, and
+    /// dropbear never started on port 22222 (`ConditionFileNotEmpty=`), leaving
+    /// SSH dead for anyone who had disabled passthrough (issue #12).
+    static func makeUSBController(
+        configDiskPath: String,
+        usbEnabled: Bool
+    ) throws -> VZXHCIControllerConfiguration? {
+        var usbDevices: [VZUSBDeviceConfiguration] = []
+        if FileManager.default.fileExists(atPath: configDiskPath) {
+            let configAttachment = try VZDiskImageStorageDeviceAttachment(
+                url: URL(fileURLWithPath: configDiskPath),
+                readOnly: true
+            )
+            usbDevices.append(VZUSBMassStorageDeviceConfiguration(attachment: configAttachment))
+        }
+
+        // Passthrough needs the controller even with no devices attached yet,
+        // so accessories can be hot-attached once the VM is running.
+        guard usbEnabled || !usbDevices.isEmpty else { return nil }
+
+        let xhci = VZXHCIControllerConfiguration()
+        xhci.usbDevices = usbDevices
+        return xhci
     }
 
     // MARK: - EFI variable store
