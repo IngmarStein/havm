@@ -321,16 +321,27 @@ public final class VMController: NSObject, @unchecked Sendable {
         let logger = self.logger
         queue.async(execute: DispatchWorkItem {
             let config = VZUSBPassthroughDeviceConfiguration(device: accessory)
-            guard let device = try? VZUSBPassthroughDevice(configuration: config) else {
-                logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryID)")
+            let device: VZUSBPassthroughDevice
+            do {
+                device = try VZUSBPassthroughDevice(configuration: config)
+            } catch {
+                // The framework's message is one of several near-identical USB
+                // passthrough errors, so log the domain and code too, and the
+                // endpoint census that tells an unsupported device (isochronous
+                // endpoints cannot be passed through) apart from a denied or
+                // malformed one (issue #13).
+                let reason = error as NSError
+                logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryIDHex) — \(reason.domain) \(reason.code): \(reason.localizedDescription)")
+                logger.info("USB: Descriptor — \(USBConfigurationSummary.describe(accessory.configurationDescriptorData))")
                 return
             }
             ctl.attach(device: device) { error in
                 if let error {
-                    logger.info("USB: Attach failed: \(error.localizedDescription)")
+                    let reason = error as NSError
+                    logger.info("USB: Attach failed — \(reason.domain) \(reason.code): \(reason.localizedDescription)")
                 } else {
                     let (vid, pid) = accessory.vendorProductID
-                    logger.info("USB: Attached 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryID))")
+                    logger.info("USB: Attached 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryIDHex))")
                 }
             }
         })
