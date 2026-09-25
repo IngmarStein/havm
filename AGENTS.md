@@ -192,6 +192,47 @@ selects which devices to attach — they are hot-attached to the running VM via
 to generate a provisioning profile for `ch.ingmar.havm`. Build once (⌘B),
 then `scripts/build.sh` picks up the profile automatically.
 
+## Secure Boot
+
+havm offers no Secure Boot option, and the blocker is Home Assistant OS, not the
+framework.
+
+macOS 27 has the API. Secure Boot state lives *inside* the EFI variable store —
+`VZEFIBootLoader` has no secure-boot property at all — so it is the NVRAM file
+havm already owns: `enrollDefaultSecureBootSignatures()` plus
+`enableSecureBootUsingDefaultPlatformKey()` enables it, a caller-supplied
+`SecCertificate` goes through `enableSecureBoot(platformKey:)` and the
+`VZEFISignature*` classes, and `disableSecureBoot()` / `resetSecureBoot()` back
+out. It is all `macOS 27.0+`, so it would sit behind `#available` much like the
+AccessoryAccess code. UTM drives these methods from a macOS 12 deployment target
+(`utmapp/UTM#7886`, which closed `#7874`), so havm's macOS 15 target is no
+obstacle for the `VZEFIVariableStore` methods; whether the newer
+`VZEFISignature*` classes weak-link from an old target is unproven.
+
+What stops it: Apple's default enrollment trusts Microsoft's UEFI CA, and HAOS
+boots an unsigned, Buildroot-built GRUB2. In `home-assistant/operating-system`
+the aarch64 defconfig enables only `BR2_TARGET_GRUB2` and
+`BR2_TARGET_GRUB2_INSTALL_TOOLS`, with no secure-boot or signing option, and
+`buildroot-external/package/` contains no shim, mokutil, sbsigntools or
+efitools — so the firmware would refuse `bootaa64.efi` and the guest would stop
+booting. UTM shipped the option default **off** for that reason, its manual test
+recording that "a disk whose only loader is not Microsoft-signed is refused by
+the firmware".
+
+The framework enrolls signatures, it never produces them: Virtualization has no
+signing API, and macOS ships no `sbsign`/`pesign` equivalent, so a custom
+platform key would mean signing HAOS's bootloader out of band. Enrolling the
+SHA-256 hash of `bootaa64.efi` into db needs no key, but HAOS's A/B OTA updates
+replace the bootloader, so the enrolled hash goes stale and the guest stops
+booting on the next OS update.
+
+Enabling rewrites the existing variable store, so it applies retroactively to an
+installed guest, and `resetSecureBoot()` is the only documented way back. It
+would also buy little here: the disk image is a file in the user's own account,
+and the host stays the trust boundary.
+
+Revisit if HAOS ships a Microsoft-signed boot chain — shim plus a signed GRUB.
+
 ## Known Issues
 
 - **macOS 27**: `Data(count: 67108864)` crashes the process. Our CONFIG disk builder uses 2 MB instead of 64 MB to work around this.
