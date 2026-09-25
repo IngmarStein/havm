@@ -2,7 +2,6 @@ import Foundation
 import AppKit
 @_weakLinked import AccessoryAccess
 import Logging
-import Metrics
 
 // USB accessory passthrough is only available on macOS 27 (Golden Gate):
 // it depends on the AccessoryAccess framework (`AAUSBAccessoryManager`,
@@ -19,15 +18,11 @@ import Metrics
 final class USBAccessoryCoordinator: NSObject, AAUSBAccessoryListener, @unchecked Sendable {
     private weak var vmController: VMController?
     private let logger: Logger
-    private var accessoryCount = 0
 
     init(vmController: VMController, logger: Logger) {
         self.vmController = vmController
         self.logger = logger
         super.init()
-        // Initialize the gauge so it appears in /metrics even before
-        // any accessory connects (zero is a meaningful initial value).
-        Gauge(label: "havm_usb_accessories").record(0)
     }
 
     /// Register with `AAUSBAccessoryManager`. Must run on the main queue.
@@ -58,18 +53,26 @@ final class USBAccessoryCoordinator: NSObject, AAUSBAccessoryListener, @unchecke
     // MARK: - AAUSBAccessoryListener
 
     func usbAccessoryDidConnect(_ accessory: AAUSBAccessory) {
-        let (vid, pid) = accessory.vendorProductID
-        logger.info("USB: Accessory connected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryIDHex))")
+        logger.info("USB: Accessory connected — \(accessory.vendorProductIDHex) (registryID=\(accessory.registryIDHex))")
         vmController?.attachAccessory(accessory)
-        accessoryCount += 1
-        Gauge(label: "havm_usb_accessories").record(Double(accessoryCount))
     }
 
     func usbAccessoryDidDisconnect(_ accessory: AAUSBAccessory) {
-        let (vid, pid) = accessory.vendorProductID
-        logger.info("USB: Accessory disconnected — 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryIDHex))")
-        accessoryCount = max(0, accessoryCount - 1)
-        Gauge(label: "havm_usb_accessories").record(Double(accessoryCount))
+        logger.info("USB: Accessory disconnected — \(accessory.vendorProductIDHex) (registryID=\(accessory.registryIDHex))")
+    }
+}
+
+// MARK: - Identifier formatting
+
+/// Formats USB vendor and product IDs the way every other tool prints them —
+/// lowercase hex, zero-padded to four digits, so `0x0bda:0xa725` can be pasted
+/// into a search for the device's datasheet or an `lsusb` line. Not tied to
+/// AccessoryAccess, so it is unit-testable on any host.
+enum USBIdentifiers {
+
+    /// Renders a vendor/product pair, e.g. `0x18d1:0x5026`.
+    static func hex(vendorID: UInt16, productID: UInt16) -> String {
+        String(format: "0x%04x:0x%04x", vendorID, productID)
     }
 }
 
@@ -87,6 +90,12 @@ extension AAUSBAccessory {
         let vid = UInt16(data[8]) | (UInt16(data[9]) << 8)
         let pid = UInt16(data[10]) | (UInt16(data[11]) << 8)
         return (vid, pid)
+    }
+
+    /// ``vendorProductID`` rendered as `0x18d1:0x5026` — see ``USBIdentifiers``.
+    var vendorProductIDHex: String {
+        let (vid, pid) = vendorProductID
+        return USBIdentifiers.hex(vendorID: vid, productID: pid)
     }
 
     /// IOKit registry entry ID in the lowercase hex `ioreg` prints it as, so a

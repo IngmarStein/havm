@@ -259,7 +259,7 @@ A `GET /health` endpoint is also available for simple liveness checks.
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `havm_vm_state` | gauge | `state` | VM state (running, stopped, paused, starting, …) |
-| `havm_usb_accessories` | gauge | — | Number of connected USB accessories |
+| `havm_usb_accessories` | gauge | — | USB accessories currently attached to the VM |
 | `havm_disk_usage_bytes` | gauge | `disk`, `type` | Disk image size: `type=logical` (configured size) or `allocated` (actual APFS allocation) |
 
 Prometheus also adds its synthetic `up` metric — `1` when the scrape succeeds,

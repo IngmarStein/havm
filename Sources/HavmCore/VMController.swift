@@ -35,6 +35,10 @@ public final class VMController: NSObject, @unchecked Sendable {
         // Seed the initial state so the gauge is present in /metrics
         // before the first transition.
         Gauge(label: "havm_vm_state", dimensions: [("state", "stopped")]).record(1)
+        // Same for the passthrough count: zero is the honest value before
+        // anything is attached, and seeding it here keeps the panel populated
+        // when USB is disabled or the host is too old to attach anything.
+        Gauge(label: "havm_usb_accessories").record(0)
     }
 
     // MARK: - Configuration
@@ -237,6 +241,15 @@ public final class VMController: NSObject, @unchecked Sendable {
             let vmConfig = try createConfiguration()
             let virtualMachine = VZVirtualMachine(configuration: vmConfig)
             virtualMachine.delegate = self
+            // The framework detaches a passthrough device on its own when the
+            // device's IOService terminates (unplug). Without a delegate we
+            // never hear about it, and the metrics gauge keeps counting a
+            // device that is gone.
+            if #available(macOS 27.0, *) {
+                for controller in virtualMachine.usbControllers {
+                    controller.delegate = self
+                }
+            }
             self.vm = virtualMachine
 
             logger.info("Starting VM...")
@@ -318,6 +331,7 @@ public final class VMController: NSObject, @unchecked Sendable {
         }
         let queue = vm.queue
         nonisolated(unsafe) let ctl = controller
+        nonisolated(unsafe) let machine = vm
         let logger = self.logger
         queue.async(execute: DispatchWorkItem {
             let config = VZUSBPassthroughDeviceConfiguration(device: accessory)
@@ -340,11 +354,31 @@ public final class VMController: NSObject, @unchecked Sendable {
                     let reason = error as NSError
                     logger.info("USB: Attach failed — \(reason.domain) \(reason.code): \(reason.localizedDescription)")
                 } else {
-                    let (vid, pid) = accessory.vendorProductID
-                    logger.info("USB: Attached 0x\(String(vid, radix: 16, uppercase: true)):0x\(String(pid, radix: 16, uppercase: true)) (registryID=\(accessory.registryIDHex))")
+                    logger.info("USB: Attached \(accessory.vendorProductIDHex) (registryID=\(accessory.registryIDHex))")
+                    Self.recordAttachedAccessoryCount(in: machine)
                 }
             }
         })
+    }
+
+    /// Record how many passthrough devices are attached right now, and return
+    /// that count.
+    ///
+    /// `VZUSBController.usbDevices` is the framework's own list, which makes it
+    /// the only reliable source for the gauge. A counter kept by the accessory
+    /// listener would count *connections*: it cannot tell a successful attach
+    /// from one the framework refused, and it would keep counting a device the
+    /// framework detached by itself after an unplug. The list also includes the
+    /// CONFIG mass-storage disk, which is part of the controller's
+    /// configuration rather than a passthrough device — hence the downcast.
+    @available(macOS 27.0, *)
+    @discardableResult
+    private static func recordAttachedAccessoryCount(in virtualMachine: VZVirtualMachine?) -> Int {
+        let attached = virtualMachine?.usbControllers.reduce(0) { total, controller in
+            total + controller.usbDevices.compactMap { $0 as? VZUSBPassthroughDevice }.count
+        } ?? 0
+        Gauge(label: "havm_usb_accessories").record(Double(attached))
+        return attached
     }
 
     // MARK: - State transitions
@@ -398,6 +432,23 @@ extension VMController: VZVirtualMachineDelegate {
     public func guestDidStop(_ virtualMachine: VZVirtualMachine) {
         logger.info("Guest OS stopped")
         MainActor.assumeIsolated { transition(to: .stopped) }
+    }
+}
+
+// MARK: - VZUSBController.Delegate
+
+@available(macOS 27.0, *)
+extension VMController: VZUSBController.Delegate {
+    /// The framework detaches a passthrough device on its own once the device's
+    /// IOService is terminated — an unplug, in practice — and this is the only
+    /// notification of it. By the time it fires, `usbDevices` no longer contains
+    /// the device, so a fresh count is already the post-unplug number.
+    public func usbController(
+        _ usbController: VZUSBController,
+        usbPassthroughDeviceDidDisconnect device: VZUSBPassthroughDevice
+    ) {
+        let attached = Self.recordAttachedAccessoryCount(in: vm)
+        logger.info("USB: Passthrough device removed by the framework — \(attached) attached")
     }
 }
 
