@@ -64,7 +64,7 @@ ha:
   url: "https://homeassistant.local:443"  # default: http://<ip>:8123
 
 shutdown:
-  timeout_seconds: 30     # max wait for guest to halt (default: 30)
+  timeout_seconds: 90     # max wait for guest to halt (default: 90)
 ```
 
 ### How to get an API token

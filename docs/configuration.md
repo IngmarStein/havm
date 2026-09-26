@@ -61,7 +61,7 @@ metrics:
                                 #   ["unix:///opt/homebrew/var/run/havm.sock"] for a Unix socket
 
 shutdown:
-  timeout_seconds: 30     # max wait for guest to halt (default: 30)
+  timeout_seconds: 90     # max wait for guest to halt (default: 90)
 ```
 
 ## VM Settings
