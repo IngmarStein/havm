@@ -52,10 +52,30 @@ import Testing
         )
     }
 
-    @Test("An unconfigured or absent descriptor is called out")
+    @Test("A descriptor with no configuration selected is distinguished from a malformed one")
     func missingDescriptor() {
-        #expect(USBConfigurationSummary.describe(nil) == "configuration descriptor unavailable")
-        #expect(USBConfigurationSummary.describe(Data([9, 2])) == "configuration descriptor unavailable")
+        // `AAUSBAccessory.configurationDescriptorData` is nil exactly when the
+        // accessory has no selected configuration — the state that reads as
+        // `VZErrorDomain -6` (-ENXIO) from the passthrough device. It must not
+        // be reported as if a census had been taken.
+        #expect(USBConfigurationSummary.describe(nil) == "no configuration selected")
+        #expect(USBConfigurationSummary.describe(Data([9, 2])) == "malformed configuration descriptor")
+    }
+
+    @Test("The parsed census is checked directly, not through its formatting")
+    func census() {
+        // `describe` is a thin wrapper over this, so testing only the string
+        // would leave the parsing itself — the part with the offsets and the
+        // bounds — covered by whatever the formatting happens to expose.
+        let descriptor = configuration([(0x08, [0x02, 0x02]), (0x01, [0x0D])])
+        #expect(
+            USBConfigurationSummary.census(of: descriptor)
+                == USBConfigurationSummary.Census(
+                    interfaces: ["0x08:2ep", "0x01:1ep"], endpoints: 3, isochronous: 1
+                )
+        )
+        #expect(USBConfigurationSummary.census(of: nil) == nil)
+        #expect(USBConfigurationSummary.census(of: Data([9, 2])) == nil)
     }
 
     @Test("A descriptor that never advances terminates instead of looping")

@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import IOUSBHost
 @_weakLinked import AccessoryAccess
 import Logging
 
@@ -110,34 +111,65 @@ extension AAUSBAccessory {
     var registryIDHex: String { "0x" + String(registryID, radix: 16) }
 }
 
+// MARK: - Error formatting
+
+/// Renders an error the way a passthrough failure needs it: domain, code, and
+/// message.
+///
+/// Virtualization's USB errors are near-identical in wording ("Failed to create
+/// USB Passthrough Device."), and the errors it passes up from lower-level
+/// components carry no wording at all — `VZErrorDomain -6` in issue #13 is not
+/// one of its documented codes. The domain and code are what tell one failure
+/// from another.
+enum USBErrorReport {
+    static func describe(_ error: any Error) -> String {
+        let reason = error as NSError
+        return "\(reason.domain) \(reason.code): \(reason.localizedDescription)"
+    }
+}
+
 // MARK: - Descriptor inspection
 
 /// Summarizes the interfaces and endpoints of a USB configuration descriptor.
 ///
-/// `VZUSBPassthroughDevice(configuration:)` refuses a device whose endpoints are
-/// isochronous, and the message it returns for that is one of several
-/// near-identical USB passthrough errors. Logging the endpoint census next to the
-/// error is what separates an unsupported device from a denied or malformed one
-/// (issue #13).
+/// The framework's USB passthrough errors are near-identical to one another, so
+/// logging what the device actually declares — its interfaces and endpoints —
+/// next to the error is what lets a reader tell an unsupported device from a
+/// denied or malformed one (issue #13).
+///
+/// This describes the device, not the framework. havm does not decide from it
+/// whether passthrough will work: which devices the framework accepts is the
+/// framework's business, and a rule encoded here would outlive its truth.
 enum USBConfigurationSummary {
 
-    /// One-line census of a configuration descriptor — the bytes behind
-    /// ``AAUSBAccessory/configurationDescriptorData``: each interface's class and
-    /// endpoint count, the total number of endpoints, and how many of those are
-    /// isochronous. ISO 0 dates from the accessory being unconfigured.
+    /// What a configuration descriptor says: each interface's class and endpoint
+    /// count, the total number of endpoints, and how many of those are
+    /// isochronous.
     ///
     /// Layouts are from USB 2.0 spec §9.6.3 (configuration, 9 bytes), §9.6.5
     /// (interface, 9 bytes), and §9.6.6 (endpoint, 7 bytes).
-    static func describe(_ data: Data?) -> String {
-        guard let data, data.count >= 9 else { return "configuration descriptor unavailable" }
+    struct Census: Equatable {
+        var interfaces: [String] = []
+        var endpoints = 0
+        var isochronous = 0
+
+        /// The census as one log line.
+        var description: String {
+            let list = interfaces.isEmpty ? "none" : interfaces.joined(separator: ", ")
+            return "interfaces [\(list)], \(endpoints) endpoint\(endpoints == 1 ? "" : "s"), \(isochronous) isochronous"
+        }
+    }
+
+    /// Parses a configuration descriptor, or returns `nil` when there are no
+    /// bytes to parse or too few to hold a configuration descriptor.
+    static func census(of data: Data?) -> Census? {
+        guard let data, data.count >= 9 else { return nil }
         let bytes = [UInt8](data)
 
         // wTotalLength bounds the configuration. A truncated or hostile
         // descriptor must not walk past the end of the buffer.
         let totalLength = min(Int(bytes[2]) | (Int(bytes[3]) << 8), bytes.count)
-        var interfaces: [String] = []
-        var endpoints = 0
-        var isochronous = 0
+        var census = Census()
         var offset = Int(bytes[0])  // skip the configuration descriptor itself
         while offset + 2 <= totalLength {
             let length = Int(bytes[offset])
@@ -147,18 +179,139 @@ enum USBConfigurationSummary {
             case 4 where length >= 9:  // INTERFACE
                 let classCode = bytes[offset + 5]   // bInterfaceClass
                 let endpointCount = Int(bytes[offset + 4])  // bNumEndpoints
-                interfaces.append("\(String(format: "0x%02X", classCode)):\(endpointCount)ep")
+                census.interfaces.append("\(String(format: "0x%02X", classCode)):\(endpointCount)ep")
             case 5 where length >= 7:  // ENDPOINT
-                endpoints += 1
+                census.endpoints += 1
                 // bmAttributes bits 0-1 hold the transfer type; 1 is isochronous.
-                if (bytes[offset + 3] & 0x03) == 0x01 { isochronous += 1 }
+                if (bytes[offset + 3] & 0x03) == 0x01 { census.isochronous += 1 }
             default:
                 break
             }
             offset += length
         }
+        return census
+    }
 
-        let list = interfaces.isEmpty ? "none" : interfaces.joined(separator: ", ")
-        return "interfaces [\(list)], \(endpoints) endpoint\(endpoints == 1 ? "" : "s"), \(isochronous) isochronous"
+    /// One-line census of a configuration descriptor — the bytes behind
+    /// ``AAUSBAccessory/configurationDescriptorData``.
+    ///
+    /// A `nil` descriptor is not an absent descriptor but an unconfigured
+    /// accessory, and reporting it as though a census had been taken would bury
+    /// the one fact that makes the failure actionable.
+    static func describe(_ data: Data?) -> String {
+        guard let data else { return "no configuration selected" }
+        return census(of: data)?.description ?? "malformed configuration descriptor"
+    }
+}
+
+// MARK: - Unconfigured accessories
+
+/// Recovery for an accessory macOS has not configured.
+///
+/// `VZUSBPassthroughDevice(configuration:)` builds its device from the
+/// accessory's *selected* configuration, and an accessory macOS never sent
+/// SET_CONFIGURATION to has none: no interfaces, no endpoints, and a `nil`
+/// ``AAUSBAccessory/configurationDescriptorData``. The framework reports that as
+/// `VZErrorDomain -6` — `-ENXIO`, "Device not configured" — which is not one of
+/// its documented USB error codes (issue #13).
+///
+/// AccessoryAccess can hand havm the accessory's `IOUSBHostDevice`, which is
+/// enough to read the configuration descriptor the framework could not, and to
+/// select that configuration — after which the framework has interfaces and
+/// endpoints to build a passthrough device from.
+@available(macOS 27.0, *)
+enum USBAccessoryConfiguration {
+
+    /// Gives the accessory a selected configuration when it has none, and
+    /// reports what it found on the way.
+    ///
+    /// - Returns: `true` when the accessory has a selected configuration
+    ///   afterwards, which is the state `VZUSBPassthroughDevice(configuration:)`
+    ///   needs to succeed.
+    static func selectConfiguration(for accessory: AAUSBAccessory, logger: Logger) async -> Bool {
+        let box: DeviceBox
+        do {
+            box = try await open(accessory)
+        } catch {
+            logger.warning("USB: Cannot open \(accessory.registryIDHex) to check its configuration — \(USBErrorReport.describe(error))")
+            return false
+        }
+        let selected = selectConfiguration(of: box.device, accessory: accessory, logger: logger)
+        await close(accessory, logger: logger)
+        return selected
+    }
+
+    /// Reads the configuration descriptor straight from the device and selects
+    /// the configuration it describes.
+    private static func selectConfiguration(
+        of device: IOUSBHostDevice, accessory: AAUSBAccessory, logger: Logger
+    ) -> Bool {
+        let registryID = accessory.registryIDHex
+        let descriptor: UnsafePointer<IOUSBConfigurationDescriptor>
+        do {
+            // Unlike the cached `configurationDescriptor`, this reads the
+            // descriptor out of the device, so it works while unconfigured.
+            descriptor = try device.configurationDescriptor(with: 0)
+        } catch {
+            logger.warning("USB: Cannot read a configuration descriptor from \(registryID) — \(USBErrorReport.describe(error))")
+            return false
+        }
+        let value = descriptor.pointee.bConfigurationValue
+        let data = Data(bytes: descriptor, count: Int(descriptor.pointee.wTotalLength))
+        logger.info("USB: Descriptor (read directly, no configuration selected) — \(USBConfigurationSummary.describe(data))")
+
+        guard device.configurationDescriptor == nil else {
+            // Opening the accessory was already enough to configure it.
+            return true
+        }
+        do {
+            // matchInterfaces: false keeps macOS from handing the freshly
+            // published interfaces to a host driver, which would claim the
+            // device exclusively and defeat the passthrough.
+            try device.__configure(withValue: Int(value), matchInterfaces: false)
+        } catch {
+            logger.warning("USB: Cannot select configuration \(value) on \(registryID) — \(USBErrorReport.describe(error))")
+            return false
+        }
+        logger.info("USB: Selected configuration \(value) on \(registryID) — retrying attach")
+        return true
+    }
+
+    /// Carries the device AccessoryAccess hands back out of its completion
+    /// handler. The handler is `NS_SWIFT_SENDABLE` and `IOUSBHostDevice` is not,
+    /// so the hand-off needs a box; the device never leaves the task that opened
+    /// the accessory.
+    private struct DeviceBox: @unchecked Sendable {
+        let device: IOUSBHostDevice
+    }
+
+    private static func open(_ accessory: AAUSBAccessory) async throws -> DeviceBox {
+        try await withCheckedThrowingContinuation { continuation in
+            accessory.open(serviceQueue: nil) { device, error in
+                // The header annotates the device `_Nullable_on_error`, a macro
+                // Swift doesn't know, so the importer hands it over as
+                // non-optional and the error is what says whether it is usable.
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: DeviceBox(device: device))
+            }
+        }
+    }
+
+    /// Releases the exclusive access ``open(_:)`` took, which the framework —
+    /// opening the device itself — needs back.
+    private static func close(_ accessory: AAUSBAccessory, logger: Logger) async {
+        await withCheckedContinuation { continuation in
+            // Not `-[IOUSBHostDevice destroy]`: that call blocks, and deadlocks
+            // when it runs from a completion handler (AAUSBAccessory.h).
+            accessory.close { error in
+                if let error {
+                    logger.warning("USB: Cannot release \(accessory.registryIDHex) — \(USBErrorReport.describe(error))")
+                }
+                continuation.resume()
+            }
+        }
     }
 }
