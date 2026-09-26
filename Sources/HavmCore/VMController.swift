@@ -334,31 +334,59 @@ public final class VMController: NSObject, @unchecked Sendable {
         nonisolated(unsafe) let machine = vm
         let logger = self.logger
         queue.async(execute: DispatchWorkItem {
-            let config = VZUSBPassthroughDeviceConfiguration(device: accessory)
-            let device: VZUSBPassthroughDevice
             do {
-                device = try VZUSBPassthroughDevice(configuration: config)
+                let device = try VZUSBPassthroughDevice(
+                    configuration: VZUSBPassthroughDeviceConfiguration(device: accessory)
+                )
+                Self.attach(device, to: ctl, accessory: accessory, in: machine, logger: logger)
             } catch {
                 // The framework's message is one of several near-identical USB
                 // passthrough errors, so log the domain and code too, and the
-                // endpoint census that tells an unsupported device (isochronous
-                // endpoints cannot be passed through) apart from a denied or
-                // malformed one (issue #13).
-                let reason = error as NSError
-                logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryIDHex) — \(reason.domain) \(reason.code): \(reason.localizedDescription)")
-                logger.info("USB: Descriptor — \(USBConfigurationSummary.describe(accessory.configurationDescriptorData))")
-                return
-            }
-            ctl.attach(device: device) { error in
-                if let error {
-                    let reason = error as NSError
-                    logger.info("USB: Attach failed — \(reason.domain) \(reason.code): \(reason.localizedDescription)")
-                } else {
-                    logger.info("USB: Attached \(accessory.vendorProductIDHex) (registryID=\(accessory.registryIDHex))")
-                    Self.recordAttachedAccessoryCount(in: machine)
+                // endpoint census that tells an unsupported device apart from a
+                // denied or malformed one (issue #13).
+                logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryIDHex) — \(USBErrorReport.describe(error))")
+                let descriptor = accessory.configurationDescriptorData
+                logger.info("USB: Descriptor — \(USBConfigurationSummary.describe(descriptor))")
+                // An accessory with no selected configuration is the one
+                // failure havm can repair: the framework has no interfaces or
+                // endpoints to build a device from, and `-6` (`-ENXIO`, "Device
+                // not configured") is that state rather than a refusal. Give
+                // the accessory a configuration, then try once more.
+                guard descriptor == nil else { return }
+                Task {
+                    guard await USBAccessoryConfiguration.selectConfiguration(for: accessory, logger: logger) else {
+                        return
+                    }
+                    do {
+                        let device = try VZUSBPassthroughDevice(
+                            configuration: VZUSBPassthroughDeviceConfiguration(device: accessory)
+                        )
+                        Self.attach(device, to: ctl, accessory: accessory, in: machine, logger: logger)
+                    } catch {
+                        logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryIDHex) after selecting a configuration — \(USBErrorReport.describe(error))")
+                    }
                 }
             }
         })
+    }
+
+    /// Hand a passthrough device to the controller and record the outcome.
+    @available(macOS 27.0, *)
+    private static func attach(
+        _ device: VZUSBPassthroughDevice,
+        to controller: VZUSBController,
+        accessory: AAUSBAccessory,
+        in virtualMachine: VZVirtualMachine,
+        logger: Logger
+    ) {
+        controller.attach(device: device) { error in
+            if let error {
+                logger.info("USB: Attach failed — \(USBErrorReport.describe(error))")
+            } else {
+                logger.info("USB: Attached \(accessory.vendorProductIDHex) (registryID=\(accessory.registryIDHex))")
+                recordAttachedAccessoryCount(in: virtualMachine)
+            }
+        }
     }
 
     /// Record how many passthrough devices are attached right now, and return
