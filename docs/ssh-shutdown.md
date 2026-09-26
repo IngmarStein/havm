@@ -40,8 +40,7 @@ install the add-on via the HA web UI — it listens on port 22.
 
 ## Graceful Shutdown
 
-On SIGTERM or Ctrl+C, `havm` tries these shutdown methods in order, falling
-through to the next if one fails:
+On SIGTERM or Ctrl+C, `havm` tries these shutdown methods in order:
 
 1. **HA REST API** — `POST http://<ip>:8123/api/services/hassio/host_shutdown`
    (requires a [long-lived access token][token] in `ha.api_token`)
@@ -50,6 +49,17 @@ through to the next if one fails:
 3. **SSH add-on (port 22)** — `ssh root@<ip> -p 22 ha host shutdown`
    (requires the SSH add-on installed in HA)
 4. **Force-stop** — if all above fail, the VM is stopped immediately
+
+A method that fails falls through to the next one. If the REST API request is
+sent but no response comes back, `havm` treats the guest as already halting and
+waits for it rather than moving on to SSH.
+
+`shutdown.timeout_seconds` is **one budget for the whole chain, not a
+timeout per method**. Every request attempt and every wait for the guest to
+halt is drawn from the same deadline, so falling through to the next method
+does not restart the clock. When the budget runs out the VM is force-stopped —
+even if a method accepted the shutdown request and the guest is still halting
+cleanly. Raise it if your guest regularly needs longer than 90 seconds.
 
 <div class="note">
 ACPI <code>requestStop()</code> is not used — HA OS on aarch64 uses PSCI
@@ -64,7 +74,7 @@ ha:
   url: "https://homeassistant.local:443"  # default: http://<ip>:8123
 
 shutdown:
-  timeout_seconds: 90     # max wait for guest to halt (default: 90)
+  timeout_seconds: 90     # budget for the whole shutdown chain (default: 90)
 ```
 
 ### How to get an API token
