@@ -230,6 +230,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private func cleanupAndExit(_ code: Int32) -> Never {
         restoreTerminal()
         removePIDFile()
+        // Unlink any Unix socket files. `exit()` closes the descriptors for us,
+        // but the filesystem entries would survive — leaving a socket file
+        // (and a TCP port) that looks like a running havm. A crash or SIGKILL
+        // still leaves them behind; the next start replaces them.
+        metricsServer?.stop()
         fflush(stdout)
         runContinuation?.resume()
         exit(code)
@@ -356,8 +361,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
         let metricsEnabledChanged = newConfig.effectiveMetricsEnabled != oldConfig.effectiveMetricsEnabled
         let metricsHostChanged = newConfig.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
+        let metricsSocketChanged =
+            newConfig.effectivePrometheusSocketPaths != oldConfig.effectivePrometheusSocketPaths
         let metricsPortChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
-        let metricsChanged = metricsEnabledChanged || metricsHostChanged || metricsPortChanged
+        let metricsChanged = metricsEnabledChanged || metricsHostChanged || metricsSocketChanged || metricsPortChanged
 
         if metricsChanged { applyMetricsConfig(old: oldConfig, new: newConfig) }
 
@@ -381,16 +388,20 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             return
         }
 
-        // Enabled — if host or port changed (or first enable), restart.
+        // Enabled — if host, socket, or port changed (or first enable), restart.
         let hostChanged = newConfig.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
+        let socketChanged =
+            newConfig.effectivePrometheusSocketPaths != oldConfig.effectivePrometheusSocketPaths
         let portChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
 
-        if hostChanged || portChanged || metricsServer == nil {
+        if hostChanged || socketChanged || portChanged || metricsServer == nil {
             metricsServer?.stop()
             let hosts = newConfig.effectivePrometheusHosts
+            let sockets = newConfig.effectivePrometheusSocketPaths
             let server = MetricsServer(
                 registry: registry,
                 hosts: hosts,
+                sockets: sockets,
                 port: newConfig.effectivePrometheusPort,
                 logger: logger
             )
@@ -398,10 +409,20 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             do {
                 try server.start()
                 metricsServer = server
-                let addr = MetricsServer.formatHostsPort(hosts, port: newConfig.effectivePrometheusPort)
+                let addr = MetricsServer.formatEndpoints(
+                    hosts: hosts, port: newConfig.effectivePrometheusPort, sockets: sockets
+                )
                 logger.info("Metrics: Prometheus exporter on \(addr)")
             } catch {
-                logger.warning("Metrics: Failed to start server on port \(newConfig.effectivePrometheusPort) — \(error).")
+                // Not fatal here, unlike at startup: the guest is already
+                // running, and a typo in a socket path should not take it
+                // down. Logged at error level so a silent metrics loss is
+                // still visible.
+                let level: Logger.Level = sockets.isEmpty ? .warning : .error
+                logger.log(
+                    level: level,
+                    "Metrics: Failed to start server on port \(newConfig.effectivePrometheusPort) — \(error)."
+                )
             }
         }
     }

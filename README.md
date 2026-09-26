@@ -19,8 +19,9 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
   menu bar item. Hot-plug, no restart needed.
 - **SSH key import** — optional virtual CONFIG disk for root SSH on port 22222.
 - **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM.
-- **Prometheus metrics** — built-in HTTP endpoint for monitoring VM state and
-  USB accessories. Feed into Grafana dashboards or alerting rules.
+- **Prometheus metrics** — built-in HTTP endpoint (TCP or a Unix socket) for
+  monitoring VM state and USB accessories. Feed into Grafana dashboards or
+  alerting rules.
 
 **Requires macOS 15 or later with Apple Silicon.** USB accessory passthrough requires macOS 27 (Golden Gate) or later.
 
@@ -167,8 +168,9 @@ metrics:
   enabled: true           # default: false
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
-    port: 9210            # default: 9210
-    host: ["127.0.0.1", "::1"]  # default: both loopbacks — set to ["::"] for LAN access
+    port: 9210            # default: 9210 — ignored when the host list is socket-only
+    host: ["127.0.0.1", "::1"]  # default: both loopbacks — ["::"] for LAN access,
+                                # ["unix:///opt/homebrew/var/run/havm.sock"] for a socket
 
 shutdown:
   timeout_seconds: 90     # max wait for Home Assistant to halt (default: 90)
@@ -290,7 +292,22 @@ metrics:
 
 Any host/port configuration works out of the box.
 
+To serve a Unix socket instead of a port — reachable by file permissions
+rather than by TCP, which suits a scraper on the same host:
 
+```yaml
+metrics:
+  enabled: true
+  prometheus:
+    host: ["unix:///opt/homebrew/var/run/havm.sock"]
+```
+
+```bash
+curl --unix-socket /opt/homebrew/var/run/havm.sock http://localhost/metrics
+```
+
+See [Metrics](docs/metrics.md#unix-socket) for the Prometheus scrape syntax
+and the socket-path length limit.
 
 ## SSH Access
 

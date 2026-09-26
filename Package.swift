@@ -45,7 +45,10 @@ let package = Package(
         ),
         .testTarget(
             name: "HavmCoreTests",
-            dependencies: ["HavmCore"]
+            dependencies: [
+                "HavmCore",
+                .product(name: "Logging", package: "swift-log"),
+            ]
         ),
     ]
 )

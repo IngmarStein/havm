@@ -80,8 +80,8 @@ HavmCore
 │                    AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
 ├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
-├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP),
-│                    bootstrap, process gauges
+├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP,
+│                    TCP and/or Unix socket), bootstrap, process gauges
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
 
 CXZ (C target)
@@ -125,6 +125,26 @@ CXZ (C target)
   mode's cleared ISIG means Ctrl+C passes `0x03` to the guest. Shutdown via `poweroff` in
   guest, or SIGTERM from outside. Forces text log format (stderr) to keep stdout clean.
   Primarily a debugging tool, not a headline feature.
+- **Metrics over a Unix socket** — `metrics.prometheus.host` takes `unix://<path>`
+  entries next to TCP hosts; a socket-only list serves no TCP port at all (the port
+  is then unused). No entitlement is involved — the tiers are unchanged. Three
+  things in `MetricsServer` are load-bearing:
+  1. `NWListener.start()` fails with `POSIXErrorCode(rawValue: 22)` (EINVAL) when
+     no `newConnectionHandler` is set *before* start. `makeListener` always sets
+     one, so the product never hits this — but every throwaway probe does, and it
+     looks like an environment or sandbox problem rather than a missing handler.
+  2. `sockaddr_un.sun_path` is 104 bytes on Darwin, and Network.framework does
+     *not* report a longer path as an error: the listener reaches `.ready` and
+     silently creates no socket file. havm rejects overlength paths up front
+     against `maxSocketPathBytes` (104) so the failure names the byte count.
+  3. `start()` binds asynchronously on its own queue, so the socket file is the
+     evidence the bind happened — `waitForSocketFile` waits for it. Checking
+     `fileExists` right after `start()` returns races the listener's queue.
+  On start a leftover socket file is unlinked and rebound; a *regular* file at the
+  path is refused rather than deleted; `cleanupAndExit` calls `stop()` so a clean
+  exit removes the files it created (a crash or `SIGKILL` leaves them for the next
+  start to replace). Config hot-reload rebinds: the new socket appears, the old
+  one is removed.
 
 ## Entitlements
 

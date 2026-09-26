@@ -73,6 +73,66 @@ metrics:
     port: 8080
 ```
 
+## Unix Socket
+
+A Unix domain socket replaces the TCP port with a filesystem path, so access
+is governed by file permissions instead of by who can reach a port. Add a
+`unix://` entry to the `host` list:
+
+```yaml
+metrics:
+  enabled: true
+  prometheus:
+    host: ["unix:///opt/homebrew/var/run/havm.sock"]
+```
+
+A list with only `unix://` entries serves the socket and no TCP port at all;
+combine both kinds of entry to serve both. The socket's parent directory is
+created if it does not exist. `metrics.enabled: true` is still required.
+
+Check it from the shell:
+
+```bash
+curl --unix-socket /opt/homebrew/var/run/havm.sock http://localhost/health
+curl --unix-socket /opt/homebrew/var/run/havm.sock http://localhost/metrics
+```
+
+### Scraping a socket
+
+Prometheus connects to a socket given by the `__unix_socket__` label on the
+target; the target is still a `host:port`, but the socket replaces the
+connection:
+
+```yaml
+scrape_configs:
+  - job_name: 'havm'
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          __unix_socket__: '/opt/homebrew/var/run/havm.sock'
+```
+
+<div class="note">
+<code>__unix_socket__</code> is not in a released Prometheus yet — it is
+present on the development branch. Until it ships in a version you run,
+scrape over TCP, or front the socket with a proxy that speaks HTTP.
+</div>
+
+### Path Length
+
+`sockaddr_un.sun_path` is 104 bytes on macOS, and a longer path cannot be
+bound. `havm` rejects such a path up front, naming the byte count, rather than
+failing in a way that looks like a permission problem. Keep socket paths
+short — `/opt/homebrew/var/run/havm.sock` is 31 bytes.
+
+### Stale Socket Files
+
+A socket file outlives an unclean exit (`SIGKILL`, a crash, a power loss). On
+start `havm` replaces a leftover socket at the configured path, and on a clean
+exit it removes the file it created. A **regular file** at that path is left
+alone: `havm` refuses to delete it and exits with
+`<path> exists and is not a socket`.
+
 ## Grafana Dashboard
 
 An example Grafana dashboard is included in the repository at
@@ -109,6 +169,7 @@ metrics:
   prometheus:
     port: 9210            # default: 9210
     host: ["127.0.0.1", "::1"]  # default: both loopbacks
+    # host: ["unix:///opt/homebrew/var/run/havm.sock"]  # socket instead of a port
 ```
 
 <div class="note">

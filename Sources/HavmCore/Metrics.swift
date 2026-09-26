@@ -148,68 +148,188 @@ private final class NoOpHandler: CounterHandler, MeterHandler, TimerHandler {
 ///
 /// Uses HTTP/1.0 semantics — closes the connection after each response.
 /// Designed for Prometheus scraping (every 15–60s), not high-throughput use.
+///
+/// Listens on TCP addresses, Unix domain sockets, or both — a server with
+/// only sockets configured opens no TCP port at all.
 public final class MetricsServer: @unchecked Sendable {
+    /// Maximum length of a Unix domain socket path in UTF-8 bytes.
+    ///
+    /// `sockaddr_un.sun_path` is 104 bytes on Darwin. Network.framework does
+    /// not report a longer path as an error — the listener reaches `.ready`
+    /// and no socket file is created — so havm rejects it up front and then
+    /// verifies the file exists (see `startSocketListener`).
+    public static let maxSocketPathBytes = 104
+
     private let registry: SimpleRegistry
     private let hosts: [String]
+    private let sockets: [String]
     private let port: Int
     private let logger: Logger
     private let queue: DispatchQueue
     private var listeners: [NWListener] = []
+    /// Socket files this server created, removed again by `stop()`.
+    private var socketFiles: [String] = []
 
     /// Optional closure called before each metrics scrape. Use for on-demand
     /// gauges that should be computed fresh (e.g. disk usage).
     public var preScrape: (() -> Void)?
 
-    public init(registry: SimpleRegistry, hosts: [String], port: Int, logger: Logger) {
+    public init(
+        registry: SimpleRegistry,
+        hosts: [String],
+        sockets: [String] = [],
+        port: Int,
+        logger: Logger
+    ) {
         self.registry = registry
         self.hosts = hosts
+        self.sockets = sockets
         self.port = port
         self.logger = logger
         self.queue = DispatchQueue(label: "havm.metrics-server")
     }
 
-    /// Start the HTTP server. Creates a listener for each configured host
+    /// Start the HTTP server. Creates a listener for each configured host —
     /// so users can bind both IPv4 and IPv6 without relying on dual-stack
-    /// behaviour (Network.framework sets IPV6_V6ONLY).
+    /// behaviour (Network.framework sets IPV6_V6ONLY) — and for each
+    /// configured Unix domain socket path.
+    ///
+    /// Throws for a socket path that cannot be prepared. The port is only
+    /// validated when there is a TCP host to bind: a socket-only server has
+    /// no use for it.
     public func start() throws {
-        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
-            throw MetricsError.invalidPort(port)
-        }
-
-        for host in hosts {
-            let params = NWParameters.tcp
-            // Allow multiple listeners on the same port (e.g. 127.0.0.1 + ::1).
-            params.allowLocalEndpointReuse = true
-            params.requiredLocalEndpoint = NWEndpoint.hostPort(
-                host: NWEndpoint.Host(host),
-                port: nwPort
-            )
-
-            let listener = try NWListener(using: params)
-            listener.newConnectionHandler = { [weak self] connection in
-                self?.handleConnection(connection)
-            }
-            listener.stateUpdateHandler = { [weak self] state in
-                guard let self else { return }
-                let addr = Self.formatHostPort(host: host, port: self.port)
-                switch state {
-                case .setup:
-                    self.logger.debug("Metrics server setting up on \(addr)")
-                case .waiting(let error):
-                    self.logger.warning("Metrics server waiting on \(addr) — \(error.localizedDescription)")
-                case .ready:
-                    self.logger.info("Metrics server listening on \(addr)")
-                case .failed(let error):
-                    self.logger.error("Metrics server failed on \(addr) — \(error.localizedDescription)")
-                case .cancelled:
-                    self.logger.debug("Metrics server stopped on \(host)")
-                @unknown default:
-                    break
+        do {
+            if !hosts.isEmpty {
+                guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+                    throw MetricsError.invalidPort(port)
+                }
+                for host in hosts {
+                    let listener = try makeListener(
+                        endpoint: .hostPort(host: NWEndpoint.Host(host), port: nwPort),
+                        displayName: Self.formatHostPort(host: host, port: port)
+                    )
+                    listener.start(queue: queue)
+                    listeners.append(listener)
                 }
             }
-            listener.start(queue: queue)
-            listeners.append(listener)
+
+            for path in sockets {
+                try startSocketListener(path: path)
+            }
+        } catch {
+            // Don't leave listeners from a partial start running — callers
+            // discard the server when this throws.
+            stop()
+            throw error
         }
+    }
+
+    /// Bind one Unix domain socket listener.
+    private func startSocketListener(path: String) throws {
+        let socketPath = path.trimmingCharacters(in: .whitespaces)
+        guard !socketPath.isEmpty, socketPath.hasPrefix("/") else {
+            throw MetricsError.invalidSocketPath(path, reason: "path must be absolute")
+        }
+        let length = socketPath.utf8.count
+        guard length <= Self.maxSocketPathBytes else {
+            throw MetricsError.invalidSocketPath(
+                path,
+                reason: "path is \(length) bytes, limit is \(Self.maxSocketPathBytes)"
+            )
+        }
+
+        // Create the parent directory so the socket path can be configured
+        // without the user having to create its directory first.
+        let parent = (socketPath as NSString).deletingLastPathComponent
+        if !parent.isEmpty, !FileManager.default.fileExists(atPath: parent) {
+            do {
+                try FileManager.default.createDirectory(
+                    atPath: parent, withIntermediateDirectories: true
+                )
+            } catch {
+                throw MetricsError.invalidSocketPath(
+                    path, reason: "cannot create \(parent) — \(error.localizedDescription)"
+                )
+            }
+        }
+        try clearStaleSocket(at: socketPath)
+
+        let listener = try makeListener(
+            endpoint: .unix(path: socketPath),
+            displayName: "unix:\(socketPath)"
+        )
+        listener.start(queue: queue)
+        listeners.append(listener)
+        socketFiles.append(socketPath)
+
+        // The socket file is the evidence the bind succeeded — `start()`
+        // returns before the bind happens, so wait for the file rather than
+        // checking once and racing the listener's queue. A bind that never
+        // happens is reported by the state handler.
+        guard waitForSocketFile(at: socketPath) else {
+            throw MetricsError.socketBindFailed(socketPath)
+        }
+    }
+
+    /// Wait for a bound listener to create its socket file.
+    private func waitForSocketFile(at path: String, timeout: TimeInterval = 2) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !FileManager.default.fileExists(atPath: path) {
+            guard Date() < deadline else { return false }
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        return true
+    }
+
+    /// Create a listener that serves the metrics endpoints.
+    private func makeListener(endpoint: NWEndpoint, displayName: String) throws -> NWListener {
+        let params = NWParameters.tcp
+        // Allow multiple listeners on the same port (e.g. 127.0.0.1 + ::1).
+        params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = endpoint
+
+        let listener = try NWListener(using: params)
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handleConnection(connection)
+        }
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .setup:
+                self.logger.debug("Metrics server setting up on \(displayName)")
+            case .waiting(let error):
+                self.logger.warning("Metrics server waiting on \(displayName) — \(error.localizedDescription)")
+            case .ready:
+                self.logger.info("Metrics server listening on \(displayName)")
+            case .failed(let error):
+                self.logger.error("Metrics server failed on \(displayName) — \(error.localizedDescription)")
+            case .cancelled:
+                self.logger.debug("Metrics server stopped on \(displayName)")
+            @unknown default:
+                break
+            }
+        }
+        return listener
+    }
+
+    /// Remove a socket file left behind by a process that did not shut down
+    /// cleanly. Binding over one fails with `EADDRINUSE` even with
+    /// `allowLocalEndpointReuse`, which would otherwise leave a restarted
+    /// service with no metrics.
+    ///
+    /// Anything that is not a socket is left alone and reported instead —
+    /// the path may be a file the user put there.
+    private func clearStaleSocket(at path: String) throws {
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        guard isSocket(path) else {
+            throw MetricsError.socketInUse(path)
+        }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    private func isSocket(_ path: String) -> Bool {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return (attributes?[.type] as? FileAttributeType) == .typeSocket
     }
 
     /// Format a host:port pair, wrapping IPv6 addresses in brackets.
@@ -225,12 +345,24 @@ public final class MetricsServer: @unchecked Sendable {
         hosts.map { formatHostPort(host: $0, port: port) }.joined(separator: ", ")
     }
 
-    /// Stop the HTTP server.
+    /// Format every configured endpoint for log messages, e.g.
+    /// `127.0.0.1:9210, ::1:9210, unix:/opt/homebrew/var/run/havm.sock`.
+    public static func formatEndpoints(hosts: [String], port: Int, sockets: [String]) -> String {
+        let tcp = hosts.map { formatHostPort(host: $0, port: port) }
+        return (tcp + sockets.map { "unix:\($0)" }).joined(separator: ", ")
+    }
+
+    /// Stop the HTTP server and remove the socket files it created, so a
+    /// clean exit leaves nothing behind for the next start to trip over.
     public func stop() {
         for listener in listeners {
             listener.cancel()
         }
         listeners.removeAll()
+        for path in socketFiles where isSocket(path) {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+        socketFiles.removeAll()
     }
 
     // MARK: - Connection handling
@@ -319,6 +451,9 @@ public func bootstrapMetrics(logger: Logger) -> SimpleRegistry {
 public enum MetricsError: Error, CustomStringConvertible {
     case invalidPort(Int)
     case serverAlreadyRunning
+    case invalidSocketPath(String, reason: String)
+    case socketInUse(String)
+    case socketBindFailed(String)
 
     public var description: String {
         switch self {
@@ -326,6 +461,12 @@ public enum MetricsError: Error, CustomStringConvertible {
             return "Invalid metrics port: \(port) (must be 1–65535)"
         case .serverAlreadyRunning:
             return "Metrics server is already running"
+        case .invalidSocketPath(let path, let reason):
+            return "Invalid metrics socket path \"\(path)\": \(reason)"
+        case .socketInUse(let path):
+            return "Metrics socket path \"\(path)\" exists and is not a socket"
+        case .socketBindFailed(let path):
+            return "Metrics socket \"\(path)\" could not be created — check that the path is writable, or delete a stale socket file"
         }
     }
 }

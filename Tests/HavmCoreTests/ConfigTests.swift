@@ -203,6 +203,86 @@ import Testing
         #expect(config.effectivePrometheusHosts == ["127.0.0.1", "::1"])
     }
 
+    // MARK: - Unix domain socket hosts
+
+    @Test("A unix:// host entry is parsed as a socket path")
+    func metricsSocketSingleString() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try """
+        metrics:
+          enabled: true
+          prometheus:
+            host: "unix:///opt/homebrew/var/run/havm.sock"
+        """.write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        let config = try loadConfig(path: path.path)
+        #expect(config.effectivePrometheusSocketPaths == ["/opt/homebrew/var/run/havm.sock"])
+        #expect(config.effectivePrometheusHosts == [],
+                "A socket-only host list must not silently regain TCP listeners")
+    }
+
+    @Test("A mixed host list splits into TCP addresses and socket paths")
+    func metricsMixedHosts() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try """
+        metrics:
+          enabled: true
+          prometheus:
+            host:
+              - "127.0.0.1"
+              - "unix:///tmp/havm.sock"
+        """.write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        let config = try loadConfig(path: path.path)
+        #expect(config.effectivePrometheusHosts == ["127.0.0.1"])
+        #expect(config.effectivePrometheusSocketPaths == ["/tmp/havm.sock"])
+    }
+
+    @Test("The TCP default applies only when host is absent")
+    func metricsDefaultHostsOnlyWhenAbsent() throws {
+        let explicit = HavmConfig.MetricsConfig(
+            enabled: true,
+            prometheus: .init(hosts: ["unix:///tmp/havm.sock"])
+        )
+        #expect(HavmConfig(metrics: explicit).effectivePrometheusHosts == [])
+
+        let absent = HavmConfig.MetricsConfig(enabled: true)
+        #expect(HavmConfig(metrics: absent).effectivePrometheusHosts == ["127.0.0.1", "::1"])
+        #expect(HavmConfig(metrics: absent).effectivePrometheusSocketPaths == [])
+    }
+
+    @Test("A relative socket path is rejected at config load")
+    func metricsRelativeSocketPathRejected() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try """
+        metrics:
+          prometheus:
+            host: "unix://var/run/havm.sock"
+        """.write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        #expect(throws: ConfigError.self) { try loadConfig(path: path.path) }
+    }
+
+    @Test("A bare unix: prefix is rejected with a hint")
+    func metricsBareUnixPrefixRejected() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try """
+        metrics:
+          prometheus:
+            host: "unix:/tmp/havm.sock"
+        """.write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+
+        #expect(throws: ConfigError.self) { try loadConfig(path: path.path) }
+    }
+
     @Test("CONFIG disk raw directory structure")
     func configDiskRawDirectory() throws {
         let keyData = Data("ssh-ed25519 test\n".utf8)

@@ -174,9 +174,14 @@ public struct HavmConfig: Decodable, Sendable {
         }
 
         public struct PrometheusConfig: Decodable, Sendable {
+            /// Marks a `host` entry as a Unix domain socket path instead of a
+            /// TCP bind address, e.g. `unix:///opt/homebrew/var/run/havm.sock`.
+            public static let unixSocketPrefix = "unix://"
+
             public var port: Int?
             /// Bind addresses for the HTTP listener. Accepts a single string
             /// or an array in YAML. Defaults to both loopback addresses.
+            /// Entries prefixed with `unix://` are Unix domain socket paths.
             public var hosts: [String]?
 
             enum CodingKeys: String, CodingKey {
@@ -197,6 +202,55 @@ public struct HavmConfig: Decodable, Sendable {
             public init(port: Int? = nil, hosts: [String]? = nil) {
                 self.port = port
                 self.hosts = hosts
+            }
+
+            /// The Unix domain socket path in a `host` entry, or nil when the
+            /// entry is a TCP bind address.
+            public static func socketPath(in entry: String) -> String? {
+                let trimmed = entry.trimmingCharacters(in: .whitespaces)
+                guard trimmed.hasPrefix(unixSocketPrefix) else { return nil }
+                return String(trimmed.dropFirst(unixSocketPrefix.count))
+            }
+
+            /// Split `host` entries into TCP bind addresses and socket paths.
+            public static func split(
+                _ entries: [String]
+            ) -> (hosts: [String], sockets: [String]) {
+                var hosts: [String] = []
+                var sockets: [String] = []
+                for entry in entries {
+                    if let path = socketPath(in: entry) {
+                        sockets.append(path)
+                    } else {
+                        let host = entry.trimmingCharacters(in: .whitespaces)
+                        if !host.isEmpty { hosts.append(host) }
+                    }
+                }
+                return (hosts, sockets)
+            }
+
+            /// Validate the `host` entries. Throws for an entry that could
+            /// never be bound, so a typo fails at config load instead of
+            /// silently dropping a listener.
+            public func validate() throws {
+                for entry in hosts ?? [] {
+                    let trimmed = entry.trimmingCharacters(in: .whitespaces)
+                    if let path = Self.socketPath(in: entry) {
+                        guard !path.isEmpty else {
+                            throw ConfigError.invalidMetricsHost(
+                                entry, reason: "no socket path after \(Self.unixSocketPrefix)")
+                        }
+                        guard path.hasPrefix("/") else {
+                            throw ConfigError.invalidMetricsHost(
+                                entry, reason: "socket path must be absolute")
+                        }
+                    } else if trimmed.isEmpty {
+                        throw ConfigError.invalidMetricsHost(entry, reason: "empty host")
+                    } else if trimmed.hasPrefix("unix:") {
+                        throw ConfigError.invalidMetricsHost(
+                            entry, reason: "socket paths are written \(Self.unixSocketPrefix)/absolute/path")
+                    }
+                }
             }
         }
 
@@ -354,8 +408,20 @@ public struct HavmConfig: Decodable, Sendable {
 
     /// Prometheus metrics bind addresses. Defaults to both IPv4 and IPv6
     /// loopback so the endpoint is reachable regardless of client stack.
+    ///
+    /// The default applies only when `host` is absent: a list holding nothing
+    /// but `unix://` entries means socket-only, and must not silently regain
+    /// TCP listeners.
     public var effectivePrometheusHosts: [String] {
-        metrics?.prometheus?.hosts ?? ["127.0.0.1", "::1"]
+        guard let entries = metrics?.prometheus?.hosts else { return ["127.0.0.1", "::1"] }
+        return MetricsConfig.PrometheusConfig.split(entries).hosts
+    }
+
+    /// Prometheus metrics Unix domain socket paths, from `unix://<path>`
+    /// entries in `metrics.prometheus.host`. Empty by default.
+    public var effectivePrometheusSocketPaths: [String] {
+        guard let entries = metrics?.prometheus?.hosts else { return [] }
+        return MetricsConfig.PrometheusConfig.split(entries).sockets
     }
 }
 
@@ -428,10 +494,13 @@ extension MemorySize: Codable {
 
 public enum ConfigError: Error, CustomStringConvertible {
     case invalidMemorySize(String)
+    case invalidMetricsHost(String, reason: String)
 
     public var description: String {
         switch self {
         case .invalidMemorySize(let s): return "Invalid memory size: \(s)"
+        case .invalidMetricsHost(let entry, let reason):
+            return "Invalid metrics.prometheus.host entry \"\(entry)\": \(reason)"
         }
     }
 }
@@ -466,6 +535,7 @@ public func loadConfig(path: String? = nil) throws -> HavmConfig {
 
     let decoder = YAMLDecoder()
     var config = try decoder.decode(HavmConfig.self, from: yaml)
+    try config.metrics?.prometheus?.validate()
     config.configPath = configPath
     return config
 }

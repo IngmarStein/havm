@@ -107,18 +107,30 @@ struct RunCommand: AsyncParsableCommand {
         var metricsServer: MetricsServer?
         if havmConfig.effectiveMetricsEnabled {
             let hosts = havmConfig.effectivePrometheusHosts
+            let sockets = havmConfig.effectivePrometheusSocketPaths
             let server = MetricsServer(
                 registry: registry,
                 hosts: hosts,
+                sockets: sockets,
                 port: havmConfig.effectivePrometheusPort,
                 logger: logger
             )
             do {
                 try server.start()
                 metricsServer = server
-                let addr = MetricsServer.formatHostsPort(hosts, port: havmConfig.effectivePrometheusPort)
+                let addr = MetricsServer.formatEndpoints(
+                    hosts: hosts, port: havmConfig.effectivePrometheusPort, sockets: sockets
+                )
                 logger.info("Metrics: Prometheus exporter on \(addr)")
             } catch {
+                // A configured socket that cannot be bound is fatal: it was
+                // asked for explicitly, and continuing would leave the user
+                // with no metrics and no obvious reason why. A TCP port in
+                // use stays a warning, as it always has.
+                guard sockets.isEmpty else {
+                    logger.error("Metrics: \(error)")
+                    throw ExitCode.failure
+                }
                 logger.warning("Metrics: Failed to start server on port \(havmConfig.effectivePrometheusPort) — \(error). Continuing without metrics.")
             }
         }
