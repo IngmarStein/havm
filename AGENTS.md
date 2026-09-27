@@ -185,11 +185,12 @@ for `ch.ingmar.havm` — the CLI build script picks it up automatically.
 
 ## USB Accessories
 
-USB accessory passthrough uses `AAUSBAccessoryManager` (macOS 27 only). When `havm run`
-starts with `ENABLE_USB_ACCESSORY=YES` on macOS 27+, it registers a listener and macOS shows
-a menu bar item. On macOS 15–26, USB discovery is skipped with a log message. The user
-selects which devices to attach — they are hot-attached to the running VM via
-`VZUSBPassthroughDevice`.
+USB accessory passthrough uses `AAUSBAccessoryManager` (macOS 27 only). It is on by default:
+`Config.effectiveUSBEnabled` reads `usb.enabled` from `config.yml` and defaults to true when the
+key is absent, so on macOS 27+ `havm run` registers a listener and macOS shows a menu bar item
+with no flag or environment variable to set. On macOS 15–26, USB discovery is skipped with a
+log message. The user selects which devices to attach — they are hot-attached to the running VM
+via `VZUSBPassthroughDevice`.
 
 **Architecture:**
 - All AccessoryAccess/`VZUSBPassthroughDevice` code lives in `USBAccessorySupport.swift`
