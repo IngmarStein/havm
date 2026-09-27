@@ -32,11 +32,14 @@ final class USBAccessoryCoordinator: NSObject, AAUSBAccessoryListener, @unchecke
 
     /// Register with `AAUSBAccessoryManager`. Must run on the main queue.
     func start() {
-        // AAUSBAccessoryManager needs a running NSApplication.
+        // AAUSBAccessoryManager needs a running NSApplication. Apple's own
+        // header for this API requires "an ordinary application, that is,
+        // one that appears in the Dock" — .accessory (menu-bar-only, no
+        // Dock icon) silently breaks accessory discovery/consent.
         // Called from main queue via DispatchQueue.main.async, but NSApplication
         // is @MainActor — use MainActor.assumeIsolated to satisfy the compiler.
         MainActor.assumeIsolated {
-            NSApplication.shared.setActivationPolicy(.accessory)
+            NSApplication.shared.setActivationPolicy(.regular)
         } as Void
 
         AAUSBAccessoryManager.shared.registerListener(
