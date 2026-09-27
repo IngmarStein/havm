@@ -200,7 +200,15 @@ enum USBConfigurationSummary {
     /// the one fact that makes the failure actionable.
     static func describe(_ data: Data?) -> String {
         guard let data else { return "no configuration selected" }
-        return census(of: data)?.description ?? "malformed configuration descriptor"
+        guard let census = census(of: data) else {
+            // The byte count is the diagnosis. A short descriptor is either
+            // AccessoryAccess reporting an unconfigured accessory as an empty
+            // `NSData` where it documents `nil`, or a truncated read — and the
+            // count is what tells them apart in a log we have to ask for
+            // (issue #13).
+            return "malformed configuration descriptor (\(data.count) bytes)"
+        }
+        return census.description
     }
 }
 

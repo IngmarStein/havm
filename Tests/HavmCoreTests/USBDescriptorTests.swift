@@ -54,12 +54,25 @@ import Testing
 
     @Test("A descriptor with no configuration selected is distinguished from a malformed one")
     func missingDescriptor() {
-        // `AAUSBAccessory.configurationDescriptorData` is nil exactly when the
+        // `AAUSBAccessory.configurationDescriptorData` is nil when the
         // accessory has no selected configuration — the state that reads as
         // `VZErrorDomain -6` (-ENXIO) from the passthrough device. It must not
-        // be reported as if a census had been taken.
+        // be reported as if a census had been taken. An empty descriptor is the
+        // same state reported as bytes rather than as nil, so the repair has to
+        // treat it as unconfigured too.
         #expect(USBConfigurationSummary.describe(nil) == "no configuration selected")
-        #expect(USBConfigurationSummary.describe(Data([9, 2])) == "malformed configuration descriptor")
+        #expect(USBConfigurationSummary.census(of: Data()) == nil)
+        // Too short to hold a configuration descriptor is the other case. It
+        // reads as malformed either way, so the count is what separates an
+        // empty descriptor from a truncated read.
+        #expect(
+            USBConfigurationSummary.describe(Data())
+                == "malformed configuration descriptor (0 bytes)"
+        )
+        #expect(
+            USBConfigurationSummary.describe(Data([9, 2]))
+                == "malformed configuration descriptor (2 bytes)"
+        )
     }
 
     @Test("The parsed census is checked directly, not through its formatting")
