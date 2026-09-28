@@ -283,6 +283,72 @@ import Testing
         #expect(throws: ConfigError.self) { try loadConfig(path: path.path) }
     }
 
+    /// Write `yaml` to a scratch config file and hand its path to `body`.
+    private func withConfigFile(_ yaml: String, _ body: (String) throws -> Void) throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-config-test-\(UUID().uuidString).yml")
+        try yaml.write(toFile: path.path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: path) }
+        try body(path.path)
+    }
+
+    @Test("A host entry carrying a port is rejected at config load", arguments: [
+        "localhost:9210", "127.0.0.1:9210", "[::1]:9210",
+    ])
+    func metricsHostWithPortRejected(entry: String) throws {
+        // The port has its own key, so this entry is the whole address in the
+        // wrong one. Network.framework does not fail on it either: it binds a
+        // wildcard ephemeral port and reports the listener ready, which is how
+        // a typo became a listener the user never asked for (issue #12).
+        try withConfigFile("""
+        metrics:
+          prometheus:
+            host: "\(entry)"
+        """) { path in
+            #expect(throws: ConfigError.self) { try loadConfig(path: path) }
+        }
+    }
+
+    @Test("A bracketed IPv6 address is rejected with a hint")
+    func metricsBracketedHostRejected() throws {
+        try withConfigFile("""
+        metrics:
+          prometheus:
+            host: "[::1]"
+        """) { path in
+            #expect(throws: ConfigError.self) { try loadConfig(path: path) }
+        }
+    }
+
+    @Test("A port outside 1–65535 is rejected at config load", arguments: [0, 70000, -1])
+    func metricsPortOutOfRangeRejected(port: Int) throws {
+        try withConfigFile("""
+        metrics:
+          prometheus:
+            port: \(port)
+            host: "127.0.0.1"
+        """) { path in
+            #expect(throws: ConfigError.self) { try loadConfig(path: path) }
+        }
+    }
+
+    @Test("Numeric bind addresses are accepted", arguments: [
+        ["127.0.0.1", "::1"], ["0.0.0.0"], ["::"], ["2001:db8::1"], ["fe80::1%en0"],
+    ])
+    func metricsNumericHostsAccepted(hosts: [String]) throws {
+        // The IPv6 forms matter here: a colon-separated address must not be
+        // read as a `host:port` pair.
+        let list = hosts.map { "\"\($0)\"" }.joined(separator: ", ")
+        try withConfigFile("""
+        metrics:
+          prometheus:
+            host: [\(list)]
+        """) { path in
+            let config = try loadConfig(path: path)
+            #expect(config.effectivePrometheusHosts == hosts)
+        }
+    }
+
     @Test("CONFIG disk raw directory structure")
     func configDiskRawDirectory() throws {
         let keyData = Data("ssh-ed25519 test\n".utf8)

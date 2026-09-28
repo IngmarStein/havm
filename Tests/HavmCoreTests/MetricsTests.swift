@@ -9,11 +9,10 @@ import Testing
 
     // MARK: - formatHostPort
 
-    @Test("formatHostPort: IPv4 and hostname")
+    @Test("formatHostPort: IPv4")
     func formatHostPortIPv4() {
         #expect(MetricsServer.formatHostPort(host: "127.0.0.1", port: 9210) == "127.0.0.1:9210")
         #expect(MetricsServer.formatHostPort(host: "0.0.0.0", port: 80) == "0.0.0.0:80")
-        #expect(MetricsServer.formatHostPort(host: "localhost", port: 443) == "localhost:443")
     }
 
     @Test("formatHostPort: IPv6 wrapped in brackets")
@@ -42,6 +41,61 @@ import Testing
     func formatEndpointsSocketOnly() {
         let result = MetricsServer.formatEndpoints(hosts: [], port: 9210, sockets: ["/tmp/havm.sock"])
         #expect(result == "unix:/tmp/havm.sock")
+    }
+
+    // MARK: - TCP listeners
+
+    @Test("A numeric host binds the configured port")
+    func numericHostBindsConfiguredPort() throws {
+        let port = try freeTCPPort()
+        let registry = SimpleRegistry()
+        registry.record(name: "havm_tcp", labels: [], value: 1.0)
+        let server = MetricsServer(
+            registry: registry, hosts: ["127.0.0.1"], sockets: [], port: Int(port), logger: logger
+        )
+        try server.start()
+        defer { server.stop() }
+
+        let metrics = try tcpRequest(port: port, "GET /metrics HTTP/1.1\r\n\r\n")
+        #expect(metrics.contains("200 OK"))
+        #expect(metrics.contains("havm_tcp 1.0"))
+
+        let health = try tcpRequest(port: port, "GET /health HTTP/1.1\r\n\r\n")
+        #expect(health.contains("200 OK"))
+    }
+
+    @Test("A host the framework cannot bind is refused, never bound elsewhere")
+    func nameHostBindsPortOrIsRefused() throws {
+        // Measured on macOS 27: `requiredLocalEndpoint` is not honoured for an
+        // entry that is not a numeric address — the listener reaches `.ready`
+        // on a wildcard ephemeral port and the configured port stays unbound,
+        // with no error to report. Which way this resolves is the framework's
+        // business; what must never happen is a server that reports success
+        // while the configured port belongs to nobody (issue #12).
+        let port = try freeTCPPort()
+        let server = MetricsServer(
+            registry: SimpleRegistry(), hosts: ["localhost"], sockets: [], port: Int(port), logger: logger
+        )
+        do {
+            try server.start()
+            defer { server.stop() }
+            let response = try tcpRequest(port: port, "GET /health HTTP/1.1\r\n\r\n")
+            #expect(response.contains("200 OK"))
+        } catch let error as MetricsError {
+            guard case .portNotBound = error else { throw error }
+        }
+    }
+
+    @Test("A port that cannot be bound is reported, not trapped")
+    func unrepresentablePortIsReported() {
+        // `UInt16(port)` traps before the guard can throw, so these used to
+        // take the process down rather than fail the start.
+        for port in [70000, -1] {
+            let server = MetricsServer(
+                registry: SimpleRegistry(), hosts: ["127.0.0.1"], sockets: [], port: port, logger: logger
+            )
+            #expect(throws: MetricsError.self) { try server.start() }
+        }
     }
 
     // MARK: - Unix domain socket listeners

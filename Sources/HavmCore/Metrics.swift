@@ -194,13 +194,15 @@ public final class MetricsServer: @unchecked Sendable {
     /// behaviour (Network.framework sets IPV6_V6ONLY) — and for each
     /// configured Unix domain socket path.
     ///
-    /// Throws for a socket path that cannot be prepared. The port is only
-    /// validated when there is a TCP host to bind: a socket-only server has
-    /// no use for it.
+    /// Throws for a socket path that cannot be prepared, and for a host whose
+    /// listener binds somewhere other than the configured port. The port is
+    /// only validated when there is a TCP host to bind: a socket-only server
+    /// has no use for it.
     public func start() throws {
         do {
             if !hosts.isEmpty {
-                guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+                guard let requested = UInt16(exactly: port),
+                      let nwPort = NWEndpoint.Port(rawValue: requested) else {
                     throw MetricsError.invalidPort(port)
                 }
                 for host in hosts {
@@ -210,6 +212,7 @@ public final class MetricsServer: @unchecked Sendable {
                     )
                     listener.start(queue: queue)
                     listeners.append(listener)
+                    try waitForBoundPort(of: listener, host: host, requested: requested)
                 }
             }
 
@@ -221,6 +224,49 @@ public final class MetricsServer: @unchecked Sendable {
             // discard the server when this throws.
             stop()
             throw error
+        }
+    }
+
+    /// Wait for a TCP listener to settle, then check the port it actually
+    /// bound.
+    ///
+    /// A listener that reaches `.ready` has bound *something*; whether it is
+    /// the configured port is a separate question, and the one that matters.
+    /// `requiredLocalEndpoint` is not honoured for an entry that is not a
+    /// numeric address: the listener reports itself ready on a wildcard
+    /// ephemeral port and the configured port stays unbound — silently, with
+    /// no `.failed` — so the bound port is the only evidence, the TCP
+    /// counterpart of the socket file ``waitForSocketFile(at:timeout:)``
+    /// waits for. A mismatch throws: a listener bound elsewhere is an
+    /// endpoint the user did not ask for, and for a wildcard that means the
+    /// LAN, which is not something to log about and carry on.
+    ///
+    /// A listener that never becomes ready is left to the state handler,
+    /// which already reports it: a port someone else is using is an
+    /// environment condition, not a misconfiguration.
+    private func waitForBoundPort(
+        of listener: NWListener,
+        host: String,
+        requested: UInt16,
+        timeout: TimeInterval = 2
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            switch listener.state {
+            case .ready:
+                let bound = listener.port?.rawValue
+                guard bound == requested else {
+                    throw MetricsError.portNotBound(host: host, requested: requested, bound: bound)
+                }
+                return
+            case .failed, .cancelled:
+                return
+            case .setup, .waiting:
+                guard Date() < deadline else { return }
+                Thread.sleep(forTimeInterval: 0.005)
+            @unknown default:
+                return
+            }
         }
     }
 
@@ -454,6 +500,7 @@ public enum MetricsError: Error, CustomStringConvertible {
     case invalidSocketPath(String, reason: String)
     case socketInUse(String)
     case socketBindFailed(String)
+    case portNotBound(host: String, requested: UInt16, bound: UInt16?)
 
     public var description: String {
         switch self {
@@ -467,6 +514,11 @@ public enum MetricsError: Error, CustomStringConvertible {
             return "Metrics socket path \"\(path)\" exists and is not a socket"
         case .socketBindFailed(let path):
             return "Metrics socket \"\(path)\" could not be created — check that the path is writable, or delete a stale socket file"
+        case .portNotBound(let host, let requested, let bound):
+            let actual = bound.map(String.init) ?? "no port"
+            return "host \"\(host)\" bound \(actual) instead of \(requested) — host takes a numeric "
+                + "bind address such as \"127.0.0.1\" or \"::\", and the port comes from "
+                + "metrics.prometheus.port"
         }
     }
 }

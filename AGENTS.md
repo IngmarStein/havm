@@ -127,7 +127,7 @@ CXZ (C target)
   Primarily a debugging tool, not a headline feature.
 - **Metrics over a Unix socket** — `metrics.prometheus.host` takes `unix://<path>`
   entries next to TCP hosts; a socket-only list serves no TCP port at all (the port
-  is then unused). No entitlement is involved — the tiers are unchanged. Three
+  is then unused). No entitlement is involved — the tiers are unchanged. Four
   things in `MetricsServer` are load-bearing:
   1. `NWListener.start()` fails with `POSIXErrorCode(rawValue: 22)` (EINVAL) when
      no `newConnectionHandler` is set *before* start. `makeListener` always sets
@@ -140,6 +140,19 @@ CXZ (C target)
   3. `start()` binds asynchronously on its own queue, so the socket file is the
      evidence the bind happened — `waitForSocketFile` waits for it. Checking
      `fileExists` right after `start()` returns races the listener's queue.
+  4. `requiredLocalEndpoint` is honoured only for a *numeric* host entry. For
+     anything else — `localhost`, a name, a `host:port` pair — the listener
+     reaches `.ready` with no `.failed` and no `.waiting` while binding a
+     wildcard ephemeral port, leaving the configured port unbound: a silent
+     unauthenticated `/metrics` on every interface (issue #12). `listener.port`
+     is the evidence, the TCP counterpart of the socket file, so
+     `waitForBoundPort` waits for `.ready` and throws `portNotBound` when it
+     reports a different port. Measured on macOS 27: `127.0.0.1`, `::1`,
+     `0.0.0.0` and `::` all report the requested port; `localhost` reports the
+     ephemeral one. `PrometheusConfig.validate()` refuses the shapes that are
+     wrong on their face — a bracketed literal, a `host:port` pair, a port
+     outside 1–65535 — but not plain names, whose verdict is the framework's to
+     give, not config validation's to predict.
   On start a leftover socket file is unlinked and rebound; a *regular* file at the
   path is refused rather than deleted; `cleanupAndExit` calls `stop()` so a clean
   exit removes the files it created (a crash or `SIGKILL` leaves them for the next

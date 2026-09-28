@@ -57,7 +57,8 @@ metrics:
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
     port: 9210            # default: 9210
-    host: ["127.0.0.1", "::1"]  # default: both loopbacks — ["::"] for LAN access,
+    host: ["127.0.0.1", "::1"]  # default: both loopbacks — numeric bind addresses; the port above
+                                #   applies to each. ["::"] for LAN access,
                                 #   ["unix:///opt/homebrew/var/run/havm.sock"] for a Unix socket
 
 shutdown:
@@ -133,7 +134,7 @@ The following settings take effect immediately when you edit and save
 | Setting | Effect |
 |---|---|
 | `logging.level` | Changes log verbosity within seconds |
-| `metrics.enabled` / `metrics.prometheus.port` / `metrics.prometheus.host` | Starts, stops, or reconfigures the Prometheus exporter. Changing `host` re-binds: a `unix://` entry's socket file appears, and the one it replaced is removed |
+| `metrics.enabled` / `metrics.prometheus.port` / `metrics.prometheus.host` | Starts, stops, or reconfigures the Prometheus exporter. Changing `host` re-binds: a `unix://` entry's socket file appears, and the one it replaced is removed. A value that parses but cannot be bound leaves metrics down until it is fixed — the guest keeps running |
 | `ha.api_token` | Updates the API token used for REST API shutdown |
 | `shutdown.timeout_seconds` | Applies to the next shutdown attempt |
 
