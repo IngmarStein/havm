@@ -55,11 +55,10 @@ import Testing
     @Test("A descriptor with no configuration selected is distinguished from a malformed one")
     func missingDescriptor() {
         // `AAUSBAccessory.configurationDescriptorData` is nil when the
-        // accessory has no selected configuration — the state that reads as
-        // `VZErrorDomain -6` (-ENXIO) from the passthrough device. It must not
-        // be reported as if a census had been taken. An empty descriptor is the
-        // same state reported as bytes rather than as nil, so the repair has to
-        // treat it as unconfigured too.
+        // accessory has no selected configuration — the state the passthrough
+        // device reports as `VZErrorDomain -6`. It must not be reported as if a
+        // census had been taken. An empty descriptor is the same state reported
+        // as bytes rather than as nil, so both have to read as unconfigured.
         #expect(USBConfigurationSummary.describe(nil) == "no configuration selected")
         #expect(USBConfigurationSummary.census(of: Data()) == nil)
         // Too short to hold a configuration descriptor is the other case. It
@@ -89,6 +88,25 @@ import Testing
         )
         #expect(USBConfigurationSummary.census(of: nil) == nil)
         #expect(USBConfigurationSummary.census(of: Data([9, 2])) == nil)
+    }
+
+    @Test("The isochronous note appears only for a device that has isochronous endpoints")
+    func isochronousNote() {
+        // The note is the one thing havm can say about these devices that the
+        // framework does not: an accessory macOS never configured is refused
+        // before it is inspected, so its endpoints are visible only in this
+        // census. A device with none must not get the note at all.
+        let dongle = USBConfigurationSummary.census(
+            of: configuration([(0xE0, [0x03, 0x02]), (0x01, [0x0D, 0x0D])])
+        )
+        #expect(
+            dongle?.isochronousNote
+                == "2 of 4 endpoints are isochronous — Virtualization does not support passthrough for such devices"
+        )
+        #expect(
+            USBConfigurationSummary.census(of: configuration([(0x08, [0x02, 0x02])]))?
+                .isochronousNote == nil
+        )
     }
 
     @Test("A descriptor that never advances terminates instead of looping")
