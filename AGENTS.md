@@ -207,14 +207,30 @@ via `VZUSBPassthroughDevice`.
 
 **Architecture:**
 - All AccessoryAccess/`VZUSBPassthroughDevice` code lives in `USBAccessorySupport.swift`
-  (`USBAccessoryCoordinator`), annotated `@available(macOS 27.0, *)`; AccessoryAccess is
-  imported `@_weakLinked` so the binary runs on macOS 15+.
+  (`USBAccessoryCoordinator`, `USBAccessoryDescriptor`), annotated `@available(macOS 27.0, *)`;
+  AccessoryAccess is imported `@_weakLinked` so the binary runs on macOS 15+.
 - `ServiceRuntime.setupUSBDiscovery()` gates on `#available(macOS 27.0, *)`, then
   `USBAccessoryCoordinator.start()` boots `NSApplication.accessory` and registers
   `AAUSBAccessoryListener`. The menu bar item is the user's selection UI.
 - On connect: listener hot-attaches via `VZUSBPassthroughDevice` +
   `usbControllers.first?.attach(device:)` with fresh registryIDs.
 - On boot: listener registers after VM start, hot-attaches discovery results.
+- A failed attach is diagnosed by **reading, never writing**. On the
+  `VZUSBPassthroughDevice` error path `VMController` logs the framework's error
+  and a census of `accessory.configurationDescriptorData`; when that is empty —
+  an accessory macOS never sent SET_CONFIGURATION to, which is what
+  `VZErrorDomain -6` reports without saying — `USBAccessoryDescriptor.read` opens
+  the accessory and reads the descriptor straight from the device, so the census
+  still gets taken. Nothing in havm writes host USB state: the configuration
+  request is one the stack has already lost (issue #13's device answers the retry
+  with `IOUSBHostErrorDomain -536870184`, `kIOReturnNotReady`), it would be
+  havm's only write to a device macOS owns, and it cannot help the devices that
+  need explaining anyway — the framework refuses isochronous endpoints by design
+  ("A USB passthrough device with isochronous endpoints is not supported." is its
+  own message). `Census.isochronousNote` says so for the devices the framework
+  never inspected, and stays silent for devices with no isochronous endpoints.
+  Every device seen to attach — mass storage, Z-Wave, ZigBee — did so without it,
+  on a build predating it.
 - The CLI builds as a minimal `Havm.app` bundle so Xcode's provisioning profile
   covers the restricted `accessory-access.usb` entitlement.
 

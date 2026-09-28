@@ -347,23 +347,25 @@ public final class VMController: NSObject, @unchecked Sendable {
                 logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryIDHex) — \(USBErrorReport.describe(error))")
                 let descriptor = accessory.configurationDescriptorData
                 logger.info("USB: Descriptor — \(USBConfigurationSummary.describe(descriptor))")
-                // An accessory with no selected configuration is the one
-                // failure havm can repair: the framework has no interfaces or
-                // endpoints to build a device from, and `-6` (`-ENXIO`, "Device
-                // not configured") is that state rather than a refusal. Give
-                // the accessory a configuration, then try once more.
-                guard descriptor == nil else { return }
+                // The accessory above is the one case with nothing to census it:
+                // an accessory macOS never configured has no interfaces and no
+                // endpoints for the framework to build a device from, which is
+                // what `VZErrorDomain -6` reports without saying. The device
+                // still has a descriptor to read, and reading it is all havm
+                // does — see `USBAccessoryDescriptor` for why it stops there.
+                //
+                // The test is "no descriptor bytes", not "no descriptor":
+                // AccessoryAccess documents `nil` for an unconfigured
+                // accessory, but reports one as an empty — or short — `NSData`
+                // instead, so asking for `nil` would skip this (issue #13).
+                guard USBConfigurationSummary.census(of: descriptor) == nil else { return }
                 Task {
-                    guard await USBAccessoryConfiguration.selectConfiguration(for: accessory, logger: logger) else {
+                    guard let data = await USBAccessoryDescriptor.read(accessory, logger: logger) else {
                         return
                     }
-                    do {
-                        let device = try VZUSBPassthroughDevice(
-                            configuration: VZUSBPassthroughDeviceConfiguration(device: accessory)
-                        )
-                        Self.attach(device, to: ctl, accessory: accessory, in: machine, logger: logger)
-                    } catch {
-                        logger.warning("USB: Failed to create VZUSBPassthroughDevice for \(accessory.registryIDHex) after selecting a configuration — \(USBErrorReport.describe(error))")
+                    logger.info("USB: Descriptor (read directly, no configuration selected) — \(USBConfigurationSummary.describe(data))")
+                    if let note = USBConfigurationSummary.census(of: data)?.isochronousNote {
+                        logger.warning("USB: \(note)")
                     }
                 }
             }
