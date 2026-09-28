@@ -169,7 +169,8 @@ metrics:
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
     port: 9210            # default: 9210 — ignored when the host list is socket-only
-    host: ["127.0.0.1", "::1"]  # default: both loopbacks — ["::"] for LAN access,
+    host: ["127.0.0.1", "::1"]  # default: both loopbacks — numeric bind addresses; the port
+                                # above applies to each. ["::"] for LAN access,
                                 # ["unix:///opt/homebrew/var/run/havm.sock"] for a socket
 
 shutdown:
@@ -290,7 +291,11 @@ metrics:
     host: ["::"]
 ```
 
-Any host/port configuration works out of the box.
+A `host` entry is a bind address, and the port comes from `prometheus.port`
+(9210 by default) rather than from the address. Entries must be numeric:
+`127.0.0.1`, `::1`, `::`. A host name is not an address `havm` can bind, and a
+`host:port` pair puts the port in the wrong key — both are reported rather than
+quietly bound somewhere else.
 
 To serve a Unix socket instead of a port — reachable by file permissions
 rather than by TCP, which suits a scraper on the same host:

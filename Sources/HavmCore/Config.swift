@@ -229,10 +229,13 @@ public struct HavmConfig: Decodable, Sendable {
                 return (hosts, sockets)
             }
 
-            /// Validate the `host` entries. Throws for an entry that could
-            /// never be bound, so a typo fails at config load instead of
-            /// silently dropping a listener.
+            /// Validate `port` and the `host` entries. Throws for a value that
+            /// could never be bound as written, so a typo fails at config load
+            /// instead of silently dropping a listener.
             public func validate() throws {
+                if let port, !Self.portRange.contains(port) {
+                    throw ConfigError.invalidMetricsPort(port)
+                }
                 for entry in hosts ?? [] {
                     let trimmed = entry.trimmingCharacters(in: .whitespaces)
                     if let path = Self.socketPath(in: entry) {
@@ -249,8 +252,44 @@ public struct HavmConfig: Decodable, Sendable {
                     } else if trimmed.hasPrefix("unix:") {
                         throw ConfigError.invalidMetricsHost(
                             entry, reason: "socket paths are written \(Self.unixSocketPrefix)/absolute/path")
+                    } else if trimmed.hasPrefix("[") {
+                        // Brackets are the URL spelling, where they separate an
+                        // IPv6 literal from a port this key does not accept.
+                        throw ConfigError.invalidMetricsHost(
+                            entry, reason: "write an IPv6 address without brackets, like \"::1\"")
+                    } else if let port = Self.portSuffix(of: trimmed) {
+                        throw ConfigError.invalidMetricsHost(
+                            entry, reason: "\"\(port)\" is a port — the port comes from "
+                                + "metrics.prometheus.port, and host takes a bind address only")
                     }
                 }
+            }
+
+            /// The ports a listener can be asked for. 0 asks the kernel to pick
+            /// one, which is never what a metrics endpoint is after.
+            private static let portRange = 1...65535
+
+            /// The trailing port of a `host:port` entry, or nil when the entry
+            /// is a bare address.
+            ///
+            /// A bare IPv6 literal ends in a group, not a decimal port, so
+            /// `::1` and `fe80::1%en0` are addresses while `localhost:9210`
+            /// and `127.0.0.1:9210` are pairs. Names are left alone here: one
+            /// that cannot be bound is caught by the bind check in
+            /// ``MetricsServer/start()``, which reports what actually bound
+            /// rather than predicting what can.
+            private static func portSuffix(of entry: String) -> String? {
+                guard let colon = entry.lastIndex(of: ":") else { return nil }
+                let tail = entry[entry.index(after: colon)...]
+                guard !tail.isEmpty, tail.allSatisfy(\.isNumber) else { return nil }
+                guard !isIPv6Address(entry) else { return nil }
+                return String(tail)
+            }
+
+            /// Whether the entry is a bare numeric IPv6 address.
+            private static func isIPv6Address(_ entry: String) -> Bool {
+                var address = in6_addr()
+                return entry.withCString { inet_pton(AF_INET6, $0, &address) == 1 }
             }
         }
 
@@ -495,12 +534,15 @@ extension MemorySize: Codable {
 public enum ConfigError: Error, CustomStringConvertible {
     case invalidMemorySize(String)
     case invalidMetricsHost(String, reason: String)
+    case invalidMetricsPort(Int)
 
     public var description: String {
         switch self {
         case .invalidMemorySize(let s): return "Invalid memory size: \(s)"
         case .invalidMetricsHost(let entry, let reason):
             return "Invalid metrics.prometheus.host entry \"\(entry)\": \(reason)"
+        case .invalidMetricsPort(let port):
+            return "Invalid metrics.prometheus.port value \(port): must be between 1 and 65535"
         }
     }
 }

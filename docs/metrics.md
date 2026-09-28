@@ -73,6 +73,29 @@ metrics:
     port: 8080
 ```
 
+## Bind Addresses
+
+A `host` entry is a bind address; the port is set once for all of them by
+`prometheus.port` (9210 by default) and is not part of an entry. Entries must
+be numeric addresses:
+
+```yaml
+metrics:
+  enabled: true
+  prometheus:
+    port: 9210
+    host: ["127.0.0.1", "::1"]
+```
+
+Two plausible-looking spellings are not addresses. A `host:port` pair
+(`localhost:9210`) puts the port in the wrong key and is refused at config
+load. A bare host name (`localhost`) is not something the framework binds where
+it is told: it reports the listener ready while binding a wildcard ephemeral
+port and leaving the configured port unbound. To keep a typo from becoming a
+listener you did not ask for — a wildcard one is reachable from the LAN —
+`havm` checks the port each listener actually bound and refuses to start,
+naming the port it got instead.
+
 ## Unix Socket
 
 A Unix domain socket replaces the TCP port with a filesystem path, so access
@@ -168,7 +191,7 @@ metrics:
   type: prometheus        # prometheus (default) — extensibility point for OTLP
   prometheus:
     port: 9210            # default: 9210
-    host: ["127.0.0.1", "::1"]  # default: both loopbacks
+    host: ["127.0.0.1", "::1"]  # default: both loopbacks — numeric bind addresses
     # host: ["unix:///opt/homebrew/var/run/havm.sock"]  # socket instead of a port
 ```
 

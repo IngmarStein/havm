@@ -5,6 +5,8 @@ enum SocketProbeError: Error, CustomStringConvertible {
     case socket(Int32)
     case bind(Int32)
     case connect(Int32)
+    case getsockname(Int32)
+    case malformedAddress(String)
     case pathTooLong
     case malformedResponse
 
@@ -13,6 +15,8 @@ enum SocketProbeError: Error, CustomStringConvertible {
         case .socket(let code): return "socket() failed: \(String(cString: strerror(code)))"
         case .bind(let code): return "bind() failed: \(String(cString: strerror(code)))"
         case .connect(let code): return "connect() failed: \(String(cString: strerror(code)))"
+        case .getsockname(let code): return "getsockname() failed: \(String(cString: strerror(code)))"
+        case .malformedAddress(let address): return "\"\(address)\" is not a numeric IPv4 address"
         case .pathTooLong: return "path does not fit in sockaddr_un.sun_path"
         case .malformedResponse: return "response is not UTF-8"
         }
@@ -49,6 +53,15 @@ func unixSocketRequest(path: String, _ request: String) throws -> String {
     }
     guard connected == 0 else { throw SocketProbeError.connect(errno) }
 
+    return try socketExchange(fd: fd, request)
+}
+
+/// Write `request` to a connected socket and return everything the server
+/// writes back.
+///
+/// The server closes the connection after responding, so reading to EOF
+/// terminates.
+func socketExchange(fd: Int32, _ request: String) throws -> String {
     let outbound = Array(request.utf8)
     _ = outbound.withUnsafeBufferPointer { write(fd, $0.baseAddress, $0.count) }
 
