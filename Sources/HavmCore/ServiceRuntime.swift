@@ -504,17 +504,13 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                     if await waitForStop(until: deadline) { return }
                 }
             }
-            if config.effectiveHAAPIToken == nil {
-                logger.warning(
-                    "Tip: configure ha.api_token (REST API), ssh.authorized_keys (debug SSH), or install the Terminal & SSH app in Home Assistant."
-                )
-            }
             if shutdownAccepted {
                 logger.warning(
                     "Shutdown was accepted, but the guest had not halted after \(config.effectiveShutdownTimeout)s — force-stopping. Raise shutdown.timeout_seconds if the guest needs longer."
                 )
             } else {
                 logger.warning("All shutdown methods failed — force-stopping...")
+                logUnconfiguredShutdownTip(config: config)
             }
         } else {
             logger.warning("Guest IP unknown (network not ready) — force-stopping...")
@@ -526,6 +522,35 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
         catch { logger.error("Force stop failed: \(error)") }
         // defer block above handles restart-vs-exit decision
+    }
+
+    /// Suggest the shutdown methods that are actually unconfigured.
+    ///
+    /// Naming a method the user has already set up sends them looking in the
+    /// wrong place: a wrong tip is worse than no tip, and a log line telling
+    /// someone who configured `ssh.authorized_keys` to configure
+    /// `ssh.authorized_keys` is how a real failure gets reported as a
+    /// configuration mistake (issue #19). So name only what is unset, and stay
+    /// silent when nothing is.
+    private func logUnconfiguredShutdownTip(config: HavmConfig) {
+        // The Terminal & SSH add-on runs in the guest, so havm cannot see whether
+        // it is installed. Offering it is only unambiguous when there is no
+        // config-based method at all — otherwise the user has chosen a path, and
+        // we don't get to assume the add-on is what's missing.
+        let candidates: [String?] = [
+            config.effectiveHAAPIToken == nil ? "ha.api_token (REST API)" : nil,
+            // A path that is set but points at nothing is reported by HAOSSetup at
+            // startup, so "configured" is the right test here.
+            config.effectiveSSHKeyPath == nil ? "ssh.authorized_keys (debug SSH)" : nil
+        ]
+        let unconfigured = candidates.compactMap { $0 }
+        guard !unconfigured.isEmpty else { return }
+
+        var tip = "Tip: configure " + unconfigured.joined(separator: " or ")
+        if unconfigured.count == 2 {
+            tip += ", or install the Terminal & SSH app in Home Assistant"
+        }
+        logger.warning("\(tip).")
     }
 
     /// Restart the VM in-process: reload config, create a fresh
