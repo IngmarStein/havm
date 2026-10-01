@@ -43,8 +43,8 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// Base URL of the guest's Home Assistant HTTP server, once a probe has
     /// answered on it. Stays `nil` until then — which is why this is the
     /// resolved *URL* rather than the resolved port: `nil` already means
-    /// "not known yet" here, and the port-less form needs a `nil` port of
-    /// its own. Reset on restart, since the new guest may serve elsewhere.
+    /// "not known yet" here, and an omitted port needs a `nil` of its own.
+    /// Reset on restart, since the new guest may serve elsewhere.
     private var resolvedHAURL: String?
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
@@ -160,10 +160,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 "║  Web:  printed by havm once the guest responds           ║",
             ]
         case .bridge:
-            // The port is deliberately absent: HAOS 2026.8 put new installs
-            // on a port-less address and left existing ones on 8123, and which
-            // one this guest is can't be known until it answers. The ready
-            // message names the address that actually replied.
+            // No port in the banner: HAOS 2026.8 put new installs on an
+            // address that leaves it out and left existing ones on 8123, and
+            // which one this guest is can't be known until it answers. The
+            // ready message names the address that actually replied.
             lines += [
                 "║  Once ready, open the address havm prints below.         ║",
                 "║                                                          ║",

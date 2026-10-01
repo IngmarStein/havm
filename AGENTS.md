@@ -118,15 +118,16 @@ CXZ (C target)
   to the first result pins a stale address when mDNS serves records from an earlier DHCP lease
   (issue #10). NAT mode has no name and parses `/var/db/dhcpd_leases` by MAC address instead
   (no ping/ARP scanning).
-- **HA port probed, not assumed** — HAOS 2026.8 moved *new* installations to a port-less
-  address (`http://homeassistant.local`, i.e. port 80) and left existing ones on 8123:
+- **HA port probed, not assumed** — HAOS 2026.8 moved *new* installations to an address
+  that leaves the port out (`http://homeassistant.local`, which is port 80, `http`'s
+  default) and left existing ones on 8123:
   the port lives in the guest's own web-server config, not in the OS version, so an
   OTA-updated `haos.img` keeps 8123 while a fresh guest — which is all `HAOSSetup` ever
   produces, since it takes the newest release — gets the new default. havm therefore probes
-  `HAEndpoint.probePorts` (port-less first), records the address that answered in
+  `HAEndpoint.probePorts` (port 80 first), records the address that answered in
   `resolvedHAURL`, and reuses it for the REST shutdown call. A wrong candidate costs one
-  refused connection, which returns at once; a *successful* probe on the port-less form is
-  why `resolvedHAURL` stores a URL rather than an `Int?` port, where `nil` would be
+  refused connection, which returns at once; a *successful* probe on port 80 is why
+  `resolvedHAURL` stores a URL rather than an `Int?` port, where `nil` would be
   indistinguishable from "not known yet". `ha.url` overrides the whole probe. The banner
   names no port for the same reason — it prints before the guest can answer.
 - **VFAT LFN** — the `0x40` (LAST_LONG_ENTRY) flag must be on the highest sequence number (end of filename), not the lowest (beginning). Getting this wrong causes both macOS and Linux to truncate the filename.

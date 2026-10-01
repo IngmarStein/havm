@@ -4,8 +4,8 @@ import Testing
 
 @Suite struct HAEndpointTests {
 
-    @Test("Port-less form carries no port")
-    func portlessForm() {
+    @Test("An omitted port leaves the URL without one")
+    func omittedPortForm() {
         #expect(HAEndpoint.baseURL(host: "homeassistant.local", port: nil) == "http://homeassistant.local")
     }
 
@@ -31,11 +31,11 @@ import Testing
         #expect(url?.port ?? 80 == port ?? 80)
     }
 
-    /// HAOS 2026.8 gave new installs the port-less address and left existing
-    /// ones on 8123. New installs are what `havm run` produces from here on,
-    /// so they are probed first — and a wrong guess costs one refused
+    /// HAOS 2026.8 gave new installs an address with no port in it and left
+    /// existing ones on 8123. New installs are what `havm run` produces from
+    /// here on, so they are probed first — and a wrong guess costs one refused
     /// connection, which returns immediately.
-    @Test("The port-less default is probed before the pre-2026.8 port")
+    @Test("The omitted-port form is probed before the pre-2026.8 port")
     func probeOrder() {
         #expect(HAEndpoint.probePorts == [nil, 8123])
     }
