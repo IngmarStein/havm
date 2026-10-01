@@ -115,12 +115,13 @@ public struct HavmConfig: Decodable, Sendable {
     /// pre-UI-ready checks (e.g. manifest.json polling).
     public struct HAConfig: Decodable, Sendable {
         /// Base URL of the Home Assistant instance.
-        /// Overrides the default `http://<discovered-ip>:8123`.
-        /// Use this if HA runs on a different port or uses HTTPS,
-        /// e.g. `https://homeassistant.local:443`.
+        /// Overrides the probed default — `http://<discovered-ip>` on HAOS
+        /// 2026.8 and newer, `http://<discovered-ip>:8123` on installs that
+        /// predate it. Use this if HA runs on a port neither default covers,
+        /// or uses HTTPS, e.g. `https://homeassistant.local:443`.
         public var url: String?
         /// Long-lived access token for REST API calls (shutdown, etc.).
-        /// Create one at http://<ip>:8123/profile/security.
+        /// Create one at http://<ip>/profile/security.
         public var apiToken: String?
 
         enum CodingKeys: String, CodingKey {
@@ -378,7 +379,9 @@ public struct HavmConfig: Decodable, Sendable {
     }
 
     /// Base URL for the Home Assistant web UI and REST API.
-    /// Set via `ha.url`. If not set, defaults to `http://<discovered-ip>:8123`.
+    /// Set via `ha.url`. If not set, havm probes ``HAEndpoint/probePorts``
+    /// on the discovered guest address — the port-less form on HAOS 2026.8
+    /// and newer, 8123 on installations that predate it.
     public var effectiveHAURL: String? {
         ha?.url
     }
@@ -526,6 +529,38 @@ extension MemorySize: Codable {
             throw ConfigError.invalidMemorySize(string)
         }
         return UInt64(bytes)
+    }
+}
+
+// MARK: - Home Assistant HTTP endpoint
+
+/// Where a guest's Home Assistant HTTP server answers — the same server
+/// serves the web UI and the REST API.
+///
+/// HAOS 2026.8 gave *new* installations a port-less address
+/// (`http://homeassistant.local`), leaving existing ones on the 8123 they
+/// were created with: the port lives in the guest's own web-server config,
+/// not in the OS version, so upgrading the OS does not move it. havm always
+/// installs the newest HAOS release and so gets the new default on a fresh
+/// guest, but `haos.img` already on disk still answers on 8123.
+///
+/// Which port replies is the guest's answer to give, so havm probes rather
+/// than predicting from a version it cannot read.
+public enum HAEndpoint {
+    /// Ports to probe, in order. `nil` is the port-less form — what
+    /// `http://<authority>` resolves to, i.e. port 80 on the guest. New
+    /// installations are the common case going forward, so they go first;
+    /// a wrong guess costs one refused connection, which returns at once.
+    public static let probePorts: [Int?] = [nil, 8123]
+
+    /// Base URL for `host` on `port`, or the port-less form when `port` is
+    /// `nil`. IPv6 literals are bracketed for a valid URL authority
+    /// (`http://[fd00::1]:8123`); a bare address there would parse as
+    /// host-and-port and yield a malformed URL.
+    public static func baseURL(host: String, port: Int?) -> String {
+        let authority = host.contains(":") ? "[\(host)]" : host
+        guard let port else { return "http://\(authority)" }
+        return "http://\(authority):\(port)"
     }
 }
 

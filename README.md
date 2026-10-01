@@ -157,7 +157,7 @@ usb:
   enabled: true           # default: true — USB accessory passthrough (macOS 27+)
 
 ha:
-  url: "https://homeassistant.local:443"  # default: http://<discovered-ip>:8123
+  url: "https://homeassistant.local:443"  # default: probed — http://<ip> or http://<ip>:8123
   api_token: "eyJ..."     # HA long-lived access token for REST API calls
 
 logging:
@@ -336,7 +336,8 @@ install the add-on via the HA web UI — it listens on port 22.
 On SIGTERM or Ctrl+C, `havm` tries these shutdown methods in order, falling
 through to the next if one fails:
 
-1. **HA REST API** — `POST http://<ip>:8123/api/services/hassio/host_shutdown`
+1. **HA REST API** — `POST <ha.url>/api/services/hassio/host_shutdown`, where the default
+   address is probed: `http://<ip>` on HAOS 2026.8+, `http://<ip>:8123` before it
    (requires a [long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile) in `ha.api_token`)
 2. **Debug SSH (port 22222)** — `ssh root@<ip> -p 22222 shutdown -h now`
    (requires `ssh.authorized_keys` for CONFIG disk import)
@@ -350,7 +351,7 @@ The shutdown timeout and API token are configurable:
 ```yaml
 ha:
   api_token: "eyJ..."     # HA long-lived access token
-  url: "https://homeassistant.local:443"  # default: http://<ip>:8123
+  url: "https://homeassistant.local:443"  # default: probed (see above)
 
 shutdown:
   timeout_seconds: 90     # max wait for Home Assistant to halt (default: 90)

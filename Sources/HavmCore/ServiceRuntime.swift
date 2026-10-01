@@ -40,6 +40,12 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var webUIReadyNotified = false
     private var firstProbeDone = false
     private var guestIP: String?
+    /// Base URL of the guest's Home Assistant HTTP server, once a probe has
+    /// answered on it. Stays `nil` until then — which is why this is the
+    /// resolved *URL* rather than the resolved port: `nil` already means
+    /// "not known yet" here, and the port-less form needs a `nil` port of
+    /// its own. Reset on restart, since the new guest may serve elsewhere.
+    private var resolvedHAURL: String?
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var signalSourceHup: DispatchSourceSignal?
@@ -47,9 +53,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var configDirDescriptor: Int32 = -1
     private var configFileWatcher: DispatchSourceFileSystemObject?
     private var observerPollCount = 0
-    private let observerPollMax = 1200  // 1200 × 250 ms = 5 minutes
+    private let observerPollMax = 1200  // 1200 × 250 ms = 5 minutes
     private var healthPollCount = 0
-    private let healthPollMax = 1200  // 1200 × 250 ms = 5 minutes
+    private let healthPollMax = 1200  // 1200 × 250 ms = 5 minutes
     private var bootTimer: DispatchSourceTimer?
     private var observerTask: Task<Void, Never>?
     private var webUITask: Task<Void, Never>?
@@ -151,15 +157,18 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         case .nat:
             lines += [
                 "║  SSH:  ssh root@<guest-ip> -p 22222                      ║",
-                "║  Web:  http://<guest-ip>:8123                            ║",
+                "║  Web:  printed by havm once the guest responds           ║",
             ]
         case .bridge:
+            // The port is deliberately absent: HAOS 2026.8 put new installs
+            // on a port-less address and left existing ones on 8123, and which
+            // one this guest is can't be known until it answers. The ready
+            // message names the address that actually replied.
             lines += [
-                "║  Once ready, open:                                       ║",
-                "║    http://homeassistant.local:8123                       ║",
+                "║  Once ready, open the address havm prints below.         ║",
                 "║                                                          ║",
                 "║  Or check your router's DHCP lease table for the VM's    ║",
-                "║  IP address and open http://<ip>:8123                    ║",
+                "║  IP address.                                             ║",
             ]
         }
         lines += [
@@ -174,7 +183,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
     // MARK: - Boot phase
 
-    /// Runs at 250 ms intervals until the guest IP is discovered and the web
+    /// Runs at 250 ms intervals until the guest IP is discovered and the web
     /// UI responds. After that, the timer is cancelled — no more scheduled
     /// work. Signals, VZ delegate callbacks, and config-watcher events arrive
     /// through GCD dispatch sources and terminate the process via
@@ -470,7 +479,8 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         var shutdownAccepted = false
 
         if let ip = guestIP {
-            // 1. HA REST API on port 8123 (if api_token is configured)
+            // 1. HA REST API (if api_token is configured) — on whichever
+            // address the guest answered, or both defaults if it never did
             if let token = config.effectiveHAAPIToken, let budget = remaining(until: deadline) {
                 logger.info("Attempting shutdown via REST API...")
                 let result = await supervisorShutdown(host: ip, token: token, timeout: budget)
@@ -583,6 +593,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         webUIReadyNotified = false
         firstProbeDone = false
         guestIP = nil
+        resolvedHAURL = nil
         lastDHCPLeaseModDate = nil
         cachedDHCPLeaseIP = nil
         observerPollCount = 0
@@ -646,29 +657,75 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         case failed    // Definitive failure — fall through to next method
     }
 
+    /// Outcome of one REST shutdown attempt against a *single* candidate
+    /// address. Distinct from ``RESTAPIResult``, which is what the shutdown
+    /// chain consumes: the difference between `unreachable` and `rejected` is
+    /// only meaningful while there are addresses left to try.
+    private enum ShutdownAttempt {
+        case accepted     // HTTP 200 — shutdown accepted
+        case timedOut     // No response — the host may already be shutting down
+        case unreachable  // Nothing is listening here — this address is wrong
+        case rejected     // The server answered and declined — verdict stands
+    }
+
     private static let emptyJSONBody = Data("{}".utf8)
 
-    /// Resolve the base URL for the Home Assistant REST API.
-    private func haBaseURL(host: String? = nil) -> String? {
+    /// Base URLs to try for the Home Assistant HTTP server, in order.
+    ///
+    /// A configured `ha.url` is authoritative and the only candidate. Otherwise
+    /// the address a probe already answered on, if there is one — that is the
+    /// common case by the time shutdown runs. Failing that, every default the
+    /// guest might be serving on (see ``HAEndpoint/probePorts``): havm cannot
+    /// tell a fresh install from one predating HAOS 2026.8 without asking, and
+    /// asking is one refused connection when the guess is wrong.
+    private func haBaseURLCandidates(host: String? = nil) -> [String] {
         if let configured = config.effectiveHAURL {
-            return configured
+            return [configured]
         }
-        if let ip = host ?? guestIP {
-            // Bracket IPv6 addresses for URL authority: http://[::1]:8123
-            let authority = ip.contains(":") ? "[\(ip)]" : ip
-            return "http://\(authority):8123"
+        if let resolved = resolvedHAURL {
+            return [resolved]
         }
-        return nil
+        guard let ip = host ?? guestIP else { return [] }
+        return HAEndpoint.probePorts.map { HAEndpoint.baseURL(host: ip, port: $0) }
     }
 
     /// Send a shutdown command to the guest via the Home Assistant REST API.
     /// Calls the `hassio.host_shutdown` service with a Bearer token.
-    /// Uses `ha.url` if configured, otherwise defaults to
-    /// `http://<discovered-ip>:8123`.
+    ///
+    /// Walks the candidate addresses, but only passes over one that nothing is
+    /// listening on. A request that *was* answered is the server's verdict and
+    /// stands: a 401 will not become a 200 on another port. Neither does a
+    /// timeout earn a second attempt — an unanswered request to a host that may
+    /// already be halting is exactly what issue #11 was about, and the shared
+    /// deadline is not there to be spent twice.
     private func supervisorShutdown(host: String, token: String, timeout: Int) async -> RESTAPIResult {
-        guard let baseURL = haBaseURL(host: host) else { return .failed }
+        let candidates = haBaseURLCandidates(host: host)
+        for (index, baseURL) in candidates.enumerated() {
+            switch await postShutdown(to: baseURL, token: token, timeout: timeout) {
+            case .accepted:
+                logger.info("REST API shutdown accepted.")
+                return .success
+            case .timedOut:
+                return .timedOut
+            case .rejected:
+                return .failed
+            case .unreachable:
+                // Name the address that was wrong when there is another to
+                // try, so the extra request in the log has an explanation.
+                if index < candidates.count - 1 {
+                    logger.info("REST API not listening on \(baseURL) — trying the next address.")
+                }
+            }
+        }
+        logger.info("REST API unavailable — falling through to SSH.")
+        return .failed
+    }
+
+    /// One POST of `hassio.host_shutdown` to a single candidate address.
+    /// Logs the reason for anything short of success.
+    private func postShutdown(to baseURL: String, token: String, timeout: Int) async -> ShutdownAttempt {
         guard let url = URL(string: "\(baseURL)/api/services/hassio/host_shutdown") else {
-            return .failed
+            return .unreachable
         }
 
         var request = URLRequest(url: url)
@@ -681,11 +738,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                return .failed
+                return .rejected
             }
             if httpResponse.statusCode == 200 {
-                logger.info("REST API shutdown accepted.")
-                return .success
+                return .accepted
             }
             // 401/403: token is wrong or expired — user needs to know.
             if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
@@ -693,12 +749,12 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             } else {
                 logger.info("REST API: HTTP \(httpResponse.statusCode) — falling through to SSH.")
             }
-            return .failed
+            return .rejected
         } catch let error as URLError where error.code == .timedOut {
             return .timedOut
         } catch {
-            logger.info("REST API unavailable (\(error.localizedDescription)) — falling through to SSH.")
-            return .failed
+            logger.debug("REST API unreachable at \(baseURL): \(error.localizedDescription)")
+            return .unreachable
         }
     }
 
@@ -797,10 +853,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
         if !guestReachableNotified {
             guestReachableNotified = true
-            // Bracket IPv6 for a valid URL authority (http://[::1]:8123).
-            let authority = ip.contains(":") ? "[\(ip)]" : ip
             logger.info("Waiting for Home Assistant at \(ip)...")
-            logger.info("  Web: http://\(authority):8123")
+            // Candidates, not a settled address — the ready message names the
+            // one that answers.
+            let webCandidates = HAEndpoint.probePorts.map { HAEndpoint.baseURL(host: ip, port: $0) }
+            logger.info("  Web: \(webCandidates.joined(separator: " or "))")
             logger.info("  SSH: ssh root@\(ip) -p 22222")
         }
     }
@@ -814,7 +871,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         observerPollCount += 1
         guard let ip = guestIP else { return }
 
-        guard let url = URL(string: "http://\(ip):4357/ping") else { return }
+        // Built through HAEndpoint so an IPv6 guest is bracketed: a bare
+        // literal here parses as host-and-port, URL(string:) returns nil, and
+        // the readiness signal silently never fires.
+        guard let url = URL(string: "\(HAEndpoint.baseURL(host: ip, port: 4357))/ping") else { return }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
@@ -835,7 +895,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
     /// Poll the Home Assistant web UI health-check endpoint until it responds.
     /// Stops after the first successful response or after `healthPollMax` attempts
-    /// (~5 minutes at the 250 ms tick cadence).
+    /// (~5 minutes at the 250 ms tick cadence).
+    ///
+    /// Tries each candidate address in turn and records the one that answered,
+    /// so the ready message names an address the user can actually open and
+    /// shutdown does not have to guess again.
     private func checkWebUI() {
         guard healthPollCount < healthPollMax else {
             if !webUIReadyNotified {
@@ -846,24 +910,52 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
         healthPollCount += 1
 
-        guard let baseURL = haBaseURL() else { return }
-
-        guard let url = URL(string: "\(baseURL)/manifest.json") else { return }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
+        let candidates = haBaseURLCandidates()
+        guard !candidates.isEmpty else { return }
 
         webUITask?.cancel()
         webUITask = Task { @MainActor in
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-                guard !self.webUIReadyNotified else { return }
-                self.webUIReadyNotified = true
-                self.logger.info("Home Assistant is ready at \(baseURL)")
-            } catch {
-                // UI not up yet — retry silently on next poll
+            // Race the candidates rather than walking them one at a time. Each
+            // tick cancels this task, so a probe has only until the next tick
+            // (~250 ms) to answer: a first candidate that *accepts* a
+            // connection and then never replies would spend that whole window
+            // and the second candidate would never be tried at all. Racing
+            // gives every candidate the same window, so neither can starve the
+            // other. A refused connection still returns at once — it simply
+            // loses the race.
+            let answered = await withTaskGroup(of: String?.self) { group -> String? in
+                for baseURL in candidates {
+                    group.addTask { await Self.answersManifest(at: baseURL) ? baseURL : nil }
+                }
+                for await winner in group {
+                    guard let winner else { continue }
+                    group.cancelAll()
+                    return winner
+                }
+                return nil
             }
+
+            guard let answered else { return }
+            self.resolvedHAURL = answered
+            guard !self.webUIReadyNotified else { return }
+            self.webUIReadyNotified = true
+            self.logger.info("Home Assistant is ready at \(answered)")
+        }
+    }
+
+    /// Whether `baseURL/manifest.json` answers 200. That file is Home
+    /// Assistant's own frontend manifest, so a 200 identifies Home Assistant
+    /// rather than merely something listening on the port.
+    private static func answersManifest(at baseURL: String) async -> Bool {
+        guard let url = URL(string: "\(baseURL)/manifest.json") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            // Not listening here, or no answer in time.
+            return false
         }
     }
 
@@ -906,7 +998,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// once on first call.
     ///
     /// Caches the last-modification timestamp so we don't re-read the file on
-    /// every 250 ms tick when the lease hasn't been granted yet.
+    /// every 250 ms tick when the lease hasn't been granted yet.
     private lazy var guestMACBytes: [UInt8]? = {
         vmController.guestMAC?.split(separator: ":").compactMap { UInt8($0, radix: 16) }
     }()

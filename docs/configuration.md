@@ -45,7 +45,7 @@ usb:
   enabled: true           # default: true — USB accessory passthrough (macOS 27+)
 
 ha:
-  url: "https://homeassistant.local:443"  # default: http://<discovered-ip>:8123
+  url: "https://homeassistant.local:443"  # default: probed — http://<ip> or http://<ip>:8123
   api_token: "eyJ..."     # HA long-lived access token for REST API calls
 
 logging:

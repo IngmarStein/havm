@@ -42,7 +42,8 @@ install the add-on via the HA web UI — it listens on port 22.
 
 On SIGTERM or Ctrl+C, `havm` tries these shutdown methods in order:
 
-1. **HA REST API** — `POST http://<ip>:8123/api/services/hassio/host_shutdown`
+1. **HA REST API** — `POST <ha.url>/api/services/hassio/host_shutdown`, where the default
+   address is probed: `http://<ip>` on HAOS 2026.8+, `http://<ip>:8123` before it
    (requires a [long-lived access token][token] in `ha.api_token`)
 2. **Debug SSH (port 22222)** — `ssh root@<ip> -p 22222 shutdown -h now`
    (requires `ssh.authorized_keys` for CONFIG disk import)
@@ -71,7 +72,7 @@ and ignores ACPI power button events.
 ```yaml
 ha:
   api_token: "eyJ..."     # HA long-lived access token
-  url: "https://homeassistant.local:443"  # default: http://<ip>:8123
+  url: "https://homeassistant.local:443"  # default: probed (see above)
 
 shutdown:
   timeout_seconds: 90     # budget for the whole shutdown chain (default: 90)
