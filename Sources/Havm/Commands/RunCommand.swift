@@ -59,7 +59,9 @@ struct RunCommand: AsyncParsableCommand {
         //    Console mode forces text (stderr) to keep stdout clean for
         //    guest serial output.
         let format = logFormat ?? (json ? .json : havmConfig.effectiveLogFormat)
-        let effectiveLogLevel: Logger.Level = {
+        // Kept apart from the effective level so a config reload after start
+        // can tell a CLI-pinned level from one it is free to change.
+        let logLevelOverride: Logger.Level? = {
             if let cliLevel = logLevel {
                 switch cliLevel {
                 case .debug:  return .debug
@@ -68,9 +70,9 @@ struct RunCommand: AsyncParsableCommand {
                 case .error:  return .error
                 }
             }
-            if verbose { return .debug }
-            return havmConfig.effectiveLogLevel
+            return verbose ? .debug : nil
         }()
+        let effectiveLogLevel = logLevelOverride ?? havmConfig.effectiveLogLevel
 
         if console && format == .json {
             fputs("Warning: --console forces text log format (JSON logs to stdout would mix with guest output).\n", stderr)
@@ -149,7 +151,15 @@ struct RunCommand: AsyncParsableCommand {
 
         // 5. Create and start the VM
         let vmController = VMController(config: havmConfig, consoleMode: console, logger: logger)
-        let runtime = ServiceRuntime(config: havmConfig, vmController: vmController, consoleMode: console, metricsServer: metricsServer, registry: registry, logger: logger)
+        let runtime = ServiceRuntime(
+            config: havmConfig,
+            vmController: vmController,
+            consoleMode: console,
+            metricsServer: metricsServer,
+            registry: registry,
+            logLevelOverride: logLevelOverride,
+            logger: logger
+        )
 
         // Wire on-demand disk-metrics collection to the Prometheus scrape path
         // so gauges are computed fresh instead of on a timer.
