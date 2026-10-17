@@ -31,6 +31,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var vmController: VMController
     private var logger: Logger
     private let consoleMode: Bool
+    /// The `--log-level` / `-v` level, which outranks the config file. Held
+    /// separately because `config.effectiveLogLevel` cannot see the CLI, so
+    /// re-reading it after a reload would silently discard the flag.
+    private let logLevelOverride: Logger.Level?
 
     private var runContinuation: CheckedContinuation<Void, Never>?
     private var shutdownRequested = false
@@ -76,11 +80,13 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         consoleMode: Bool = false,
         metricsServer: MetricsServer? = nil,
         registry: SimpleRegistry,
+        logLevelOverride: Logger.Level? = nil,
         logger: Logger = Logger(label: "havm.runtime")
     ) {
         self.config = config
         self.vmController = vmController
         self.consoleMode = consoleMode
+        self.logLevelOverride = logLevelOverride
         self.metricsServer = metricsServer
         self.registry = registry
         self.logger = logger
@@ -382,7 +388,8 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         guard levelChanged || tokenChanged || metricsChanged else { return }
 
         if levelChanged {
-            logger.logLevel = newConfig.effectiveLogLevel
+            // A CLI level outranks the file, hot reload included.
+            logger.logLevel = logLevelOverride ?? newConfig.effectiveLogLevel
         }
         logger.info("Config reloaded")
     }
@@ -571,19 +578,22 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         // Reload config from disk so VM settings (CPU, memory, disk,
         // network) take effect on restart.
         do {
-            config = try loadConfig()
+            // By the recorded path, not `loadConfig()`: that reads the default
+            // location and misses `-c`, which is what brew services passes
+            // (issue #23).
+            config = try loadConfig(path: config.configPath)
             logger.info("Config reloaded for restart")
         } catch {
             logger.warning("Failed to reload config: \(error) — keeping current config")
         }
 
         // Re-apply hot-reloadable settings (log level may have changed).
-        logger.logLevel = config.effectiveLogLevel
+        logger.logLevel = logLevelOverride ?? config.effectiveLogLevel
 
         // Use a fresh logger for the new VM controller so its label
         // doesn't carry the old instance's identity.
         var vmLogger = Logger(label: "havm.vm")
-        vmLogger.logLevel = config.effectiveLogLevel
+        vmLogger.logLevel = logLevelOverride ?? config.effectiveLogLevel
 
         let newController = VMController(config: config, consoleMode: consoleMode, logger: vmLogger)
 
