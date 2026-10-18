@@ -163,7 +163,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
             return
         }
 
-        let configDisk = CONFIGDiskBuilder.build(authorizedKey: keyData)
+        let configDisk = ConfigDiskBuilder.build(authorizedKey: keyData)
         try configDisk.write(to: URL(fileURLWithPath: HavmConfig.configDiskPath))
         logger.info("SSH CONFIG disk created at \(HavmConfig.configDiskPath)")
     }
