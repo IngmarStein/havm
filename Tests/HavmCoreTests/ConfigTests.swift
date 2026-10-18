@@ -98,7 +98,7 @@ import Testing
     @Test("CONFIG disk builder produces valid MBR + FAT structure")
     func configDiskBuilder() throws {
         let key = Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test".utf8)
-        let disk = CONFIGDiskBuilder.build(authorizedKey: key)
+        let disk = ConfigDiskBuilder.build(authorizedKey: key)
         #expect(disk.count > 1024)
         // MBR signature at sector 0
         #expect(disk[510] == 0x55)
@@ -115,7 +115,7 @@ import Testing
     @Test("CONFIG disk authorized_keys LFN entry")
     func configDiskAuthorizedKeys() throws {
         let key = Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test".utf8)
-        let disk = CONFIGDiskBuilder.build(authorizedKey: key)
+        let disk = ConfigDiskBuilder.build(authorizedKey: key)
 
         // Root directory: MBR(512) + FAT(512) + 2*4*512(FATs) = 5120
         let rootDirOffset = 512 + 512 + 2 * 4 * 512
@@ -161,7 +161,7 @@ import Testing
     func configDiskKeyContent() throws {
         let keyContent = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test-key\n"
         let keyData = Data(keyContent.utf8)
-        let disk = CONFIGDiskBuilder.build(authorizedKey: keyData)
+        let disk = ConfigDiskBuilder.build(authorizedKey: keyData)
 
         // Data region: MBR(512) + FAT(512) + 2*4*512(FATs) + 32*512(root dir) = 21504
         let dataRegionOffset = 512 + 512 + 2 * 4 * 512 + 32 * 512
@@ -352,7 +352,7 @@ import Testing
     @Test("CONFIG disk raw directory structure")
     func configDiskRawDirectory() throws {
         let keyData = Data("ssh-ed25519 test\n".utf8)
-        let disk = CONFIGDiskBuilder.build(authorizedKey: keyData)
+        let disk = ConfigDiskBuilder.build(authorizedKey: keyData)
         // Root directory at MBR(512) + FAT(512) + 2*4*512(FATs) = 5120
         let rootDir = 5120
 

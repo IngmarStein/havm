@@ -14,7 +14,7 @@ import Virtualization
     private func withConfigDisk<T>(_ body: (String) throws -> T) throws -> T {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("havm-config-\(UUID().uuidString).img")
-        let disk = CONFIGDiskBuilder.build(
+        let disk = ConfigDiskBuilder.build(
             authorizedKey: Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test\n".utf8)
         )
         try disk.write(to: url)

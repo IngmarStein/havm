@@ -78,7 +78,7 @@ HavmCore
 │                    force-stop fallback, DHCP lease guest IP detection,
 │                    console mode: raw terminal, skip SIGINT, restore on exit,
 │                    AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
-├── CONFIGDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
+├── ConfigDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
 ├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP,
 │                    TCP and/or Unix socket), bootstrap, process gauges

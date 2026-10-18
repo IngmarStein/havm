@@ -22,7 +22,7 @@ macOS 15 minimum (USB accessory passthrough requires macOS 27). Swift 6.4.
 │  │  │        │ │Decompress  │ │           │ │   │
 │  │  └────────┘ └────────────┘ └──────────┘ │   │
 │  │  ┌───────────────────────┐               │   │
-│  │  │ CONFIGDiskBuilder     │               │   │
+│  │  │ ConfigDiskBuilder     │               │   │
 │  │  │ (MBR + FAT16 LFN)     │               │   │
 │  │  └───────────────────────┘               │   │
 │  │  ┌──────────────────────────────────┐   │   │

@@ -5,7 +5,7 @@ import Foundation
 /// Builds a minimal MBR + FAT16 disk image with volume label "CONFIG" and an
 /// `authorized_keys` file. Home Assistant OS auto-imports SSH keys from
 /// any attached disk with an MBR partition labeled "CONFIG" on boot.
-enum CONFIGDiskBuilder {
+enum ConfigDiskBuilder {
 
     /// Create an MBR + FAT16 disk image containing an authorized_keys file.
     /// - Parameter keyData: The SSH public key text (one key per line, LF-separated).
