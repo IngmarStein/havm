@@ -108,9 +108,15 @@ CXZ (C target)
   5 s SSH connect) and the wait for `.stopped` consumes the rest. Restarting the budget per
   method used to force-stop a guest that was still halting cleanly after an accepted
   shutdown request (issue #11), and grew the total to `min(budget, 10) + 3 x budget`.
-  Budget + force-stop + cleanup must stay under the Homebrew formula's
-  `stop_timeout 120` (launchd `ExitTimeOut`), or launchd `SIGKILL`s havm mid-shutdown —
-  and with `KeepAlive true` restarts it, booting a guest whose disk was yanked mid-halt.
+  Under `brew services` launchd silently caps `ExitTimeOut` at 60 s — in the `gui` and
+  `system` domains alike — so a launchd-initiated stop gives the guest at most 60 s before
+  SIGKILL, whatever the configured budget. `ExitTimeOut 0` is worse: launchd SIGKILLs
+  immediately without sending SIGTERM at all, the man page's "zero is interpreted as
+  infinity" notwithstanding. The default budget stays 90 s because a budget at or above the
+  window lets the guest use all of it and lets launchd, not havm, end a shutdown that
+  overruns; a guest that needs longer has to be stopped outside launchd, where a direct
+  signal is not capped. With `KeepAlive true`, a `SIGKILL` mid-shutdown restarts havm onto a
+  disk that was yanked mid-halt.
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
 - **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
   and HA API calls all target `network.hostname` (bridge-mode default `homeassistant.local`)

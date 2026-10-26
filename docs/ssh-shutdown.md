@@ -60,7 +60,12 @@ timeout per method**. Every request attempt and every wait for the guest to
 halt is drawn from the same deadline, so falling through to the next method
 does not restart the clock. When the budget runs out the VM is force-stopped —
 even if a method accepted the shutdown request and the guest is still halting
-cleanly. Raise it if your guest regularly needs longer than 90 seconds.
+cleanly. Under `brew services` launchd sends havm SIGTERM and kills it 60
+seconds later — it silently caps the formula's `stop_timeout` at 60 whatever it
+says — so a guest that halts within a minute does so cleanly, and the default 90
+only matters outside launchd. A guest that needs longer has to be stopped
+outside launchd: Ctrl+C on `havm run` in the foreground, or SIGTERM sent
+directly to the process.
 
 <div class="note">
 ACPI <code>requestStop()</code> is not used — HA OS on aarch64 uses PSCI

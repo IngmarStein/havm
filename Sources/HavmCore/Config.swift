@@ -361,9 +361,12 @@ public struct HavmConfig: Decodable, Sendable {
     /// add-ons; under-shooting this budget means havm hard-powers-off the VM
     /// (`forceStop`) while the guest is still shutting down cleanly.
     ///
-    /// Keep the budget comfortably below the 120 s `ExitTimeOut` the Homebrew
-    /// formula sets (`stop_timeout 120`): launchd `SIGKILL`s the process once
-    /// that elapses, so a larger budget would skip the force-stop entirely.
+    /// Under `brew services` the budget is moot past 60 s: launchd sends SIGTERM
+    /// and SIGKILLs 60 s later, silently capping `ExitTimeOut` at 60 whatever the
+    /// formula sets. A budget at or above that window lets the guest use all of
+    /// it and lets launchd — not havm — end a shutdown that overruns. A guest
+    /// that needs longer has to be stopped outside launchd: a signal sent
+    /// directly to the process is not capped.
     public var effectiveShutdownTimeout: Int {
         shutdown?.timeoutSeconds ?? 90
     }

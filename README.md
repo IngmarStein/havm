@@ -360,10 +360,12 @@ shutdown:
 `timeout_seconds` covers the whole shutdown rather than each attempt, so it is
 the value to raise if the VM gets force-stopped while Home Assistant was still
 shutting down cleanly — Home Assistant OS can take a minute or more on installs
-with many add-ons or large databases. Under `brew services` keep it below about
-90: the service stops havm 120 seconds after asking it to quit, and havm needs
-room in that window to force-stop the VM. For a longer budget, run `havm run`
-outside `brew services`.
+with many add-ons or large databases. Under `brew services` launchd sends havm
+SIGTERM and kills it 60 seconds later, silently capping the formula's
+`stop_timeout` at 60 whatever it says — so a guest that halts within a minute
+does so cleanly, and the default 90 only matters outside launchd. A guest that
+needs longer has to be stopped outside launchd: run `havm run` in the foreground
+and press Ctrl+C, or send SIGTERM to the process directly.
 
 Press Ctrl+C twice to skip the graceful shutdown and stop the VM immediately.
 
@@ -375,6 +377,8 @@ brew services start havm
 
 `havm run` runs in the foreground (ideal for launchd / `brew services`). The
 formula configures `keep_alive true` so the VM restarts automatically if it exits.
+`brew services stop havm` asks havm to quit and gives it up to 60 seconds to halt
+the guest before launchd kills the process.
 
 ## Building from Source
 
