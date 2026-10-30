@@ -25,6 +25,10 @@ jobs:
     runs-on: xcode-27
     env:
       HAS_DEV_CERT: ${{ secrets.DEVELOPER_ID_CERT || '' }}
+      # Same pin as ci.yml: releases are built with the toolchain CI tested.
+      # select-xcode.sh validates it and falls back to the newest install if
+      # the image drops the path.
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
 
     steps:
       - uses: actions/checkout@v7
@@ -33,6 +37,9 @@ jobs:
         run: |
           DEVELOPER_DIR="$(scripts/select-xcode.sh)"
           echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+
+      - name: Show toolchain
+        run: xcodebuild -version
 
       - name: Set version
         run: |

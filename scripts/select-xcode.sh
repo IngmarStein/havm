@@ -17,6 +17,11 @@
 # /Applications/Xcode.app is a symlink to the *default* install on GitHub's
 # images — which is not necessarily the newest one.
 #
+# CI exports DEVELOPER_DIR to pin an exact install, which is what makes rule 1
+# load-bearing there: releases should be built with the toolchain CI tested. A
+# pinned path the image no longer ships is rejected like any other, so the
+# fallback is the newest install rather than a failed job.
+#
 # Prints the Developer directory on stdout; progress goes to stderr, so it
 # composes:
 #   export DEVELOPER_DIR="$(scripts/select-xcode.sh)"
@@ -98,6 +103,8 @@ add_candidate() {
     esac
     seen="$seen$real"$'\n'
     case "${real##*/}" in
+        # Name-based, so a Release Candidate counts as stable instead of
+        # falling through to the beta-only path.
         *[Bb]eta*) beta+=("$real") ;;
         *)         stable+=("$real") ;;
     esac

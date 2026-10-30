@@ -22,7 +22,10 @@ binary still runs on macOS 15 even though the host (and GitHub's `xcode-27`
 image, itself macOS 27/arm64) does not. `scripts/select-xcode.sh` picks the
 toolchain by the version each bundle reports — `$DEVELOPER_DIR` if it qualifies,
 else the newest stable install, else the newest beta — and both workflows plus
-`publish.sh` use it.
+`publish.sh` use it. Both workflows pin Xcode 27.2 by exporting
+`DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer`, so CI and
+releases build with the version we test against; the selector validates the pin
+and falls back to the newest install if the image drops that path.
 
 ## Release Process
 
