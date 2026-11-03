@@ -84,9 +84,16 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/havm"
 # The Dock icon: `havm run` is a regular application so the system waits for it
-# during a logout (see Sources/Havm/ApplicationLoop.swift). Regenerate with
-# scripts/make-app-icon.swift.
-cp assets/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
+# during a logout (see Sources/Havm/ApplicationLoop.swift). The Icon Composer
+# document is the source; actool compiles it into Assets.car for macOS 26 and
+# later, plus an .icns fallback for earlier versions. Regenerate the document
+# with scripts/make-app-icon.swift.
+xcrun actool assets/AppIcon.icon \
+    --compile "$APP_DIR/Contents/Resources" \
+    --platform macosx --minimum-deployment-target 15.0 --target-device mac \
+    --app-icon AppIcon \
+    --output-partial-info-plist "$APP_DIR/actool.plist" \
+    --output-format human-readable-text
 
 # Version for the bundle metadata. Sources/Havm/main.swift is the single source
 # of truth — the release workflow rewrites it from the tag before building, and
@@ -108,6 +115,8 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <string>APPL</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleShortVersionString</key>
     <string>__VERSION__</string>
     <key>CFBundleVersion</key>
@@ -118,6 +127,7 @@ PLIST
 
 # Substituted after the heredoc so the plist itself stays literal.
 sed -i '' "s/__VERSION__/$VERSION/g" "$APP_DIR/Contents/Info.plist"
+rm -f "$APP_DIR/actool.plist"
 
 if [ -n "$DEVELOPMENT_TEAM" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     # Real identity: embed provisioning profile for restricted entitlements.

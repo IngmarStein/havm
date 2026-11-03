@@ -106,8 +106,16 @@ CXZ (C target)
   The Dock icon is the unavoidable cost — no public API hides one while keeping the app
   regular, and `.accessory`, `.prohibited` and `LSBackgroundOnly` are exactly the kinds
   that get swept. It is drawn by `scripts/make-app-icon.swift` into
-  `assets/AppIcon.icns`: a cyan house (Home Assistant's silhouette and colour family,
-  not its logo) holding a white isometric box, the machine it runs. Two things are load-bearing:
+  `assets/AppIcon.icon` — an Icon Composer document, not a legacy `.icns`: a cyan
+  house (Home Assistant's silhouette and colour family, not its logo) holding a
+  white isometric box, the machine it runs. `scripts/build.sh` runs `actool` on it,
+  which produces `Assets.car` for macOS 26 and later plus an `AppIcon.icns`
+  fallback for earlier versions, and sets both `CFBundleIconName` and
+  `CFBundleIconFile`. The document format is undocumented in two ways that matter:
+  layer images live in `Assets/` with `image-name` carrying the extension, and
+  groups and layers are listed **front to back** — a layer listed after another is
+  behind it, so the box must come first or the opaque house hides it.
+  Two things are load-bearing:
   1. The entry point (`HavmEntry`) is **synchronous**. ArgumentParser's async main
      parks the main thread in `dispatchMain()` once the command suspends, and a run
      loop entered from inside a main-queue drain never services the main queue again —
