@@ -81,8 +81,12 @@ sign_app() {
 # Always create .app bundle for consistent output structure.
 APP_DIR=".build/Havm.app"
 rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/havm"
+# The Dock icon: `havm run` is a regular application so the system waits for it
+# during a logout (see Sources/Havm/ApplicationLoop.swift). Regenerate with
+# scripts/make-app-icon.swift.
+cp assets/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 # Version for the bundle metadata. Sources/Havm/main.swift is the single source
 # of truth — the release workflow rewrites it from the tag before building, and
@@ -102,6 +106,8 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <string>Havm</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleShortVersionString</key>
     <string>__VERSION__</string>
     <key>CFBundleVersion</key>

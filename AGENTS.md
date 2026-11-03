@@ -105,7 +105,9 @@ CXZ (C target)
   stopped; `cleanupAndExit` then answers the pending quit instead of calling `exit()`.
   The Dock icon is the unavoidable cost — no public API hides one while keeping the app
   regular, and `.accessory`, `.prohibited` and `LSBackgroundOnly` are exactly the kinds
-  that get swept. Two things are load-bearing:
+  that get swept. It is drawn by `scripts/make-app-icon.swift` into
+  `assets/AppIcon.icns`: a cyan house (Home Assistant's silhouette and colour family,
+  not its logo) holding a white isometric box, the machine it runs. Two things are load-bearing:
   1. The entry point (`HavmEntry`) is **synchronous**. ArgumentParser's async main
      parks the main thread in `dispatchMain()` once the command suspends, and a run
      loop entered from inside a main-queue drain never services the main queue again —
