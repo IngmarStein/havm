@@ -39,6 +39,17 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var runContinuation: CheckedContinuation<Void, Never>?
     private var shutdownRequested = false
     private var restartRequested = false
+    /// Set when the application itself is terminating (logout, restart, Cmd+Q).
+    /// `cleanupAndExit` then answers the quit Apple Event instead of calling
+    /// `exit()` outright, so the system sees the guest stop rather than a
+    /// process that vanished.
+    private var terminationRequested = false
+
+    /// Called from `cleanupAndExit` when the process is ending because of a
+    /// quit Apple Event. The application layer sets this to reply to the
+    /// pending quit; replying terminates the process. Left `nil` when havm runs
+    /// without an event loop, where `cleanupAndExit` simply exits.
+    public var terminationHandler: ((Int32) -> Void)?
     private var guestReachableNotified = false
     private var supervisorReachableNotified = false
     private var webUIReadyNotified = false
@@ -101,8 +112,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Run the VM, blocking the calling thread until the VM exits or a signal is received.
-    public func runBlocking() async -> Int32 {
+    /// Run the VM, blocking the calling task until the VM exits or a signal is
+    /// received. Never returns: every exit path goes through `cleanupAndExit`.
+    public func runBlocking() async {
         // Write PID file for external tooling (Homebrew services, monitoring).
         writePIDFile()
 
@@ -137,7 +149,6 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             self.runContinuation = c
         }
-        return 0
     }
 
     // MARK: - Boot instructions
@@ -252,6 +263,18 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         metricsServer?.stop()
         fflush(stdout)
         runContinuation?.resume()
+
+        // A quit Apple Event is still pending: answer it, now that the guest is
+        // stopped, so loginwindow sees a clean quit instead of an app that
+        // disappeared. The reply terminates the process, and AppKit requires it
+        // on the main thread while the shutdown path may finish elsewhere.
+        if terminationRequested, let terminationHandler {
+            if Thread.isMainThread {
+                terminationHandler(code)
+            } else {
+                DispatchQueue.main.sync { terminationHandler(code) }
+            }
+        }
         exit(code)
     }
 
@@ -449,13 +472,29 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             logger.warning("\(name) received again — exiting immediately")
             cleanupAndExit(1)
         }
-        shutdownRequested = true
         if name == "SIGHUP" {
             restartRequested = true
-            logger.info("\(name) received — restarting VM...")
+            beginShutdown(logging: "\(name) received — restarting VM...")
         } else {
-            logger.info("\(name) received — initiating graceful shutdown...")
+            beginShutdown(logging: "\(name) received — initiating graceful shutdown...")
         }
+    }
+
+    /// Shut the guest down because the application is terminating: a logout, a
+    /// restart, or Cmd+Q. Idempotent — AppKit asks on every quit attempt, and a
+    /// second request while the guest is already halting must not restart the
+    /// chain or force-stop a guest that is shutting down cleanly.
+    public func requestTermination() {
+        // Set even when a shutdown is already running, so that shutdown's
+        // `cleanupAndExit` answers the quit instead of exiting outright.
+        terminationRequested = true
+        guard !shutdownRequested else { return }
+        beginShutdown(logging: "Quit requested — initiating graceful shutdown...")
+    }
+
+    private func beginShutdown(logging message: String) {
+        shutdownRequested = true
+        logger.info("\(message)")
         let ip = guestIP
         let cfg = config
         Task { await performGracefulShutdown(guestIP: ip, config: cfg) }
@@ -610,6 +649,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         healthPollCount = 0
         shutdownRequested = false
         restartRequested = false
+        terminationRequested = false
         bootTimer?.cancel()
         observerTask?.cancel()
         webUITask?.cancel()

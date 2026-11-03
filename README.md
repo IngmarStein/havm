@@ -380,6 +380,17 @@ formula configures `keep_alive true` so the VM restarts automatically if it exit
 `brew services stop havm` asks havm to quit and gives it up to 60 seconds to halt
 the guest before launchd kills the process.
 
+### Logging Out or Restarting the Mac
+
+The Mac waits for `havm run` during a logout or restart instead of killing it:
+havm shuts the guest down first and only then quits, so Home Assistant halts
+cleanly instead of being cut off mid-write.
+
+That is also why havm shows a Dock icon while it runs. The icon and the clean
+shutdown are the same thing — macOS only waits for a regular application, and
+there is no way to hide a regular application's icon. The icon does nothing on
+its own: stop the VM with Ctrl+C, SIGTERM, or `brew services stop`.
+
 ## Building from Source
 
 Ad-hoc signing works for basic VM functionality. USB accessories require

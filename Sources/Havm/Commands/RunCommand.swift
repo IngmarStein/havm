@@ -1,4 +1,6 @@
+import AppKit
 import ArgumentParser
+import Darwin
 import Foundation
 import HavmCore
 import Logging
@@ -37,7 +39,63 @@ struct RunCommand: AsyncParsableCommand {
           help: "Interactive serial console — connect stdin/stdout to guest VM.")
     var console: Bool = false
 
+    /// Run the service inside an AppKit event loop. Never returns.
+    ///
+    /// Without the loop the process is a plain executable with no Apple Event
+    /// port: a logout or restart never asks it to quit, and loginwindow kills
+    /// it — taking the guest down mid-halt — as soon as the session goes away.
+    /// Running a real event loop makes it a regular application the system
+    /// waits for, and lets `applicationShouldTerminate` hold the quit until
+    /// `ServiceRuntime` reports the guest stopped.
+    ///
+    /// The main thread belongs to the loop from here on, which is why the
+    /// process entry point is synchronous (see `HavmEntry`): entering a run
+    /// loop from inside a main-queue drain would stop the main queue from being
+    /// serviced, and the runtime's signal sources and poll timers live there.
+    @MainActor
+    func runInApplicationLoop() -> Never {
+        let app = NSApplication.shared
+        let delegate = HavmApplicationDelegate()
+        app.delegate = delegate
+        // Regular, explicitly: an unbundled binary (and any LSUIElement
+        // setting) would otherwise be classified as a UI element, which is the
+        // case loginwindow does not wait for.
+        app.setActivationPolicy(.regular)
+        // No menu bar on purpose. The only item worth having would be Quit, and
+        // under `brew services` (`keep_alive true`) quitting the process just
+        // has launchd start it again — an affordance that visibly does nothing.
+        // Foreground runs stop with Ctrl+C, which is what the docs say.
+        // Sudden termination would let the system kill the process without
+        // asking, which is exactly the case this loop exists to handle.
+        ProcessInfo.processInfo.disableSuddenTermination()
+        ProcessInfo.processInfo.disableAutomaticTermination("havm is running a virtual machine")
+
+        Task { [self] in
+            do {
+                try await runService(delegate: delegate)
+                Darwin.exit(0)
+            } catch let exitCode as ExitCode {
+                // Setup failures have already been logged; ArgumentParser's
+                // own error printing would repeat them.
+                Darwin.exit(exitCode.rawValue)
+            } catch {
+                FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+                Darwin.exit(1)
+            }
+        }
+
+        app.run()
+        // Reached only if the loop stops without terminating the process.
+        Darwin.exit(0)
+    }
+
+    /// ArgumentParser's requirement. Reached only if the command is run without
+    /// the app loop — the entry point always uses `runInApplicationLoop()`.
     func run() async throws {
+        try await runService(delegate: nil)
+    }
+
+    private func runService(delegate: HavmApplicationDelegate?) async throws {
         // 0. Set data directory override before anything touches the file system.
         if let dir = dataDir {
             HavmConfig.dataDirectoryOverride = dir
@@ -167,10 +225,15 @@ struct RunCommand: AsyncParsableCommand {
             runtime?.collectDiskMetrics()
         }
 
+        // Hand the runtime to the app loop so a quit request (logout, restart,
+        // Cmd+Q) reaches the same graceful-shutdown chain a signal does.
+        if let delegate {
+            await MainActor.run { delegate.attach(runtime: runtime) }
+        }
+
         // runBlocking dispatches VM setup to the main queue then suspends the
-        // calling task. All exit paths call cleanupAndExit() — the return value
-        // is never reached.
-        _ = await runtime.runBlocking()
+        // calling task. All exit paths call cleanupAndExit() — it never returns.
+        await runtime.runBlocking()
     }
 }
 

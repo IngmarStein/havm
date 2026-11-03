@@ -1,4 +1,5 @@
 import ArgumentParser
+import Foundation
 
 /// havm — Home Assistant VM Runner
 ///
@@ -8,8 +9,7 @@ import ArgumentParser
 /// launchd service managed via Homebrew.
 ///
 /// Requires macOS 15 or later. USB accessory passthrough requires macOS 27.
-@main
-struct HavmCLI: AsyncParsableCommand {
+struct HavmCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "havm",
         abstract: "Zero-config Home Assistant OS VM runner for Apple Silicon.",
@@ -34,6 +34,60 @@ struct HavmCLI: AsyncParsableCommand {
             VersionCommand.self,
         ]
     )
+}
+
+/// The process entry point, deliberately synchronous.
+///
+/// ArgumentParser would offer an `async` main that leaves the main thread in
+/// `dispatchMain()` once the command suspends. `havm run` cannot use that: it
+/// hands the main thread to AppKit's event loop, and a loop entered from inside
+/// a main-queue drain never services the main queue again — the dispatch
+/// sources the runtime depends on (signals, the boot poll timer, VM state
+/// callbacks) would stop firing. Entering the loop from top-level code, before
+/// anything has suspended, avoids that.
+@main
+enum HavmEntry {
+    static func main() {
+        do {
+            var command = try HavmCLI.parseAsRoot()
+
+            if let run = command as? RunCommand {
+                // Never returns: the app loop owns the main thread and the
+                // process ends through ServiceRuntime.cleanupAndExit.
+                MainActor.assumeIsolated { run.runInApplicationLoop() }
+            }
+
+            // `run` is not the only asynchronous command, and a command reached
+            // through `any ParsableCommand` would dispatch to the protocol's
+            // default *synchronous* `run()`, which only prints help. Route the
+            // async ones explicitly.
+            if let asyncCommand = command as? any AsyncParsableCommand {
+                runAsyncCommand(asyncCommand)
+            }
+
+            try command.run()
+        } catch {
+            HavmCLI.exit(withError: error)
+        }
+    }
+
+    /// Runs an asynchronous command from the synchronous entry point.
+    ///
+    /// The command ends the process itself, so `dispatchMain()` only has to
+    /// keep the main thread servicing the main queue for the command's
+    /// continuations.
+    private static func runAsyncCommand(_ command: sending any AsyncParsableCommand) -> Never {
+        Task {
+            var command = command
+            do {
+                try await command.run()
+                exit(0)
+            } catch {
+                HavmCLI.exit(withError: error)
+            }
+        }
+        dispatchMain()
+    }
 }
 
 enum HavmVersion {

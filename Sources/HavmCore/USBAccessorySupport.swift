@@ -1,5 +1,4 @@
 import Foundation
-import AppKit
 import IOUSBHost
 @_weakLinked import AccessoryAccess
 import Logging
@@ -28,13 +27,12 @@ final class USBAccessoryCoordinator: NSObject, AAUSBAccessoryListener, @unchecke
 
     /// Register with `AAUSBAccessoryManager`. Must run on the main queue.
     func start() {
-        // AAUSBAccessoryManager needs a running NSApplication.
-        // Called from main queue via DispatchQueue.main.async, but NSApplication
-        // is @MainActor — use MainActor.assumeIsolated to satisfy the compiler.
-        MainActor.assumeIsolated {
-            NSApplication.shared.setActivationPolicy(.accessory)
-        } as Void
-
+        // AAUSBAccessoryManager needs a running NSApplication, which the app
+        // loop provides. It does not need havm to *be* a UI-element app, and
+        // asking for that policy here used to do exactly that — demoting the
+        // process to the kind loginwindow kills ~0.2 s into a logout, before
+        // the guest could halt. The activation policy belongs to the
+        // application layer now (see `RunCommand.runInApplicationLoop`).
         AAUSBAccessoryManager.shared.registerListener(
             self, matchingCriteria: [],
             completionHandler: { [weak self] accessories, error in
