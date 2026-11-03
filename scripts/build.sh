@@ -85,15 +85,21 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY" "$APP_DIR/Contents/MacOS/havm"
 # The Dock icon: `havm run` is a regular application so the system waits for it
 # during a logout (see Sources/Havm/ApplicationLoop.swift). The Icon Composer
-# document is the source; actool compiles it into Assets.car for macOS 26 and
-# later, plus an .icns fallback for earlier versions. Regenerate the document
-# with scripts/make-app-icon.swift.
+# document is the source — regenerate it with scripts/make-app-icon.swift — and
+# actool renders it. Only the .icns is kept: the Assets.car actool also produces
+# is 1.7 MB against a 2.1 MB binary, and what it buys is the system-composed
+# dark and tinted appearances, which this document does not define. Drop the
+# staging directory and add Assets.car back if it ever does.
+ICON_STAGE="$APP_DIR/icon-stage"
+mkdir -p "$ICON_STAGE"
 xcrun actool assets/AppIcon.icon \
-    --compile "$APP_DIR/Contents/Resources" \
+    --compile "$ICON_STAGE" \
     --platform macosx --minimum-deployment-target 15.0 --target-device mac \
     --app-icon AppIcon \
     --output-partial-info-plist "$APP_DIR/actool.plist" \
     --output-format human-readable-text
+cp "$ICON_STAGE/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+rm -rf "$ICON_STAGE"
 
 # Version for the bundle metadata. Sources/Havm/main.swift is the single source
 # of truth — the release workflow rewrites it from the tag before building, and
@@ -114,8 +120,6 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>CFBundleShortVersionString</key>
     <string>__VERSION__</string>

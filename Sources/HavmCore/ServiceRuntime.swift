@@ -3,6 +3,26 @@ import Foundation
 import Logging
 import Metrics
 
+/// What the running guest is doing, as far as havm can tell from outside it.
+/// The application layer turns this into a Dock badge and a menu item; it is
+/// the only status havm exposes without a window.
+public enum GuestStatus: Sendable, Equatable {
+    /// No answer from the web UI yet — booting, or booted but not serving.
+    case booting
+    /// Home Assistant answered here.
+    case ready(URL)
+    /// havm stopped waiting. The guest may still be running; it is not
+    /// answering, and the boot phase is over either way.
+    case unreachable
+
+    /// Whether Home Assistant is answering, i.e. whether there is an address
+    /// worth opening.
+    public var isReady: Bool {
+        if case .ready = self { return true }
+        return false
+    }
+}
+
 /// Manages the blocking service runtime: signal handling, VM lifecycle,
 /// graceful shutdown, guest IP discovery, and web UI readiness detection.
 ///
@@ -61,6 +81,14 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// "not known yet" here, and an omitted port needs a `nil` of its own.
     /// Reset on restart, since the new guest may serve elsewhere.
     private var resolvedHAURL: String?
+
+    /// What the Dock tile can say about the guest without opening a browser.
+    /// Main-thread confined: written through `setGuestStatus` and read by the
+    /// application delegate.
+    public private(set) var guestStatus: GuestStatus = .booting
+
+    /// Called when `guestStatus` changes, always on the main thread.
+    public var guestStatusChanged: ((GuestStatus) -> Void)?
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var signalSourceHup: DispatchSourceSignal?
@@ -492,6 +520,24 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         beginShutdown(logging: "Quit requested — initiating graceful shutdown...")
     }
 
+    /// Record what the guest is doing and tell the application layer. The
+    /// status is read by the Dock menu and written from whichever executor the
+    /// boot phase happens to be on, so the write and the callback both happen
+    /// on the main thread.
+    private func setGuestStatus(_ status: GuestStatus) {
+        if Thread.isMainThread {
+            applyGuestStatus(status)
+        } else {
+            DispatchQueue.main.async { [weak self] in self?.applyGuestStatus(status) }
+        }
+    }
+
+    private func applyGuestStatus(_ status: GuestStatus) {
+        guard guestStatus != status else { return }
+        guestStatus = status
+        guestStatusChanged?(status)
+    }
+
     private func beginShutdown(logging message: String) {
         shutdownRequested = true
         logger.info("\(message)")
@@ -643,6 +689,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         firstProbeDone = false
         guestIP = nil
         resolvedHAURL = nil
+        setGuestStatus(.booting)
         lastDHCPLeaseModDate = nil
         cachedDHCPLeaseIP = nil
         observerPollCount = 0
@@ -955,6 +1002,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             if !webUIReadyNotified {
                 webUIReadyNotified = true
                 logger.warning("Timed out waiting for Home Assistant web UI after 5 minutes")
+                // The boot phase is over even though nothing answered. Without
+                // this the Dock keeps a "booting" badge for as long as the VM
+                // runs, which is the opposite of what it means.
+                setGuestStatus(.unreachable)
             }
             return
         }
@@ -987,6 +1038,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
             guard let answered else { return }
             self.resolvedHAURL = answered
+            if let url = URL(string: answered) {
+                self.setGuestStatus(.ready(url))
+            }
             guard !self.webUIReadyNotified else { return }
             self.webUIReadyNotified = true
             self.logger.info("Home Assistant is ready at \(answered)")

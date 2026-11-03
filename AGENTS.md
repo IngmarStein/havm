@@ -108,13 +108,20 @@ CXZ (C target)
   that get swept. It is drawn by `scripts/make-app-icon.swift` into
   `assets/AppIcon.icon` — an Icon Composer document, not a legacy `.icns`: a cyan
   house (Home Assistant's silhouette and colour family, not its logo) holding a
-  white isometric box, the machine it runs. `scripts/build.sh` runs `actool` on it,
-  which produces `Assets.car` for macOS 26 and later plus an `AppIcon.icns`
-  fallback for earlier versions, and sets both `CFBundleIconName` and
-  `CFBundleIconFile`. The document format is undocumented in two ways that matter:
-  layer images live in `Assets/` with `image-name` carrying the extension, and
-  groups and layers are listed **front to back** — a layer listed after another is
-  behind it, so the box must come first or the opaque house hides it.
+  white isometric box, the machine it runs. `scripts/build.sh` renders it with
+  `actool` but keeps only the `.icns` (44 KB): the `Assets.car` actool also
+  produces is 1.7 MB against a 2.1 MB binary, and what it buys — system-composed
+  dark and tinted appearances — this document does not define. The document format
+  is undocumented in two ways that matter: layer images live in `Assets/` with
+  `image-name` carrying the extension, and groups and layers are listed **front
+  to back** — a layer listed after another is behind it, so the box must come
+  first or the opaque house hides it.
+  The tile is also the only UI havm has, so it carries the only status: a `•`
+  badge while `GuestStatus` is `.booting`, cleared when Home Assistant answers
+  (or when the five-minute wait is given up on, which is a different failure and
+  must not leave a badge claiming the guest is still booting), and a Dock menu
+  whose "Open Home Assistant" item is enabled only when there is an address to
+  open.
   Two things are load-bearing:
   1. The entry point (`HavmEntry`) is **synchronous**. ArgumentParser's async main
      parks the main thread in `dispatchMain()` once the command suspends, and a run

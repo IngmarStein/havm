@@ -33,6 +33,50 @@ final class HavmApplicationDelegate: NSObject, NSApplicationDelegate, @unchecked
                 NSApplication.shared.reply(toApplicationShouldTerminate: true)
             } as Void
         }
+        runtime.guestStatusChanged = { [weak self] status in
+            self?.show(status)
+        }
+        show(runtime.guestStatus)
+    }
+
+    /// The Dock tile is the one piece of UI havm has, so it carries the one
+    /// piece of status worth showing: a badge while the guest has not answered
+    /// yet, and nothing once it has (or once waiting has been given up on).
+    private func show(_ status: GuestStatus) {
+        MainActor.assumeIsolated {
+            let tile = NSApplication.shared.dockTile
+            tile.badgeLabel = status == .booting ? "•" : nil
+            tile.display()
+        } as Void
+    }
+
+    // MARK: - Dock menu
+
+    /// Right-clicking the Dock tile offers the one action that is not a
+    /// command: opening the guest's web UI. Quit is not repeated here — the
+    /// Dock adds its own, and with the formula's `keep_alive true` quitting
+    /// just has launchd start havm again.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        // Decided here rather than by AppKit: the item's availability depends
+        // on the guest, not on the responder chain.
+        menu.autoenablesItems = false
+        let item = NSMenuItem(
+            title: "Open Home Assistant",
+            action: #selector(openHomeAssistant),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.isEnabled = runtime?.guestStatus.isReady == true
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func openHomeAssistant() {
+        guard let status = runtime?.guestStatus, case .ready(let url) = status else { return }
+        MainActor.assumeIsolated {
+            NSWorkspace.shared.open(url)
+        } as Void
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
