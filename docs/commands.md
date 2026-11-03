@@ -57,6 +57,13 @@ a non-default location.
 Press Ctrl+C once for graceful shutdown (tries REST API → SSH → force-stop).
 Press Ctrl+C twice to skip and force-stop immediately.
 
+`havm run` is a regular macOS application for as long as it runs. Its Dock tile
+carries a badge while Home Assistant is still starting, and right-clicking it
+opens the web UI, copies the SSH command, and — when `ha.api_token` is
+configured — restarts Home Assistant Core. Logging out or restarting the Mac
+quits havm the same graceful way, and the system waits for the guest to stop
+before the session goes away.
+
 ### Debug Console (`--console`)
 
 Connects your terminal to the VM's virtio serial console (`/dev/hvc0`)

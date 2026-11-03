@@ -44,6 +44,11 @@ havm run
 
 The VM boots and stays attached to your terminal. Press Ctrl+C to stop.
 
+While it runs, havm is a regular macOS application and shows a Dock icon. That
+is what lets the Mac wait for it during a logout or restart instead of killing
+the guest mid-shutdown. Right-click the icon for the guest's address, the web
+UI, and the SSH command.
+
 ### Run as a background service
 
 ```bash

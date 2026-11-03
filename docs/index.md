@@ -67,7 +67,7 @@ title: Home
       <div class="feature-card">
         <div class="icon">⏻</div>
         <h3>Graceful shutdown</h3>
-        <p>REST API → SSH → force-stop fallback on SIGTERM. Three methods before pulling the plug.</p>
+        <p>REST API → SSH → force-stop, whether you press Ctrl+C, send SIGTERM, or log out — the Mac waits for the guest to halt.</p>
       </div>
       <div class="feature-card">
         <div class="icon">📊</div>

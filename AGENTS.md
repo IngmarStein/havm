@@ -146,7 +146,7 @@ CXZ (C target)
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.
 - **Graceful shutdown chain** — on Ctrl+C/SIGTERM, or on a quit request (logout,
-  restart, Cmd+Q; see the AppKit loop above):
+  restart, or Quit from the Dock tile's context menu; see the AppKit loop above):
   1. `POST /api/services/hassio/host_shutdown` (REST API service call, requires `ha.api_token`;
      the address is the one the readiness probe found, else `HAEndpoint.probePorts`)
   2. `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, requires `ssh.authorized_keys`)
@@ -280,6 +280,10 @@ via `VZUSBPassthroughDevice`.
 - All AccessoryAccess/`VZUSBPassthroughDevice` code lives in `USBAccessorySupport.swift`
   (`USBAccessoryCoordinator`, `USBAccessoryDescriptor`), annotated `@available(macOS 27.0, *)`;
   AccessoryAccess is imported `@_weakLinked` so the binary runs on macOS 15+.
+- Because the process is a regular app with its own bundle, macOS attributes a
+  passed-through accessory to "Havm" rather than to the launching terminal. The
+  user docs say so; it has not been re-checked with a device since the app loop
+  landed.
 - `ServiceRuntime.setupUSBDiscovery()` gates on `#available(macOS 27.0, *)`, then
   `USBAccessoryCoordinator.start()` registers `AAUSBAccessoryListener`; the framework's
   menu bar item is the user's selection UI. It needs a running `NSApplication`, which the

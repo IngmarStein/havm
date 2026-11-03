@@ -18,7 +18,10 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
 - **USB accessories** (macOS 27+) — attach coordinators and other USB devices via the
   menu bar item. Hot-plug, no restart needed.
 - **SSH key import** — optional virtual CONFIG disk for root SSH on port 22222.
-- **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM.
+- **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM,
+  Ctrl+C, or a logout/restart of the Mac.
+- **Dock menu** — while it runs, havm's Dock tile shows boot progress and offers
+  the web UI, the SSH command, and a Home Assistant restart.
 - **Prometheus metrics** — built-in HTTP endpoint (TCP or a Unix socket) for
   monitoring VM state and USB accessories. Feed into Grafana dashboards or
   alerting rules.
@@ -218,10 +221,9 @@ will be re-attached automatically shortly after boot on
 the next run. No restart needed.
 
 The menu bar shows, next to each passed-through accessory, the name of the
-app macOS attributes it to — the launching terminal (e.g. "Terminal",
-"Ghostty") or "unknown app" for a launchd service. This label is decided
-by macOS; the AccessoryAccess framework offers no way for havm to change
-it.
+app macOS attributes it to — normally "Havm", since havm runs as a regular
+application with its own bundle. This label is decided by macOS; the
+AccessoryAccess framework offers no way for havm to change it.
 
 ## Logging
 

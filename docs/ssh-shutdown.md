@@ -40,7 +40,8 @@ install the add-on via the HA web UI — it listens on port 22.
 
 ## Graceful Shutdown
 
-On SIGTERM or Ctrl+C, `havm` tries these shutdown methods in order:
+On SIGTERM, Ctrl+C, or a quit — logging out, restarting the Mac, or **Quit** in
+the Dock icon's context menu — `havm` tries these shutdown methods in order:
 
 1. **HA REST API** — `POST <ha.url>/api/services/hassio/host_shutdown`, where the default
    address is probed: `http://<ip>` on HAOS 2026.8+, `http://<ip>:8123` before it
@@ -65,7 +66,9 @@ seconds later — it silently caps the formula's `stop_timeout` at 60 whatever i
 says — so a guest that halts within a minute does so cleanly, and the default 90
 only matters outside launchd. A guest that needs longer has to be stopped
 outside launchd: Ctrl+C on `havm run` in the foreground, or SIGTERM sent
-directly to the process.
+directly to the process. A logout or restart is the one path launchd is not
+part of: the system asks havm to quit and waits for the reply, so the full
+budget applies rather than launchd's 60 seconds.
 
 <div class="note">
 ACPI <code>requestStop()</code> is not used — HA OS on aarch64 uses PSCI
