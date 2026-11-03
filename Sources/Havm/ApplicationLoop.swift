@@ -52,24 +52,54 @@ final class HavmApplicationDelegate: NSObject, NSApplicationDelegate, @unchecked
 
     // MARK: - Dock menu
 
-    /// Right-clicking the Dock tile offers the one action that is not a
-    /// command: opening the guest's web UI. Quit is not repeated here — the
-    /// Dock adds its own, and with the formula's `keep_alive true` quitting
-    /// just has launchd start havm again.
+    /// Right-clicking the Dock tile is where havm answers "what is it doing"
+    /// and offers the two things you would otherwise reach for a browser or a
+    /// terminal to do. Quit is not repeated here — the Dock adds its own, and
+    /// with the formula's `keep_alive true` quitting just has launchd start
+    /// havm again.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        guard let runtime else { return nil }
+        let status = runtime.guestStatus
+
         let menu = NSMenu()
-        // Decided here rather than by AppKit: the item's availability depends
-        // on the guest, not on the responder chain.
+        // Decided here rather than by AppKit: what is available depends on the
+        // guest, not on the responder chain.
         menu.autoenablesItems = false
-        let item = NSMenuItem(
-            title: "Open Home Assistant",
-            action: #selector(openHomeAssistant),
-            keyEquivalent: ""
-        )
-        item.target = self
-        item.isEnabled = runtime?.guestStatus.isReady == true
-        menu.addItem(item)
+
+        let summary = NSMenuItem(title: Self.summary(for: status), action: nil, keyEquivalent: "")
+        summary.isEnabled = false
+        menu.addItem(summary)
+        menu.addItem(.separator())
+
+        menu.addItem(action("Open Home Assistant", #selector(openHomeAssistant), enabled: status.isReady))
+        menu.addItem(action("Copy SSH Command", #selector(copySSHCommand), enabled: status.isReady))
+
+        // Left out rather than greyed when no token is configured: an item that
+        // can never be enabled is noise in a menu this short.
+        if runtime.canRestartHomeAssistant {
+            menu.addItem(.separator())
+            menu.addItem(action("Restart Home Assistant", #selector(restartHomeAssistant), enabled: status.isReady))
+        }
         return menu
+    }
+
+    /// The one line at the top of the menu: what the guest is doing, and where.
+    private static func summary(for status: GuestStatus) -> String {
+        switch status {
+        case .booting:
+            return "Starting Home Assistant…"
+        case .ready(let url):
+            return "Home Assistant at \(url.host ?? url.absoluteString)"
+        case .unreachable:
+            return "Home Assistant is not responding"
+        }
+    }
+
+    private func action(_ title: String, _ selector: Selector, enabled: Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+        item.target = self
+        item.isEnabled = enabled
+        return item
     }
 
     @objc private func openHomeAssistant() {
@@ -77,6 +107,22 @@ final class HavmApplicationDelegate: NSObject, NSApplicationDelegate, @unchecked
         MainActor.assumeIsolated {
             NSWorkspace.shared.open(url)
         } as Void
+    }
+
+    /// Copies the command havm prints in its startup banner, in the same form,
+    /// so the two cannot drift apart.
+    @objc private func copySSHCommand() {
+        guard let status = runtime?.guestStatus, case .ready(let url) = status,
+              let host = url.host else { return }
+        MainActor.assumeIsolated {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString("ssh root@\(host) -p 22222", forType: .string)
+        } as Void
+    }
+
+    @objc private func restartHomeAssistant() {
+        runtime?.restartHomeAssistant()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

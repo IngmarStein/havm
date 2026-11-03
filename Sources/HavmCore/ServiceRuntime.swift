@@ -538,6 +538,46 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         guestStatusChanged?(status)
     }
 
+    /// Whether Home Assistant can be asked to restart itself. It takes an API
+    /// token, so this is only offered when one is configured — the Dock menu
+    /// leaves the item out entirely rather than showing it permanently greyed.
+    public var canRestartHomeAssistant: Bool {
+        config.effectiveHAAPIToken != nil
+    }
+
+    /// Ask the running Home Assistant to restart itself, through the same REST
+    /// API the shutdown chain uses. Fire-and-forget: the guest stays up either
+    /// way, so the outcome is only ever a log line. This is not part of the
+    /// shutdown chain — it restarts Home Assistant Core inside a guest that
+    /// keeps running.
+    public func restartHomeAssistant() {
+        guard let base = resolvedHAURL, let token = config.effectiveHAAPIToken else {
+            logger.warning("Cannot restart Home Assistant yet: no address or API token.")
+            return
+        }
+        guard let url = URL(string: "\(base)/api/services/homeassistant/restart") else { return }
+        logger.info("Restarting Home Assistant at \(base)...")
+        Task {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.emptyJSONBody
+            request.timeoutInterval = 10
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if code == 200 {
+                    logger.info("Home Assistant restart accepted.")
+                } else {
+                    logger.warning("Home Assistant restart rejected (HTTP \(code)).")
+                }
+            } catch {
+                logger.warning("Home Assistant restart failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func beginShutdown(logging message: String) {
         shutdownRequested = true
         logger.info("\(message)")

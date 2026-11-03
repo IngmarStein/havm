@@ -389,8 +389,10 @@ cleanly instead of being cut off mid-write.
 That is also why havm shows a Dock icon while it runs. The icon and the clean
 shutdown are the same thing — macOS only waits for a regular application, and
 there is no way to hide a regular application's icon. The icon carries a badge
-while Home Assistant is still starting, and right-clicking it offers **Open Home
-Assistant**. Stopping the VM is still Ctrl+C, SIGTERM, or `brew services stop`.
+while Home Assistant is still starting. Right-clicking it shows the guest's
+address, opens the web UI, and copies the SSH command — plus **Restart Home
+Assistant** when `ha.api_token` is configured. Stopping the VM is still Ctrl+C,
+SIGTERM, or `brew services stop`.
 
 ## Building from Source
 

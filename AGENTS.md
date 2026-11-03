@@ -119,9 +119,13 @@ CXZ (C target)
   The tile is also the only UI havm has, so it carries the only status: a `•`
   badge while `GuestStatus` is `.booting`, cleared when Home Assistant answers
   (or when the five-minute wait is given up on, which is a different failure and
-  must not leave a badge claiming the guest is still booting), and a Dock menu
-  whose "Open Home Assistant" item is enabled only when there is an address to
-  open.
+  must not leave a badge claiming the guest is still booting). The Dock menu leads
+  with that same status, then offers "Open Home Assistant" and "Copy SSH Command"
+  — both enabled only once the guest has answered — and "Restart Home Assistant",
+  which is left out entirely when no `ha.api_token` is configured rather than
+  sitting there permanently greyed. The restart goes through the same REST client
+  as the shutdown chain but is not part of it: Home Assistant Core restarts and
+  the guest keeps running.
   Two things are load-bearing:
   1. The entry point (`HavmEntry`) is **synchronous**. ArgumentParser's async main
      parks the main thread in `dispatchMain()` once the command suspends, and a run
