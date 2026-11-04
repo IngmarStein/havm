@@ -150,6 +150,10 @@ public struct HavmConfig: Decodable, Sendable {
     public struct LoggingOverrides: Decodable, Sendable {
         public var level: LogLevel?
         public var format: LogFormat?
+        /// Where to write the log instead of stdout. Worth setting when havm is
+        /// launched without a terminal — from Finder, `open`, or a login item —
+        /// where stdout is `/dev/null` and the lines would otherwise be lost.
+        public var file: String?
 
         public enum LogLevel: String, Decodable, Sendable {
             case debug, info, warning, error
@@ -159,9 +163,10 @@ public struct HavmConfig: Decodable, Sendable {
             case text, json
         }
 
-        public init(level: LogLevel? = nil, format: LogFormat? = nil) {
+        public init(level: LogLevel? = nil, format: LogFormat? = nil, file: String? = nil) {
             self.level = level
             self.format = format
+            self.file = file
         }
     }
 
@@ -304,6 +309,13 @@ public struct HavmConfig: Decodable, Sendable {
     /// Effective log format: defaults to `.text`.
     public var effectiveLogFormat: LoggingOverrides.LogFormat {
         logging?.format ?? .text
+    }
+
+    /// The log file, with `~` expanded. `nil` means stdout, which is what
+    /// every launch that has somewhere to put it should use.
+    public var effectiveLogFile: String? {
+        guard let file = logging?.file, !file.isEmpty else { return nil }
+        return NSString(string: file).expandingTildeInPath
     }
 
     /// Effective log level: defaults to `.info`.

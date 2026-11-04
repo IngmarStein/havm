@@ -137,9 +137,22 @@ struct RunCommand: AsyncParsableCommand {
         }
         let useJSON = console ? false : (format == .json)
 
+        // `logging.file` replaces stdout entirely. It is the only way to keep
+        // a log from a launch that has no terminal — Finder, `open`, a login
+        // item — and it works the same for the launches that do.
+        let logFile = havmConfig.effectiveLogFile.flatMap { LogDestination.openFile(at: $0) }
+
         if useJSON {
             LoggingSystem.bootstrap { label in
-                var handler = JSONLogHandler(label: label, stream: FileHandle.standardOutput)
+                var handler = JSONLogHandler(
+                    label: label, stream: logFile ?? FileHandle.standardOutput
+                )
+                handler.logLevel = effectiveLogLevel
+                return handler
+            }
+        } else if let logFile {
+            LoggingSystem.bootstrap { label in
+                var handler = StreamLogHandler(label: label, stream: FileLogStream(handle: logFile))
                 handler.logLevel = effectiveLogLevel
                 return handler
             }

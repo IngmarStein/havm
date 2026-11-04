@@ -70,8 +70,8 @@ carries no arguments, and havm reads that as `run`.
 This is not the same as `brew services` in two ways worth knowing: the app is
 not supervised, so it stays down if it exits (a `poweroff` inside the guest, a
 crash) until the next login; and a login launch has no terminal, so havm's log
-lines are discarded — the Dock menu shows the guest's address once Home
-Assistant answers.
+lines are discarded unless you set `logging.file` in `config.yml`. The Dock menu
+shows the guest's address once Home Assistant answers.
 
 When running as a service, havm uses separate paths to avoid conflicts
 with foreground runs:

@@ -51,6 +51,7 @@ ha:
 logging:
   format: text            # text (default) or json (NDJSON, one object per line)
   level: debug            # debug, info (default), warning, error
+  file: ~/Library/Logs/havm.log   # write the log here instead of stdout
 
 metrics:
   enabled: true           # default: false

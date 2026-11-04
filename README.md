@@ -57,8 +57,9 @@ A login launch carries no arguments, and havm reads that as `run`.
 
 Two things differ from `brew services`. The app is not supervised, so if it
 exits — a `poweroff` inside the guest, a crash — it stays down until the next
-login. And a login launch has no terminal, so havm's log lines are discarded;
-the Dock menu shows the guest's address once Home Assistant answers.
+login. And a login launch has no terminal, so havm's log lines are discarded unless
+you set `logging.file` in `config.yml`; the Dock menu shows the guest's address
+once Home Assistant answers.
 
 ### Build from source
 
@@ -257,7 +258,17 @@ logging:
   level: info
 ```
 
-To log to a file, direct stdout via launchd's `StandardOutPath`.
+To log to a file, set `logging.file` — it takes the place of stdout, which is
+also the only way to keep a log from a launch with no terminal (Finder, a login
+item):
+
+```yaml
+logging:
+  file: ~/Library/Logs/havm.log
+```
+
+Under `brew services`, launchd's `StandardOutPath` already does this, and the
+formula points it at `var/log/havm.log`.
 
 ## Metrics
 
