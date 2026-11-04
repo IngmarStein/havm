@@ -534,6 +534,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         // `cleanupAndExit` answers the quit instead of exiting outright.
         if terminationRequestedAt == nil { terminationRequestedAt = Date() }
         terminationRequested = true
+        // A quit outranks a restart. A terminal run gets SIGHUP when the
+        // terminal itself quits at logout, which starts a *restart*; if the
+        // quit then arrives, the shutdown that is already running has to end
+        // in an answer, not in a fresh VM the session will kill.
+        restartRequested = false
         guard !shutdownRequested else { return }
         beginShutdown(logging: "Quit requested — initiating graceful shutdown...")
     }
@@ -718,6 +723,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// Called after graceful shutdown when `restartRequested` is set
     /// (e.g. SIGHUP). No process exit — the calling task continues.
     private func restartVM() {
+        // A quit that landed while the guest was halting outranks the restart:
+        // starting a fresh VM here would leave the quit unanswered, and the
+        // session would kill the process with the new guest already booting.
+        if terminationRequested { cleanupAndExit(0) }
         // Reload config from disk so VM settings (CPU, memory, disk,
         // network) take effect on restart.
         do {
