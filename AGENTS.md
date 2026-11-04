@@ -166,12 +166,15 @@ CXZ (C target)
   overruns; a guest that needs longer has to be stopped outside launchd, where a direct
   signal is not capped. With `KeepAlive true`, a `SIGKILL` mid-shutdown restarts havm onto a
   disk that was yanked mid-halt. A logout or restart is asked for by loginwindow, which
-  waits for the reply rather than applying `ExitTimeOut` — but launchd may still send a
-  SIGTERM as it tears the session down (reported on 1.0.6, not yet measured here). That
-  signal must not be mistaken for the second Ctrl+C that force-exits: `signalShutdown`
-  ignores signals while `terminationRequested` is set, logs them, and lets the shutdown
-  finish, which also makes a real logout answer the question in its log. Whether launchd
-  SIGKILLs 60 s into a logout is still untested; the quit reply logs the elapsed time
+  waits for the reply rather than applying `ExitTimeOut`. Measured on 1.1.0 — a
+  foreground run and a `brew services` job, logged out of one after the other — the quit
+  arrived alone, with no SIGTERM behind it (the one reported on 1.0.6 predates the app
+  loop, when loginwindow was sweeping a UIElement process), the guest halted, and the
+  reply was answered after 38 s and 10 s. `signalShutdown` still ignores signals while
+  `terminationRequested` is set: it is three lines, and the alternative is a killed
+  guest. It logs what it ignores, so a configuration where launchd does signal says so
+  in its log. Whether launchd SIGKILLs 60 s into a logout is still untested — both
+  guests here halted well inside that window. The quit reply logs the elapsed time
   (`Answering the quit after Ns`), so a quit that never logs one was cut short.
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
 - **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
