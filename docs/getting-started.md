@@ -61,6 +61,18 @@ The VM starts at login and restarts automatically if it exits. View logs with:
 brew services info havm
 ```
 
+### Without Homebrew
+
+If you installed `Havm.app` from the releases page instead, add it under
+**System Settings → General → Login Items → Open at Login**. A login launch
+carries no arguments, and havm reads that as `run`.
+
+This is not the same as `brew services` in two ways worth knowing: the app is
+not supervised, so it stays down if it exits (a `poweroff` inside the guest, a
+crash) until the next login; and a login launch has no terminal, so havm's log
+lines are discarded — the Dock menu shows the guest's address once Home
+Assistant answers.
+
 When running as a service, havm uses separate paths to avoid conflicts
 with foreground runs:
 

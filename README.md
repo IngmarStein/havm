@@ -31,6 +31,7 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
 https://github.com/user-attachments/assets/aed92929-dfea-4e6f-b62c-4fed7100d34e
 
 [haos]: https://github.com/home-assistant/operating-system
+[releases]: https://github.com/IngmarStein/havm/releases
 [vz]: https://developer.apple.com/documentation/virtualization
 
 ## Quick Start
@@ -47,6 +48,17 @@ Or run as a background service:
 ```bash
 brew services start havm
 ```
+
+### Without Homebrew
+
+Take `Havm.app` from the [releases][releases], put it wherever you keep apps,
+and add it under **System Settings → General → Login Items → Open at Login**.
+A login launch carries no arguments, and havm reads that as `run`.
+
+Two things differ from `brew services`. The app is not supervised, so if it
+exits — a `poweroff` inside the guest, a crash — it stays down until the next
+login. And a login launch has no terminal, so havm's log lines are discarded;
+the Dock menu shows the guest's address once Home Assistant answers.
 
 ### Build from source
 
