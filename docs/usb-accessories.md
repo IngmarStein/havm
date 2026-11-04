@@ -51,10 +51,15 @@ rather than havm:
 
 | How havm runs | Name shown next to a passed-through accessory |
 |---|---|
-| From a terminal | The terminal app (e.g. "Terminal", "Ghostty") |
 | Opened from Finder | "Havm" |
-| As a launchd / Homebrew service | "unknown app" |
+| As a launchd / Homebrew service | "Havm" |
+| From a terminal | The terminal app (e.g. "Terminal", "Ghostty") |
 | Accessory connected to the host (not passed through) | "This Mac" |
+
+The name follows the app macOS holds responsible, which for a service is the
+process's own bundle. A process started through a path outside its bundle — the
+`bin/havm` symlink earlier formula versions used — has no bundle identity and
+shows as "unknown app".
 
 This label is decided by macOS — the AccessoryAccess framework offers no
 way for an app to set it — so havm can't influence which name is shown.

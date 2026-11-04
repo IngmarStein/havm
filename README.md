@@ -67,8 +67,10 @@ once Home Assistant answers.
 # Build and sign (no paid developer account needed)
 ./scripts/build.sh release
 
-# Run — downloads HA OS automatically on first run
-.build/release/havm run
+# Run — downloads HA OS automatically on first run. Use the app bundle rather
+# than .build/release/havm: the bare binary has no bundle around it, so macOS
+# has no app identity to attach to the Dock tile or to a USB accessory.
+.build/Havm.app/Contents/MacOS/havm run
 ```
 
 On first run, `havm` automatically:
@@ -234,10 +236,15 @@ will be re-attached automatically shortly after boot on
 the next run. No restart needed.
 
 The menu bar shows, next to each passed-through accessory, the name of the
-app macOS attributes it to — the launching terminal (e.g. "Terminal",
-"Ghostty"), "Havm" when the app was opened from Finder, or "unknown app" for a
-launchd service. This label is decided by macOS; the AccessoryAccess framework
+app macOS attributes it to — "Havm" when it was opened from Finder or started
+by `brew services`, or the terminal app (e.g. "Terminal", "Ghostty") for a
+foreground run. This label is decided by macOS; the AccessoryAccess framework
 offers no way for havm to change it.
+
+The name comes from the executable's path: a havm started through a symlink
+outside its bundle has no app identity, and shows as "unknown app". Earlier
+versions of the Homebrew formula started the service through `bin/havm` that
+way — `brew update && brew services restart havm` picks up the fix.
 
 ## Logging
 

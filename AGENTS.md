@@ -9,7 +9,7 @@
 ```bash
 ./scripts/build.sh release    # Release build: -O + strip → ~2.1 MB binary
 swift test                    # Unit tests (HavmCoreTests)
-./.build/release/havm run     # Run the VM (blocks; Ctrl+C to stop)
+./.build/Havm.app/Contents/MacOS/havm run   # Run the VM (blocks; Ctrl+C to stop)
 ./.build/release/havm run --console  # Interactive serial console (hvc0)
 ```
 
@@ -287,11 +287,17 @@ via `VZUSBPassthroughDevice`.
 - All AccessoryAccess/`VZUSBPassthroughDevice` code lives in `USBAccessorySupport.swift`
   (`USBAccessoryCoordinator`, `USBAccessoryDescriptor`), annotated `@available(macOS 27.0, *)`;
   AccessoryAccess is imported `@_weakLinked` so the binary runs on macOS 15+.
-- `AAUSBAccessoryManager` names the *launching* app beside a passed-through
-  accessory: the terminal for a shell run, "unknown app" for a launchd job, and
-  "Havm" when the bundle was opened from Finder — the one path where the bundle
-  is the launching app. Becoming a regular application did not change the rule,
-  only which app is named.
+- `AAUSBAccessoryManager` names the app macOS holds responsible for a
+  passed-through accessory: the terminal for a shell run, and "Havm" when the
+  bundle was opened from Finder or started by launchd from a path inside it.
+  The identity comes from the executable path, so a job started through a
+  symlink has none: `brew services` ran `bin/havm`, so LaunchServices listed the
+  process as "havm" with no bundle ID and every accessory was attributed to
+  "unknown app". The Dock tile still resolved its icon from the bundle path, so
+  that part looked normal — the identity matters for naming, not for the icon.
+  Fixed by running `libexec/Havm.app/Contents/MacOS/havm`
+  (`homebrew-havm@0214000`); `bin/havm` stays for the CLI. Becoming a regular
+  application did not change the rule, only which app is named.
 - `ServiceRuntime.setupUSBDiscovery()` gates on `#available(macOS 27.0, *)`, then
   `USBAccessoryCoordinator.start()` registers `AAUSBAccessoryListener`; the framework's
   menu bar item is the user's selection UI. It needs a running `NSApplication`, which the
