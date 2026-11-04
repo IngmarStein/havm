@@ -52,6 +52,7 @@ rather than havm:
 | How havm runs | Name shown next to a passed-through accessory |
 |---|---|
 | From a terminal | The terminal app (e.g. "Terminal", "Ghostty") |
+| Opened from Finder | "Havm" |
 | As a launchd / Homebrew service | "unknown app" |
 | Accessory connected to the host (not passed through) | "This Mac" |
 

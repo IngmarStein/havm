@@ -222,9 +222,9 @@ the next run. No restart needed.
 
 The menu bar shows, next to each passed-through accessory, the name of the
 app macOS attributes it to — the launching terminal (e.g. "Terminal",
-"Ghostty") or "unknown app" for a launchd service. This label is decided
-by macOS; the AccessoryAccess framework offers no way for havm to change
-it.
+"Ghostty"), "Havm" when the app was opened from Finder, or "unknown app" for a
+launchd service. This label is decided by macOS; the AccessoryAccess framework
+offers no way for havm to change it.
 
 ## Logging
 

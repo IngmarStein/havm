@@ -281,9 +281,10 @@ via `VZUSBPassthroughDevice`.
   (`USBAccessoryCoordinator`, `USBAccessoryDescriptor`), annotated `@available(macOS 27.0, *)`;
   AccessoryAccess is imported `@_weakLinked` so the binary runs on macOS 15+.
 - `AAUSBAccessoryManager` names the *launching* app beside a passed-through
-  accessory — the terminal, or "unknown app" for a launchd job — not havm, and
-  becoming a regular application did not change that. What a Finder launch shows
-  has not been checked; the user docs describe the measured cases only.
+  accessory: the terminal for a shell run, "unknown app" for a launchd job, and
+  "Havm" when the bundle was opened from Finder — the one path where the bundle
+  is the launching app. Becoming a regular application did not change the rule,
+  only which app is named.
 - `ServiceRuntime.setupUSBDiscovery()` gates on `#available(macOS 27.0, *)`, then
   `USBAccessoryCoordinator.start()` registers `AAUSBAccessoryListener`; the framework's
   menu bar item is the user's selection UI. It needs a running `NSApplication`, which the
