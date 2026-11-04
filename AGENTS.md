@@ -165,10 +165,14 @@ CXZ (C target)
   window lets the guest use all of it and lets launchd, not havm, end a shutdown that
   overruns; a guest that needs longer has to be stopped outside launchd, where a direct
   signal is not capped. With `KeepAlive true`, a `SIGKILL` mid-shutdown restarts havm onto a
-  disk that was yanked mid-halt. A logout or restart is the one path launchd is not
-  involved in: loginwindow asks the app to quit and waits for the reply, so the same
-  budget applies without the 60 s cap — but loginwindow also gives up eventually, and
-  what happens after that wait is not something havm controls.
+  disk that was yanked mid-halt. A logout or restart is asked for by loginwindow, which
+  waits for the reply rather than applying `ExitTimeOut` — but launchd may still send a
+  SIGTERM as it tears the session down (reported on 1.0.6, not yet measured here). That
+  signal must not be mistaken for the second Ctrl+C that force-exits: `signalShutdown`
+  ignores signals while `terminationRequested` is set, logs them, and lets the shutdown
+  finish, which also makes a real logout answer the question in its log. Whether launchd
+  SIGKILLs 60 s into a logout is still untested; the quit reply logs the elapsed time
+  (`Answering the quit after Ns`), so a quit that never logs one was cut short.
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
 - **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
   and HA API calls all target `network.hostname` (bridge-mode default `homeassistant.local`)

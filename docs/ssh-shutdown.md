@@ -66,9 +66,11 @@ seconds later — it silently caps the formula's `stop_timeout` at 60 whatever i
 says — so a guest that halts within a minute does so cleanly, and the default 90
 only matters outside launchd. A guest that needs longer has to be stopped
 outside launchd: Ctrl+C on `havm run` in the foreground, or SIGTERM sent
-directly to the process. A logout or restart is the one path launchd is not
-part of: the system asks havm to quit and waits for the reply, so the full
-budget applies rather than launchd's 60 seconds.
+directly to the process. A logout or restart asks havm to quit rather than
+signalling it, and the system waits for the reply — but launchd may still send
+a signal of its own while the session is being torn down. havm logs that
+signal and carries on with the shutdown instead of treating it as a second
+Ctrl+C, so the log shows what actually happened on your machine.
 
 <div class="note">
 ACPI <code>requestStop()</code> is not used — HA OS on aarch64 uses PSCI

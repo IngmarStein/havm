@@ -65,6 +65,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// process that vanished.
     private var terminationRequested = false
 
+    /// When the quit arrived. Logged on the way out, so a guest that takes
+    /// longer than launchd's window is visible as a quit that was never
+    /// answered rather than as a shutdown that silently stopped.
+    private var terminationRequestedAt: Date?
+
     /// Called from `cleanupAndExit` when the process is ending because of a
     /// quit Apple Event. The application layer sets this to reply to the
     /// pending quit; replying terminates the process. Left `nil` when havm runs
@@ -297,6 +302,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         // disappeared. The reply terminates the process, and AppKit requires it
         // on the main thread while the shutdown path may finish elsewhere.
         if terminationRequested, let terminationHandler {
+            if let requestedAt = terminationRequestedAt {
+                let seconds = Int(Date().timeIntervalSince(requestedAt).rounded())
+                logger.info("Answering the quit after \(seconds)s.")
+            }
             if Thread.isMainThread {
                 terminationHandler(code)
             } else {
@@ -496,6 +505,14 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
     private func signalShutdown(name: String) {
         guard !shutdownRequested else {
+            // A quit is in flight. loginwindow is waiting for the reply, and
+            // launchd sends SIGTERM as it tears the session down — which would
+            // otherwise look exactly like the "press Ctrl+C twice to skip the
+            // wait" gesture and abort the shutdown the quit started.
+            if terminationRequested {
+                logger.info("\(name) received during the quit — continuing the shutdown.")
+                return
+            }
             // Second signal — force immediate exit
             logger.warning("\(name) received again — exiting immediately")
             cleanupAndExit(1)
@@ -515,6 +532,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     public func requestTermination() {
         // Set even when a shutdown is already running, so that shutdown's
         // `cleanupAndExit` answers the quit instead of exiting outright.
+        if terminationRequestedAt == nil { terminationRequestedAt = Date() }
         terminationRequested = true
         guard !shutdownRequested else { return }
         beginShutdown(logging: "Quit requested — initiating graceful shutdown...")
@@ -737,6 +755,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         shutdownRequested = false
         restartRequested = false
         terminationRequested = false
+        terminationRequestedAt = nil
         bootTimer?.cancel()
         observerTask?.cancel()
         webUITask?.cancel()
