@@ -3,6 +3,26 @@ import Foundation
 import Logging
 import Metrics
 
+/// What the running guest is doing, as far as havm can tell from outside it.
+/// The application layer turns this into a Dock badge and a menu item; it is
+/// the only status havm exposes without a window.
+public enum GuestStatus: Sendable, Equatable {
+    /// No answer from the web UI yet — booting, or booted but not serving.
+    case booting
+    /// Home Assistant answered here.
+    case ready(URL)
+    /// havm stopped waiting. The guest may still be running; it is not
+    /// answering, and the boot phase is over either way.
+    case unreachable
+
+    /// Whether Home Assistant is answering, i.e. whether there is an address
+    /// worth opening.
+    public var isReady: Bool {
+        if case .ready = self { return true }
+        return false
+    }
+}
+
 /// Manages the blocking service runtime: signal handling, VM lifecycle,
 /// graceful shutdown, guest IP discovery, and web UI readiness detection.
 ///
@@ -39,6 +59,22 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var runContinuation: CheckedContinuation<Void, Never>?
     private var shutdownRequested = false
     private var restartRequested = false
+    /// Set when the application itself is terminating (logout, restart, Cmd+Q).
+    /// `cleanupAndExit` then answers the quit Apple Event instead of calling
+    /// `exit()` outright, so the system sees the guest stop rather than a
+    /// process that vanished.
+    private var terminationRequested = false
+
+    /// When the quit arrived. Logged on the way out, so a guest that takes
+    /// longer than launchd's window is visible as a quit that was never
+    /// answered rather than as a shutdown that silently stopped.
+    private var terminationRequestedAt: Date?
+
+    /// Called from `cleanupAndExit` when the process is ending because of a
+    /// quit Apple Event. The application layer sets this to reply to the
+    /// pending quit; replying terminates the process. Left `nil` when havm runs
+    /// without an event loop, where `cleanupAndExit` simply exits.
+    public var terminationHandler: ((Int32) -> Void)?
     private var guestReachableNotified = false
     private var supervisorReachableNotified = false
     private var webUIReadyNotified = false
@@ -50,6 +86,14 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// "not known yet" here, and an omitted port needs a `nil` of its own.
     /// Reset on restart, since the new guest may serve elsewhere.
     private var resolvedHAURL: String?
+
+    /// What the Dock tile can say about the guest without opening a browser.
+    /// Main-thread confined: written through `setGuestStatus` and read by the
+    /// application delegate.
+    public private(set) var guestStatus: GuestStatus = .booting
+
+    /// Called when `guestStatus` changes, always on the main thread.
+    public var guestStatusChanged: ((GuestStatus) -> Void)?
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var signalSourceHup: DispatchSourceSignal?
@@ -101,8 +145,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Run the VM, blocking the calling thread until the VM exits or a signal is received.
-    public func runBlocking() async -> Int32 {
+    /// Run the VM, blocking the calling task until the VM exits or a signal is
+    /// received. Never returns: every exit path goes through `cleanupAndExit`.
+    public func runBlocking() async {
         // Write PID file for external tooling (Homebrew services, monitoring).
         writePIDFile()
 
@@ -137,7 +182,6 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
             self.runContinuation = c
         }
-        return 0
     }
 
     // MARK: - Boot instructions
@@ -252,6 +296,22 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         metricsServer?.stop()
         fflush(stdout)
         runContinuation?.resume()
+
+        // A quit Apple Event is still pending: answer it, now that the guest is
+        // stopped, so loginwindow sees a clean quit instead of an app that
+        // disappeared. The reply terminates the process, and AppKit requires it
+        // on the main thread while the shutdown path may finish elsewhere.
+        if terminationRequested, let terminationHandler {
+            if let requestedAt = terminationRequestedAt {
+                let seconds = Int(Date().timeIntervalSince(requestedAt).rounded())
+                logger.info("Answering the quit after \(seconds)s.")
+            }
+            if Thread.isMainThread {
+                terminationHandler(code)
+            } else {
+                DispatchQueue.main.sync { terminationHandler(code) }
+            }
+        }
         exit(code)
     }
 
@@ -445,17 +505,100 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
     private func signalShutdown(name: String) {
         guard !shutdownRequested else {
+            // A quit is in flight. loginwindow is waiting for the reply, and
+            // launchd sends SIGTERM as it tears the session down — which would
+            // otherwise look exactly like the "press Ctrl+C twice to skip the
+            // wait" gesture and abort the shutdown the quit started.
+            if terminationRequested {
+                logger.info("\(name) received during the quit — continuing the shutdown.")
+                return
+            }
             // Second signal — force immediate exit
             logger.warning("\(name) received again — exiting immediately")
             cleanupAndExit(1)
         }
-        shutdownRequested = true
         if name == "SIGHUP" {
             restartRequested = true
-            logger.info("\(name) received — restarting VM...")
+            beginShutdown(logging: "\(name) received — restarting VM...")
         } else {
-            logger.info("\(name) received — initiating graceful shutdown...")
+            beginShutdown(logging: "\(name) received — initiating graceful shutdown...")
         }
+    }
+
+    /// Shut the guest down because the application is terminating: a logout, a
+    /// restart, or Cmd+Q. Idempotent — AppKit asks on every quit attempt, and a
+    /// second request while the guest is already halting must not restart the
+    /// chain or force-stop a guest that is shutting down cleanly.
+    public func requestTermination() {
+        // Set even when a shutdown is already running, so that shutdown's
+        // `cleanupAndExit` answers the quit instead of exiting outright.
+        if terminationRequestedAt == nil { terminationRequestedAt = Date() }
+        terminationRequested = true
+        guard !shutdownRequested else { return }
+        beginShutdown(logging: "Quit requested — initiating graceful shutdown...")
+    }
+
+    /// Record what the guest is doing and tell the application layer. The
+    /// status is read by the Dock menu and written from whichever executor the
+    /// boot phase happens to be on, so the write and the callback both happen
+    /// on the main thread.
+    private func setGuestStatus(_ status: GuestStatus) {
+        if Thread.isMainThread {
+            applyGuestStatus(status)
+        } else {
+            DispatchQueue.main.async { [weak self] in self?.applyGuestStatus(status) }
+        }
+    }
+
+    private func applyGuestStatus(_ status: GuestStatus) {
+        guard guestStatus != status else { return }
+        guestStatus = status
+        guestStatusChanged?(status)
+    }
+
+    /// Whether Home Assistant can be asked to restart itself. It takes an API
+    /// token, so this is only offered when one is configured — the Dock menu
+    /// leaves the item out entirely rather than showing it permanently greyed.
+    public var canRestartHomeAssistant: Bool {
+        config.effectiveHAAPIToken != nil
+    }
+
+    /// Ask the running Home Assistant to restart itself, through the same REST
+    /// API the shutdown chain uses. Fire-and-forget: the guest stays up either
+    /// way, so the outcome is only ever a log line. This is not part of the
+    /// shutdown chain — it restarts Home Assistant Core inside a guest that
+    /// keeps running.
+    public func restartHomeAssistant() {
+        guard let base = resolvedHAURL, let token = config.effectiveHAAPIToken else {
+            logger.warning("Cannot restart Home Assistant yet: no address or API token.")
+            return
+        }
+        guard let url = URL(string: "\(base)/api/services/homeassistant/restart") else { return }
+        logger.info("Restarting Home Assistant at \(base)...")
+        Task {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Self.emptyJSONBody
+            request.timeoutInterval = 10
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if code == 200 {
+                    logger.info("Home Assistant restart accepted.")
+                } else {
+                    logger.warning("Home Assistant restart rejected (HTTP \(code)).")
+                }
+            } catch {
+                logger.warning("Home Assistant restart failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func beginShutdown(logging message: String) {
+        shutdownRequested = true
+        logger.info("\(message)")
         let ip = guestIP
         let cfg = config
         Task { await performGracefulShutdown(guestIP: ip, config: cfg) }
@@ -604,12 +747,15 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         firstProbeDone = false
         guestIP = nil
         resolvedHAURL = nil
+        setGuestStatus(.booting)
         lastDHCPLeaseModDate = nil
         cachedDHCPLeaseIP = nil
         observerPollCount = 0
         healthPollCount = 0
         shutdownRequested = false
         restartRequested = false
+        terminationRequested = false
+        terminationRequestedAt = nil
         bootTimer?.cancel()
         observerTask?.cancel()
         webUITask?.cancel()
@@ -915,6 +1061,10 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             if !webUIReadyNotified {
                 webUIReadyNotified = true
                 logger.warning("Timed out waiting for Home Assistant web UI after 5 minutes")
+                // The boot phase is over even though nothing answered. Without
+                // this the Dock keeps a "booting" badge for as long as the VM
+                // runs, which is the opposite of what it means.
+                setGuestStatus(.unreachable)
             }
             return
         }
@@ -947,6 +1097,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
             guard let answered else { return }
             self.resolvedHAURL = answered
+            if let url = URL(string: answered) {
+                self.setGuestStatus(.ready(url))
+            }
             guard !self.webUIReadyNotified else { return }
             self.webUIReadyNotified = true
             self.logger.info("Home Assistant is ready at \(answered)")

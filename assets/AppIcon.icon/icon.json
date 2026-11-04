@@ -1,0 +1,30 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.96078,0.98039,1.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "Box.png",
+          "name" : "Box",
+          "position" : { "scale" : 1.0, "translation-in-points" : [0, 0] }
+        }
+      ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.30 },
+      "specular" : true
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "House.png",
+          "name" : "House",
+          "position" : { "scale" : 1.0, "translation-in-points" : [0, 0] }
+        }
+      ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.35 },
+      "specular" : false
+    }
+  ],
+  "supported-platforms" : { "squares" : ["macOS"] }
+}

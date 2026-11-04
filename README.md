@@ -18,7 +18,10 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
 - **USB accessories** (macOS 27+) — attach coordinators and other USB devices via the
   menu bar item. Hot-plug, no restart needed.
 - **SSH key import** — optional virtual CONFIG disk for root SSH on port 22222.
-- **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM.
+- **Graceful shutdown** — Supervisor API → SSH → force-stop fallback on SIGTERM,
+  Ctrl+C, or a logout/restart of the Mac.
+- **Dock menu** — while it runs, havm's Dock tile shows boot progress and offers
+  the web UI, the SSH command, and a Home Assistant restart.
 - **Prometheus metrics** — built-in HTTP endpoint (TCP or a Unix socket) for
   monitoring VM state and USB accessories. Feed into Grafana dashboards or
   alerting rules.
@@ -28,6 +31,7 @@ Apple's native [Virtualization framework][vz]. One command from download to boot
 https://github.com/user-attachments/assets/aed92929-dfea-4e6f-b62c-4fed7100d34e
 
 [haos]: https://github.com/home-assistant/operating-system
+[releases]: https://github.com/IngmarStein/havm/releases
 [vz]: https://developer.apple.com/documentation/virtualization
 
 ## Quick Start
@@ -44,6 +48,18 @@ Or run as a background service:
 ```bash
 brew services start havm
 ```
+
+### Without Homebrew
+
+Take `Havm.app` from the [releases][releases], put it wherever you keep apps,
+and add it under **System Settings → General → Login Items → Open at Login**.
+A login launch carries no arguments, and havm reads that as `run`.
+
+Two things differ from `brew services`. The app is not supervised, so if it
+exits — a `poweroff` inside the guest, a crash — it stays down until the next
+login. And a login launch has no terminal, so havm's log lines are discarded unless
+you set `logging.file` in `config.yml`; the Dock menu shows the guest's address
+once Home Assistant answers.
 
 ### Build from source
 
@@ -219,9 +235,9 @@ the next run. No restart needed.
 
 The menu bar shows, next to each passed-through accessory, the name of the
 app macOS attributes it to — the launching terminal (e.g. "Terminal",
-"Ghostty") or "unknown app" for a launchd service. This label is decided
-by macOS; the AccessoryAccess framework offers no way for havm to change
-it.
+"Ghostty"), "Havm" when the app was opened from Finder, or "unknown app" for a
+launchd service. This label is decided by macOS; the AccessoryAccess framework
+offers no way for havm to change it.
 
 ## Logging
 
@@ -242,7 +258,17 @@ logging:
   level: info
 ```
 
-To log to a file, direct stdout via launchd's `StandardOutPath`.
+To log to a file, set `logging.file` — it takes the place of stdout, which is
+also the only way to keep a log from a launch with no terminal (Finder, a login
+item):
+
+```yaml
+logging:
+  file: ~/Library/Logs/havm.log
+```
+
+Under `brew services`, launchd's `StandardOutPath` already does this, and the
+formula points it at `var/log/havm.log`.
 
 ## Metrics
 
@@ -379,6 +405,27 @@ brew services start havm
 formula configures `keep_alive true` so the VM restarts automatically if it exits.
 `brew services stop havm` asks havm to quit and gives it up to 60 seconds to halt
 the guest before launchd kills the process.
+
+### Logging Out or Restarting the Mac
+
+The Mac waits for `havm run` during a logout or restart instead of killing it:
+havm shuts the guest down first and only then quits, so Home Assistant halts
+cleanly instead of being cut off mid-write.
+
+That is also why havm shows a Dock icon while it runs. The icon and the clean
+shutdown are the same thing — macOS only waits for a regular application, and
+there is no way to hide a regular application's icon. The icon carries a badge
+while Home Assistant is still starting. Right-clicking it shows the guest's
+address, opens the web UI, and copies the SSH command — plus **Restart Home
+Assistant** when `ha.api_token` is configured. Double-clicking `Havm.app` in
+Finder starts the VM, the same as `havm run`; stopping it is still Ctrl+C,
+SIGTERM, or `brew services stop`.
+
+One thing to know: under `brew services` the VM is supervised, so **Quit** in
+the Dock's own menu halts the guest and launchd immediately starts havm again —
+it restarts the VM rather than stopping the service. Use `brew services stop
+havm` for that. macOS adds Quit to a running app's Dock menu, and an app cannot
+remove it.
 
 ## Building from Source
 

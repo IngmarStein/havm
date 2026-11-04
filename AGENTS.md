@@ -62,8 +62,8 @@ throwaway keychain, since the image's login keychain password is unknown and
 ## Architecture
 
 ```
-Havm (CLI, AsyncParsableCommand)
-├── RunCommand       → HAOSSetup → VMController → ServiceRuntime
+Havm (CLI, synchronous @main)
+├── RunCommand       → NSApplication loop → HAOSSetup → VMController → ServiceRuntime
 ├── CleanupCommand   → FileManager
 ├── ImportUTMCommand → UTMImport
 └── VersionCommand
@@ -96,11 +96,57 @@ CXZ (C target)
 - **VZEFIBootLoader** — boots directly from GPT disk via UEFI. No kernel extraction, no kernel command line, no initrd. Just point at the disk image.
 - **Bridge networking by default** — LAN-reachable IP for Home Assistant discovery. Falls back to NAT at runtime if the binary lacks the `com.apple.vm.networking` entitlement (e.g. self-compiled). Explicit `network.type: nat` available for manual override.
 - **@MainActor on VM start** — `VZVirtualMachine.start()` has `dispatch_assert_queue` requiring the main queue.
+- **AppKit event loop for `run`** — `havm run` enters `NSApplication.run()` as a
+  `.regular` application before anything suspends. The loop is not for UI: loginwindow
+  classifies a process by its activation policy and sweeps every UIElement app about
+  0.2 s after a logout or restart begins, killing the guest mid-halt without ever
+  asking it to quit. A regular app is waited for, and `applicationShouldTerminate`
+  returns `.terminateLater`, holding the quit until `ServiceRuntime` reports the guest
+  stopped; `cleanupAndExit` then answers the pending quit instead of calling `exit()`.
+  The Dock icon is the unavoidable cost — no public API hides one while keeping the app
+  regular, and `.accessory`, `.prohibited` and `LSBackgroundOnly` are exactly the kinds
+  that get swept. It is drawn by `scripts/make-app-icon.swift` into
+  `assets/AppIcon.icon` — an Icon Composer document, not a legacy `.icns`: a cyan
+  house (Home Assistant's silhouette and colour family, not its logo) holding a
+  white isometric box, the machine it runs. `scripts/build.sh` renders it with
+  `actool` but keeps only the `.icns` (44 KB): the `Assets.car` actool also
+  produces is 1.7 MB against a 2.1 MB binary, and what it buys — system-composed
+  dark and tinted appearances — this document does not define. The document format
+  is undocumented in two ways that matter: layer images live in `Assets/` with
+  `image-name` carrying the extension, and groups and layers are listed **front
+  to back** — a layer listed after another is behind it, so the box must come
+  first or the opaque house hides it.
+  The tile is also the only UI havm has, so it carries the only status: a `•`
+  badge while `GuestStatus` is `.booting`, cleared when Home Assistant answers
+  (or when the five-minute wait is given up on, which is a different failure and
+  must not leave a badge claiming the guest is still booting). The Dock menu leads
+  with that same status, then offers "Open Home Assistant" and "Copy SSH Command"
+  — both enabled only once the guest has answered — and "Restart Home Assistant",
+  which is left out entirely when no `ha.api_token` is configured rather than
+  sitting there permanently greyed. The restart goes through the same REST client
+  as the shutdown chain but is not part of it: Home Assistant Core restarts and
+  the guest keeps running.
+  Two things are load-bearing:
+  1. The entry point (`HavmEntry`) is **synchronous**. ArgumentParser's async main
+     parks the main thread in `dispatchMain()` once the command suspends, and a run
+     loop entered from inside a main-queue drain never services the main queue again —
+     the signal sources, the boot poll timer and the VM state callbacks all stop
+     firing. Entering the loop from top-level code, before anything suspends, avoids it.
+  2. `disableSuddenTermination()` — sudden termination lets the system kill the process
+     without asking, which is the one case the loop exists to handle.
+  `USBAccessoryCoordinator` used to call `setActivationPolicy(.accessory)` to satisfy
+  `AAUSBAccessoryManager`; that demotion is what made havm killable on logout, so the
+  policy belongs to the application layer now and the coordinator only registers its
+  listener. The same loop runs in `--console` mode: a debugging session's guest
+  deserves a clean halt too, and one loop means one shutdown path. The app has no
+  menu bar: the only item worth having is Quit, and with the formula's
+  `keep_alive true` quitting just has launchd start havm again.
 - **APFS sparse files** — disk resize uses `ftruncate` (seek + write zero byte). APFS automatically hole-punches.
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.
-- **Graceful shutdown chain** — on Ctrl+C/SIGTERM:
+- **Graceful shutdown chain** — on Ctrl+C/SIGTERM, or on a quit request (logout,
+  restart, or Quit from the Dock tile's context menu; see the AppKit loop above):
   1. `POST /api/services/hassio/host_shutdown` (REST API service call, requires `ha.api_token`;
      the address is the one the readiness probe found, else `HAEndpoint.probePorts`)
   2. `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, requires `ssh.authorized_keys`)
@@ -119,7 +165,14 @@ CXZ (C target)
   window lets the guest use all of it and lets launchd, not havm, end a shutdown that
   overruns; a guest that needs longer has to be stopped outside launchd, where a direct
   signal is not capped. With `KeepAlive true`, a `SIGKILL` mid-shutdown restarts havm onto a
-  disk that was yanked mid-halt.
+  disk that was yanked mid-halt. A logout or restart is asked for by loginwindow, which
+  waits for the reply rather than applying `ExitTimeOut` — but launchd may still send a
+  SIGTERM as it tears the session down (reported on 1.0.6, not yet measured here). That
+  signal must not be mistaken for the second Ctrl+C that force-exits: `signalShutdown`
+  ignores signals while `terminationRequested` is set, logs them, and lets the shutdown
+  finish, which also makes a real logout answer the question in its log. Whether launchd
+  SIGKILLs 60 s into a logout is still untested; the quit reply logs the elapsed time
+  (`Answering the quit after Ns`), so a quit that never logs one was cut short.
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
 - **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
   and HA API calls all target `network.hostname` (bridge-mode default `homeassistant.local`)
@@ -231,9 +284,16 @@ via `VZUSBPassthroughDevice`.
 - All AccessoryAccess/`VZUSBPassthroughDevice` code lives in `USBAccessorySupport.swift`
   (`USBAccessoryCoordinator`, `USBAccessoryDescriptor`), annotated `@available(macOS 27.0, *)`;
   AccessoryAccess is imported `@_weakLinked` so the binary runs on macOS 15+.
+- `AAUSBAccessoryManager` names the *launching* app beside a passed-through
+  accessory: the terminal for a shell run, "unknown app" for a launchd job, and
+  "Havm" when the bundle was opened from Finder — the one path where the bundle
+  is the launching app. Becoming a regular application did not change the rule,
+  only which app is named.
 - `ServiceRuntime.setupUSBDiscovery()` gates on `#available(macOS 27.0, *)`, then
-  `USBAccessoryCoordinator.start()` boots `NSApplication.accessory` and registers
-  `AAUSBAccessoryListener`. The menu bar item is the user's selection UI.
+  `USBAccessoryCoordinator.start()` registers `AAUSBAccessoryListener`; the framework's
+  menu bar item is the user's selection UI. It needs a running `NSApplication`, which the
+  app loop provides — it no longer needs, and must not ask for, a UI-element activation
+  policy (see the AppKit loop decision above).
 - On connect: listener hot-attaches via `VZUSBPassthroughDevice` +
   `usbControllers.first?.attach(device:)` with fresh registryIDs.
 - On boot: listener registers after VM start, hot-attaches discovery results.
