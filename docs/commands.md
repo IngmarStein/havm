@@ -61,6 +61,11 @@ Double-clicking `Havm.app` in Finder runs the same thing: a launch from Finder
 carries no arguments, and havm reads that as `run` rather than printing help
 into a console nobody can see.
 
+One caveat about that Dock menu: macOS appends its own items below havm's,
+including **Quit**. Under `brew services` the job is supervised, so Quit halts
+the guest and launchd starts havm again — it restarts the VM rather than
+stopping the service. Stop the service with `brew services stop havm`.
+
 `havm run` is a regular macOS application for as long as it runs. Its Dock tile
 carries a badge while Home Assistant is still starting, and right-clicking it
 opens the web UI, copies the SSH command, and — when `ha.api_token` is

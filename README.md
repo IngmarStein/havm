@@ -398,6 +398,12 @@ Assistant** when `ha.api_token` is configured. Double-clicking `Havm.app` in
 Finder starts the VM, the same as `havm run`; stopping it is still Ctrl+C,
 SIGTERM, or `brew services stop`.
 
+One thing to know: under `brew services` the VM is supervised, so **Quit** in
+the Dock's own menu halts the guest and launchd immediately starts havm again —
+it restarts the VM rather than stopping the service. Use `brew services stop
+havm` for that. macOS adds Quit to a running app's Dock menu, and an app cannot
+remove it.
+
 ## Building from Source
 
 Ad-hoc signing works for basic VM functionality. USB accessories require
