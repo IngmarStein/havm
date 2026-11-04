@@ -280,10 +280,10 @@ via `VZUSBPassthroughDevice`.
 - All AccessoryAccess/`VZUSBPassthroughDevice` code lives in `USBAccessorySupport.swift`
   (`USBAccessoryCoordinator`, `USBAccessoryDescriptor`), annotated `@available(macOS 27.0, *)`;
   AccessoryAccess is imported `@_weakLinked` so the binary runs on macOS 15+.
-- Because the process is a regular app with its own bundle, macOS attributes a
-  passed-through accessory to "Havm" rather than to the launching terminal. The
-  user docs say so; it has not been re-checked with a device since the app loop
-  landed.
+- `AAUSBAccessoryManager` names the *launching* app beside a passed-through
+  accessory — the terminal, or "unknown app" for a launchd job — not havm, and
+  becoming a regular application did not change that. What a Finder launch shows
+  has not been checked; the user docs describe the measured cases only.
 - `ServiceRuntime.setupUSBDiscovery()` gates on `#available(macOS 27.0, *)`, then
   `USBAccessoryCoordinator.start()` registers `AAUSBAccessoryListener`; the framework's
   menu bar item is the user's selection UI. It needs a running `NSApplication`, which the

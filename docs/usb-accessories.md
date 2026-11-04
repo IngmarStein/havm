@@ -46,13 +46,13 @@ on the next run.
 ### App name in the menu bar
 
 The menu bar lists each passed-through accessory together with the name of
-the app that macOS attributes it to. havm runs as a regular application with
-its own bundle, so that is normally "Havm":
+the app that macOS attributes it to. That name follows the launching app
+rather than havm:
 
 | How havm runs | Name shown next to a passed-through accessory |
 |---|---|
-| From a terminal | "Havm" |
-| As a launchd / Homebrew service | "Havm" |
+| From a terminal | The terminal app (e.g. "Terminal", "Ghostty") |
+| As a launchd / Homebrew service | "unknown app" |
 | Accessory connected to the host (not passed through) | "This Mac" |
 
 This label is decided by macOS — the AccessoryAccess framework offers no

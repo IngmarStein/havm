@@ -49,7 +49,7 @@ struct HavmCLI: ParsableCommand {
 enum HavmEntry {
     static func main() {
         do {
-            var command = try HavmCLI.parseAsRoot()
+            var command = try HavmCLI.parseAsRoot(arguments())
 
             if let run = command as? RunCommand {
                 // Never returns: the app loop owns the main thread and the
@@ -69,6 +69,21 @@ enum HavmEntry {
         } catch {
             HavmCLI.exit(withError: error)
         }
+    }
+
+    /// The command line, with one addition: a launch from Finder carries no
+    /// arguments at all, and printing help into a console nobody can see would
+    /// flash the app in the Dock and exit. Double-clicking `Havm.app` means
+    /// "run"; `havm` with no arguments in a terminal still means "show help".
+    ///
+    /// The two are told apart by the parent process — LaunchServices starts an
+    /// app from `launchd` (pid 1), while a terminal run is a child of the shell.
+    /// Returns the arguments without the executable path, which is what
+    /// `parseAsRoot(_:)` expects when it is handed an array.
+    private static func arguments() -> [String] {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard arguments.isEmpty, getppid() == 1 else { return arguments }
+        return ["run"]
     }
 
     /// Runs an asynchronous command from the synchronous entry point.

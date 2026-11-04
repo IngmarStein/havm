@@ -57,6 +57,10 @@ a non-default location.
 Press Ctrl+C once for graceful shutdown (tries REST API → SSH → force-stop).
 Press Ctrl+C twice to skip and force-stop immediately.
 
+Double-clicking `Havm.app` in Finder runs the same thing: a launch from Finder
+carries no arguments, and havm reads that as `run` rather than printing help
+into a console nobody can see.
+
 `havm run` is a regular macOS application for as long as it runs. Its Dock tile
 carries a badge while Home Assistant is still starting, and right-clicking it
 opens the web UI, copies the SSH command, and — when `ha.api_token` is
