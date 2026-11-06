@@ -177,6 +177,16 @@ CXZ (C target)
   guests here halted well inside that window. The quit reply logs the elapsed time
   (`Answering the quit after Ns`), so a quit that never logs one was cut short.
   ACPI `requestStop()` is not used — HA OS on aarch64 uses PSCI and ignores ACPI power button events.
+- **Release chosen by asset, not by "latest"** — GitHub's `/releases/latest` answers
+  "newest release", which is not the question: HA OS publishes board-specific releases, and
+  18.5 shipped images for Raspberry Pi and Yellow only (issue #31). `HAOSReleaseSelection`
+  takes the newest release in the list that carries a `haos_generic-aarch64*.img.xz` and
+  logs the ones it passed over. The stable channel filters prereleases *before* that
+  selection — otherwise a board-only stable release would fall back onto an RC — so stable
+  gets 18.4 while pre-release gets 18.5.rc1. The list costs one request (the same as
+  `/latest`) and a ~400 KB response at `per_page=10`, ETag-cached and fetched once on first
+  setup. No manual version pin: the selection removes the need, and setup only runs when
+  `haos.img` is absent, which would make a pin a first-install-only setting.
 - **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
   and HA API calls all target `network.hostname` (bridge-mode default `homeassistant.local`)
   and let the resolver try a name's addresses at connect time. Resolving once and committing
@@ -188,7 +198,7 @@ CXZ (C target)
   default) and left existing ones on 8123:
   the port lives in the guest's own web-server config, not in the OS version, so an
   OTA-updated `haos.img` keeps 8123 while a fresh guest — which is all `HAOSSetup` ever
-  produces, since it takes the newest release — gets the new default. havm therefore probes
+  produces, since it always installs a current release — gets the new default. havm therefore probes
   `HAEndpoint.probePorts` (port 80 first), records the address that answered in
   `resolvedHAURL`, and reuses it for the REST shutdown call. A wrong candidate costs one
   refused connection, which returns at once; a *successful* probe on port 80 is why

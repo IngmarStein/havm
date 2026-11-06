@@ -8,12 +8,35 @@ import CryptoKit
 struct GitHubRelease: Decodable {
     let tagName: String
     let name: String
+    /// Prereleases are what the `pre-release` channel exists to offer.
+    let prerelease: Bool
+    let draft: Bool
     let assets: [GitHubAsset]
 
     enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
         case name
+        case prerelease
+        case draft
         case assets
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tagName = try container.decode(String.self, forKey: .tagName)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        prerelease = try container.decodeIfPresent(Bool.self, forKey: .prerelease) ?? false
+        draft = try container.decodeIfPresent(Bool.self, forKey: .draft) ?? false
+        assets = try container.decodeIfPresent([GitHubAsset].self, forKey: .assets) ?? []
+    }
+
+    init(tagName: String, name: String = "", prerelease: Bool = false,
+         draft: Bool = false, assets: [GitHubAsset]) {
+        self.tagName = tagName
+        self.name = name
+        self.prerelease = prerelease
+        self.draft = draft
+        self.assets = assets
     }
 }
 
@@ -29,6 +52,56 @@ struct GitHubAsset: Decodable {
     }
 }
 
+// MARK: - Release selection
+
+/// Picks the HA OS release to install from the repo's release list.
+///
+/// GitHub's `/releases/latest` answers "newest release", which is not the same
+/// question: HA OS publishes board-specific releases — 18.5 shipped images for
+/// Raspberry Pi and Yellow only — so the newest release may carry no
+/// `haos_generic-aarch64` image at all. Selecting from the list lets the newest
+/// *installable* release win instead of failing on the newest one.
+enum HAOSReleaseSelection {
+    struct Result {
+        let release: GitHubRelease
+        /// Releases newer than `release` that were passed over for want of an
+        /// aarch64 image. Logged, so a user comparing against the HA release
+        /// notes can see why havm installed an older version.
+        let skipped: [GitHubRelease]
+    }
+
+    /// Whether an asset name is the aarch64 disk image for this Mac.
+    static func isAArch64ImageName(_ name: String) -> Bool {
+        name.hasPrefix("haos_generic-aarch64") && name.hasSuffix(".img.xz")
+    }
+
+    static func hasAArch64Image(_ release: GitHubRelease) -> Bool {
+        release.assets.contains { isAArch64ImageName($0.name) }
+    }
+
+    /// Newest release of `channel` that carries an aarch64 image.
+    ///
+    /// The list is newest-first, as GitHub returns it. Prereleases are filtered
+    /// out for the stable channel — without that, a stable install would fall
+    /// back onto an RC whenever the newest stable is board-specific.
+    static func select(
+        from releases: [GitHubRelease],
+        channel: HavmConfig.HAOSOverrides.ReleaseChannel
+    ) throws -> Result {
+        let candidates = releases.filter { release in
+            guard !release.draft else { return false }
+            return channel == .preRelease || !release.prerelease
+        }
+        guard let index = candidates.firstIndex(where: hasAArch64Image) else {
+            throw SetupError.noAArch64Release(
+                scanned: candidates.count,
+                newest: candidates.first?.tagName)
+        }
+        return Result(release: candidates[index],
+                      skipped: Array(candidates[..<index]))
+    }
+}
+
 // MARK: - Constants
 
 private let havmErrorDomain = "havm"
@@ -37,6 +110,7 @@ private let havmErrorDomain = "havm"
 
 public enum SetupError: Error, CustomStringConvertible {
     case noAssetsFound(String)
+    case noAArch64Release(scanned: Int, newest: String?)
     case downloadFailed(String, Error)
     case decompressFailed(String)
     case checksumMismatch(String)
@@ -46,6 +120,9 @@ public enum SetupError: Error, CustomStringConvertible {
         switch self {
         case .noAssetsFound(let version):
             return "No aarch64 image found for HA OS \(version)."
+        case .noAArch64Release(let scanned, let newest):
+            let scope = newest.map { " (newest: \($0))" } ?? ""
+            return "No aarch64 image found in the \(scanned) most recent HA OS releases\(scope)."
         case .downloadFailed(let url, let error):
             return "Failed to download \(url): \(error.localizedDescription)"
         case .decompressFailed(let path):
@@ -172,24 +249,22 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     private static let haosRepoAPI = "https://api.github.com/repos/home-assistant/operating-system/releases"
 
+    /// How many releases to consider when looking for one with an aarch64
+    /// image. Each release carries the assets of every board (~40 KB), so this
+    /// is a ~400 KB response — fetched once, on first setup, and ETag-cached
+    /// from then on. One board-specific release in a row is the norm; ten
+    /// without an aarch64 image is not a case worth designing for beyond a
+    /// clear error.
+    private static let releaseScanDepth = 10
+
     private func fetchRelease() async throws -> GitHubRelease {
-        let (url, channelKey): (URL, String) = {
-            var urlString = Self.haosRepoAPI
-            let key: String
-            switch config.effectiveReleaseChannel {
-            case .stable:
-                urlString += "/latest"
-                key = "stable"
-            case .preRelease:
-                urlString += "?per_page=5"
-                key = "pre-release"
-            }
-            // URL is built from hardcoded constants — cannot fail.
-            return (URL(string: urlString)!, key)
-        }()
+        // One request either way: the list costs the same against the rate
+        // limit as `/latest` did, and the response is cached by ETag.
+        // URL is built from hardcoded constants — cannot fail.
+        let url = URL(string: "\(Self.haosRepoAPI)?per_page=\(Self.releaseScanDepth)")!
 
         let cacheURL = URL(fileURLWithPath: HavmConfig.cacheDirectory)
-            .appendingPathComponent("release-\(channelKey).cache")
+            .appendingPathComponent("releases.cache")
 
         // Try conditional request with cached ETag — 304 responses
         // don't count against GitHub's rate limit.
@@ -210,15 +285,16 @@ public final class HAOSSetupManager: @unchecked Sendable {
             throw SetupError.noAssetsFound("release data unavailable")
         }
 
-        if config.effectiveReleaseChannel == .preRelease {
-            let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
-            guard let first = releases.first else {
-                throw SetupError.noAssetsFound("no releases found")
-            }
-            return first
-        } else {
-            return try JSONDecoder().decode(GitHubRelease.self, from: data)
+        let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+        guard !releases.isEmpty else {
+            throw SetupError.noAssetsFound("no releases found")
         }
+        let selection = try HAOSReleaseSelection.select(
+            from: releases, channel: config.effectiveReleaseChannel)
+        for skipped in selection.skipped {
+            logger.warning("HA OS \(skipped.tagName) ships no aarch64 image — using \(selection.release.tagName)")
+        }
+        return selection.release
     }
 
     // MARK: - Rate limit help
@@ -317,7 +393,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     private func findAArch64Image(in release: GitHubRelease) throws -> GitHubAsset {
         guard let image = release.assets.first(where: { asset in
-            asset.name.hasPrefix("haos_generic-aarch64") && asset.name.hasSuffix(".img.xz")
+            HAOSReleaseSelection.isAArch64ImageName(asset.name)
         }) else {
             throw SetupError.noAssetsFound(release.tagName)
         }

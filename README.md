@@ -74,7 +74,9 @@ once Home Assistant answers.
 ```
 
 On first run, `havm` automatically:
-1. Downloads the latest stable HA OS release (`haos_generic-aarch64-*.img.xz`)
+1. Downloads the latest stable HA OS release that ships a generic aarch64 image
+   (`haos_generic-aarch64-*.img.xz`) — a release published for other boards only
+   is passed over
 2. Decompresses the disk image
 3. Copies the disk image to persistent storage and resizes it
 4. Boots the VM

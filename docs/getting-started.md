@@ -86,7 +86,8 @@ with foreground runs:
 On first run, `havm` handles everything automatically:
 
 1. **Download** — fetches the latest stable [Home Assistant OS][haos] release
-   for generic aarch64 (`.img.xz`)
+   that ships a generic aarch64 image (`.img.xz`). A release published for other
+   boards only — as 18.5 was, for Raspberry Pi and Yellow — is passed over
 2. **Decompress** — decompresses the XZ archive using the built-in libzma wrapper
 3. **Copy & resize** — copies the raw disk image to `~/Library/Application
    Support/havm/vm/haos.img` and resizes it (default 32 GiB, configurable)
