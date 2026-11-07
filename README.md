@@ -138,6 +138,16 @@ instant copy-on-write clone on the same volume, preserving sparseness without
 blowing up disk usage. If the source is on a different volume, it falls back
 to a sparse-aware copy that skips zero-filled blocks.
 
+**ASIF disks** — havm creates raw images, but it also accepts an Apple Sparse
+Image Format (ASIF) container, which is what a UTM VM on macOS 26 or later may
+be using. The format is read from the file's contents rather than its name, and
+the disk is then handled as the guest sees it: resizing goes through the
+container instead of `ftruncate`, the console cmdline patch runs against the
+attached block device, and the `logical` disk metric reports the size recorded
+inside the container. On an older host the container cannot be read at all, and
+havm says so rather than extending the file and leaving the guest on its
+original disk.
+
 If havm data already exists, the command refuses to overwrite it. Use `--force`
 (`-f`) to overwrite:
 

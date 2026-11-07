@@ -507,17 +507,38 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     /// Ensure the persistent disk is at least the configured size.
     /// Runs on every boot — if the user increased `disk_size` in config,
-    /// the file is extended. Shrinking is not supported.
+    /// the disk is extended. Shrinking is not supported.
+    ///
+    /// The size to compare against is the one the guest sees, which for an
+    /// ASIF container is recorded inside it and has nothing to do with the
+    /// file's length.
     private func ensureDiskSize() throws {
         let targetSize = config.effectiveDiskSize
-        let attrs = try fileManager.attributesOfItem(atPath: HavmConfig.persistentDiskPath)
-        let currentSize = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
-        guard currentSize < targetSize else { return }
-        logger.info("Resizing disk from \(MemorySize(bytes: currentSize)) to \(MemorySize(bytes: targetSize))...")
-        let fh = try FileHandle(forWritingTo: URL(fileURLWithPath: HavmConfig.persistentDiskPath))
-        defer { try? fh.close() }
-        // APFS extends files with sparse zero blocks — no actual data written.
-        try fh.truncate(atOffset: targetSize)
+        let url = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
+        guard let info = DiskImageSupport.info(at: url) else {
+            logger.warning("Could not read the disk image — skipping the disk size check.")
+            return
+        }
+        guard info.virtualSize < targetSize else { return }
+        logger.info("Resizing disk from \(MemorySize(bytes: info.virtualSize)) to \(MemorySize(bytes: targetSize))...")
+
+        switch info.kind {
+        case .raw:
+            let fh = try FileHandle(forWritingTo: url)
+            defer { try? fh.close() }
+            // APFS extends files with sparse zero blocks — no actual data written.
+            try fh.truncate(atOffset: targetSize)
+        case .asif:
+            // Extending the file would append zeros and leave the guest on the
+            // disk it started with, so the container has to be told instead.
+            do {
+                try DiskImageSupport.resize(url, to: targetSize)
+            } catch {
+                // The guest keeps a working disk either way — a smaller one.
+                logger.warning("Could not resize the ASIF disk: \(error) — the guest keeps its current size.")
+                return
+            }
+        }
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
     }
 
@@ -525,6 +546,10 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     /// Patch the EFI partition `cmdline.txt` to include `console=hvc0` so
     /// kernel messages appear on the virtio serial console. Idempotent.
+    ///
+    /// A raw image is patched in place. An ASIF container cannot be: its byte
+    /// offsets are not the guest's, so it is attached as a block device first
+    /// and patched through that instead.
     public static func ensureConsoleCmdline() {
         let logger = Logger(label: "havm.console-patch")
         let diskPath = HavmConfig.persistentDiskPath
@@ -532,13 +557,30 @@ public final class HAOSSetupManager: @unchecked Sendable {
             logger.debug("Disk image not found — skipping console cmdline patch")
             return
         }
+        let url = URL(fileURLWithPath: diskPath)
 
-        guard let fh = try? FileHandle(forUpdating: URL(fileURLWithPath: diskPath)) else {
-            logger.warning("Could not open disk image for console cmdline patch")
-            return
+        switch DiskImageSupport.kind(of: url) {
+        case .raw:
+            guard let fh = try? FileHandle(forUpdating: url) else {
+                logger.warning("Could not open disk image for console cmdline patch")
+                return
+            }
+            defer { try? fh.close() }
+            patchConsoleCmdline(in: fh, logger: logger)
+        case .asif:
+            do {
+                try DiskImageSupport.withBlockDevice(url, readOnly: false) { fh in
+                    patchConsoleCmdline(in: fh, logger: logger)
+                }
+            } catch {
+                logger.warning("Console: could not reach the ASIF disk as a block device: \(error) — serial console may not work")
+            }
         }
-        defer { try? fh.close() }
+    }
 
+    /// The GPT/ESP walk and rewrite, run against anything seekable: the image
+    /// file itself for a raw disk, or the block device for a container.
+    private static func patchConsoleCmdline(in fh: FileHandle, logger: Logger) {
         // Read LBA 0 (protective MBR) and LBA 1 (GPT header).
         guard let headerBlock = try? fh.read(upToCount: 1024), headerBlock.count >= 1024 else { return }
         let headerBytes = [UInt8](headerBlock)

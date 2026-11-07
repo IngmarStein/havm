@@ -162,10 +162,10 @@ public struct UTMBundle: Sendable {
     public var mainDisk: Drive? {
         let candidates = drives.filter { !$0.isNVMe && !$0.isReadOnly }
         guard !candidates.isEmpty else { return nil }
-        // Pick the largest disk image by file size
+        // Pick the largest disk by the size the guest would see
         return candidates.max(by: { a, b in
-            let sizeA = imageFileSize(a) ?? 0
-            let sizeB = imageFileSize(b) ?? 0
+            let sizeA = imageVirtualSize(a) ?? 0
+            let sizeB = imageVirtualSize(b) ?? 0
             return sizeA < sizeB
         })
     }
@@ -226,10 +226,18 @@ public struct UTMBundle: Sendable {
         return resolved
     }
 
-    /// File size of a drive's image, or nil if it doesn't exist.
-    private func imageFileSize(_ drive: Drive) -> Int64? {
-        guard let url = resolveURL(drive.imageName),
-              let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+    /// Size of a drive's image as the guest would see it, or nil if it doesn't
+    /// exist. An ASIF container reports the disk size recorded inside it —
+    /// its file length is the allocation, which would make a large sparse
+    /// HA OS disk look smaller than an auxiliary one.
+    private func imageVirtualSize(_ drive: Drive) -> Int64? {
+        guard let url = resolveURL(drive.imageName) else {
+            return nil
+        }
+        if let info = DiskImageSupport.info(at: url) {
+            return Int64(info.virtualSize)
+        }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
             return nil
         }
         return (attrs[.size] as? NSNumber)?.int64Value

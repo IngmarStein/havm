@@ -83,6 +83,8 @@ HavmCore
 │                    AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
 ├── ConfigDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
+├── DiskImageSupport  ASIF containers: format detection, virtual size, resize
+│                    (DiskImageKit on 27+, diskutil on 26), attach for block access
 ├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP,
 │                    TCP and/or Unix socket), bootstrap, process gauges
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
@@ -142,6 +144,29 @@ CXZ (C target)
   menu bar: the only item worth having is Quit, and with the formula's
   `keep_alive true` quitting just has launchd start havm again.
 - **APFS sparse files** — disk resize uses `ftruncate` (seek + write zero byte). APFS automatically hole-punches.
+- **ASIF tolerated, never produced** — havm's own disk stays raw. ASIF buys
+  nothing on APFS, where `ftruncate` already leaves a sparse file (34 GiB
+  logical, ~6 GiB allocated), and measured boot time was identical (35 s either
+  way); Apple documents both formats as supported by
+  `VZDiskImageStorageDeviceAttachment` even though its header still claims raw
+  only. But a disk can *arrive* as a container — `import-utm` copies a UTM VM's
+  disk verbatim, and a user may drop one in place — and treating a container as
+  a raw file is how you silently ruin it: `ftruncate` appends zeros, the guest
+  keeps its original disk, and the log claims a resize. So `DiskImageSupport`
+  reads the format from the first four bytes (`shdw`) rather than the file name,
+  reports the size recorded *inside* the container instead of the file's length,
+  resizes through `DiskImageKit` (`truncate(blockCount:)`, macOS 27+) or
+  `diskutil image resize --image-only` (macOS 26), and patches the console
+  cmdline against the **attached block device**: `diskutil image attach
+  --noMount --plist` returns a node owned by the attaching user, so it needs no
+  privileges, mounts nothing, and drops no `.fseventsd` on the guest's ESP.
+  DiskImageKit is `@_weakLinked` plus `.linkedFramework`, the same shape as
+  AccessoryAccess, so the macOS 15 target is untouched; below macOS 26 the
+  container cannot be read at all and havm says so instead of guessing. Raw keeps
+  `ftruncate` — routing it through the container path would add a macOS 27 gate
+  to one syscall and change nothing. `diskutil` is a system binary, the same
+  class as the `/usr/bin/ssh` the shutdown chain already runs, and its
+  `--plist` keys are stable where its human-readable output is localised.
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.

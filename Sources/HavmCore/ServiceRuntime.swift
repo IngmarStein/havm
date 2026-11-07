@@ -1137,30 +1137,27 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// Prometheus scrape via a ``MetricsServer/preScrape`` hook so the
     /// gauge is always fresh without a recurring timer.
     ///
-    /// Uses URL resource values to get both the logical size and the actual
-    /// allocated size (APFS sparse files typically allocate far less than
-    /// their logical size).
+    /// `logical` is the size the guest sees and `allocated` is what the image
+    /// takes on the host. For a raw image the two differ because APFS punches
+    /// holes; for an ASIF container the logical size is recorded inside the
+    /// file, so reading its length would understate the disk by an order of
+    /// magnitude.
     public func collectDiskMetrics() {
         let disks: [(String, String)] = [
             ("main", HavmConfig.persistentDiskPath),
         ]
         for (label, path) in disks {
-            let url = URL(fileURLWithPath: path)
-            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .fileAllocatedSizeKey]) else {
+            guard let info = DiskImageSupport.info(at: URL(fileURLWithPath: path)) else {
                 continue
             }
-            if let logical = values.fileSize {
-                Gauge(label: "havm_disk_usage_bytes", dimensions: [
-                    ("disk", label),
-                    ("type", "logical"),
-                ]).record(Double(logical))
-            }
-            if let allocated = values.fileAllocatedSize {
-                Gauge(label: "havm_disk_usage_bytes", dimensions: [
-                    ("disk", label),
-                    ("type", "allocated"),
-                ]).record(Double(allocated))
-            }
+            Gauge(label: "havm_disk_usage_bytes", dimensions: [
+                ("disk", label),
+                ("type", "logical"),
+            ]).record(Double(info.virtualSize))
+            Gauge(label: "havm_disk_usage_bytes", dimensions: [
+                ("disk", label),
+                ("type", "allocated"),
+            ]).record(Double(info.allocatedSize))
         }
     }
 
