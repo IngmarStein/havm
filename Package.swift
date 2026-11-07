@@ -34,6 +34,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("AccessoryAccess"),
+                .linkedFramework("DiskImageKit"),
             ]
         ),
         .target(
