@@ -254,6 +254,7 @@ public enum UTMImportError: Error, CustomStringConvertible {
     case noSuitableDisk
     case existingVMData(String)
     case unsafePath(String)
+    case layeredDiskRequiresNewerOS
 
     public var description: String {
         switch self {
@@ -271,6 +272,9 @@ public enum UTMImportError: Error, CustomStringConvertible {
             return "VM data already exists at \(path). Use --force to overwrite."
         case .unsafePath(let path):
             return "Refusing path from config.plist — it resolves outside the UTM bundle: \(path)"
+        case .layeredDiskRequiresNewerOS:
+            return "The UTM VM's disk has snapshot layers, which need macOS 27 or later to import and boot. " +
+                "Run havm on macOS 27+, or take a Home Assistant backup in UTM and restore it into a new VM."
         }
     }
 }

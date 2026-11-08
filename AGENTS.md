@@ -85,6 +85,8 @@ HavmCore
 │                    authorized_keys file — HA OS auto-imports for SSH
 ├── DiskImageSupport  ASIF containers: format detection, virtual size, resize
 │                    (DiskImageKit on 27+, diskutil on 26), attach for block access
+├── LayeredDisk      UTM snapshot layers: chain ordered by UUID, stack attachment
+│                    (macOS 27+), import-time renaming
 ├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP,
 │                    TCP and/or Unix socket), bootstrap, process gauges
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
@@ -184,6 +186,30 @@ CXZ (C target)
   size. The message names the format and gives the `qemu-img convert -O raw`
   command; havm does not convert, because a converter that mishandles backing
   files or snapshots is how data is lost.
+- **Layered images booted as stacks** — UTM's Apple backend on macOS 27+ keeps
+  snapshots as `<image>.<name>.asif` files beside the base (naming from
+  `UTMAppleDiskImage.layerFileURLs`). `DiskImageSupport` reports `.stacked` when
+  an ASIF base has such siblings, and `LayeredDisk` does the rest: it reads each
+  layer's identifier, orders the chain by parent UUID (a layer whose parent is
+  the base is normalized to `nil`, which is where the chain stops — the same
+  rule UTM uses), and opens the stack with every layer read-only except the top,
+  which is where the guest writes. The attachment is
+  `VZDiskImageStorageDeviceAttachment(diskImage:)` — macOS 27+, and exactly how
+  UTM boots one — so below 27 a layered image is refused, as UTM refuses to
+  create one there. The reason this must never degrade to the URL attachment is
+  that it *succeeds* on a layered base and boots the guest as of the first
+  snapshot without saying so. Two paths do not apply to a stack and skip it with
+  a warning: `ensureDiskSize` (a stack cannot be truncated; every layer above
+  the base was built on it as it is — UTM throws `hasSnapshots` here too) and
+  the console cmdline patch (`diskutil image attach` reaches the base only, and
+  writing the base would change what every layer was built on, so `--console`
+  loses the guest's kernel messages on a layered disk). `import-utm` copies the
+  chain rather than refusing it: the base and every layer are cloned and renamed
+  with the destination (`haos.img.current.asif`), layers left beside a disk being
+  replaced are removed first — a layer is found by the name of the image it sits
+  on, so a stale one would stack onto the new disk — and the copied chain is
+  reopened to prove it still resolves, because a chain with a hole is not a
+  disk.
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.

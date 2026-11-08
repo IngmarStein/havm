@@ -156,6 +156,16 @@ being treated as a raw disk, extended, and left unbootable. UTM's Apple
 Virtualization backend only stores raw and ASIF drives, so a genuine
 Apple-backend bundle never hits this.
 
+**Snapshot layers** — a UTM VM snapshotted on macOS 27 keeps the guest's writes in
+`<image>.<name>.asif` files beside the disk. `import-utm` copies the whole chain,
+renaming it with the disk (`haos.img.current.asif` and so on), and `havm run`
+boots the stack on macOS 27 or later, with the guest's writes landing in the
+current layer. Two things differ from a plain disk: a stack cannot be resized —
+every layer above the base was built on it as it is, and UTM refuses this too —
+so `disk_size` is ignored, and the `--console` cmdline patch is skipped because
+it would modify the base. On macOS 15–26 a layered image is refused with a
+message, as UTM does, and Home Assistant's own backup is the way across.
+
 **Homebrew services use different paths** — `brew services start havm` runs the
 service with `/opt/homebrew/etc/havm/config.yml` and `/opt/homebrew/var/lib/havm`,
 while the CLI defaults to `~/.config/havm` and `~/Library/Application Support/havm`.

@@ -97,6 +97,38 @@ import Testing
         }
     }
 
+    // MARK: - UTM snapshot layers
+
+    /// An ASIF base with UTM's snapshot layer naming beside it.
+    private func makeLayeredImage(at url: URL) throws {
+        try makeContainer(at: url, magic: Array("shdw".utf8))
+        try Data().write(to: url.deletingLastPathComponent()
+            .appendingPathComponent(url.lastPathComponent + ".current.asif"))
+    }
+
+    @Test func asifWithSnapshotLayersIsStacked() throws {
+        try withTempRoot { root in
+            let url = root.appendingPathComponent("haos.img")
+            try makeLayeredImage(at: url)
+            #expect(DiskImageSupport.kind(of: url) == .stacked)
+            #expect(DiskImageSupport.layerFiles(for: url).map(\.lastPathComponent)
+                == ["haos.img.current.asif"])
+        }
+    }
+
+    @Test func asifWithoutLayersIsNotStacked() throws {
+        try withTempRoot { root in
+            let url = root.appendingPathComponent("haos.img")
+            try makeContainer(at: url, magic: Array("shdw".utf8))
+            // Neither an unrelated image nor a same-prefix file of another
+            // type is a layer UTM would stack.
+            try Data().write(to: root.appendingPathComponent("other.asif"))
+            try Data().write(to: root.appendingPathComponent("haos.img.backup.bin"))
+            #expect(DiskImageSupport.kind(of: url) == .asif)
+            #expect(DiskImageSupport.layerFiles(for: url).isEmpty)
+        }
+    }
+
     // MARK: - Inspection
 
     @Test func rawVirtualSizeIsTheFileSize() throws {

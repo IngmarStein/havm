@@ -139,6 +139,28 @@ import Testing
         }
     }
 
+    // MARK: - Snapshot layers
+
+    @Test("A bundle with snapshot layers parses, and its layers are found beside the disk")
+    func findsLayersBesideTheMainDisk() throws {
+        try withTempRoot { root in
+            let bundle = root.appendingPathComponent("Layered.utm")
+            try writeBundle(at: bundle, plist: plist(drives: [
+                ["Identifier": "d1", "ImageName": "disk.img"],
+            ]))
+            try Data("shdw".utf8).write(to: bundle.appendingPathComponent("Data/disk.img"))
+            try Data().write(to: bundle.appendingPathComponent("Data/disk.img.current.asif"))
+
+            // The import command copies the chain; parsing only has to find it.
+            let parsed = try UTMBundle(path: bundle.path)
+            let disk = try #require(parsed.mainDisk)
+            let url = try #require(parsed.resolveURL(disk.imageName))
+            #expect(DiskImageSupport.kind(of: url) == .stacked)
+            #expect(DiskImageSupport.layerFiles(for: url).map(\.lastPathComponent)
+                == ["disk.img.current.asif"])
+        }
+    }
+
     // MARK: - Symlinks (an extracted bundle can carry them)
 
     @Test("A symlinked disk image cannot point outside the bundle")

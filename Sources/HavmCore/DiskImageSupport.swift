@@ -48,6 +48,11 @@ public enum DiskImageKind: Sendable, Equatable {
     case raw
     /// Apple Sparse Image Format — a container holding only the blocks in use.
     case asif
+    /// An ASIF base with UTM snapshot layers stacked on it (`<image>.<name>.asif`
+    /// beside it). The base alone is the guest as of the first snapshot, so it
+    /// must be booted as a stack — see ``LayeredDisk`` — and never written to
+    /// directly.
+    case stacked
     /// A container havm recognises but cannot read. Its byte offsets are not
     /// the guest's and the Virtualization framework cannot boot it, so every
     /// caller must refuse rather than guess.
@@ -113,9 +118,28 @@ public enum DiskImageSupport {
     /// and a qcow2 is still a qcow2 when it is called `haos.img` too.
     public static func kind(of url: URL) -> DiskImageKind {
         guard let head = header(at: url) else { return .raw }
-        if head.starts(with: asifMagic) { return .asif }
+        if head.starts(with: asifMagic) {
+            return layerFiles(for: url).isEmpty ? .asif : .stacked
+        }
         if let format = foreignFormat(in: head) { return .unsupported(format) }
         return .raw
+    }
+
+    /// The layers UTM stacked on an image for its snapshots.
+    ///
+    /// UTM keeps them beside the image as `<image>.<name>.asif` — the naming
+    /// comes from `UTMAppleDiskImage.layerFileURLs`, which is the only way to
+    /// find them: a layer records its parent's UUID, not its path, and the base
+    /// knows nothing about what sits on top of it.
+    public static func layerFiles(for url: URL) -> [URL] {
+        let prefix = url.lastPathComponent + "."
+        let siblings = (try? FileManager.default.contentsOfDirectory(
+            at: url.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return siblings.filter {
+            $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "asif"
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
     /// The first `count` bytes of the file, or nil if it cannot be read.
@@ -145,7 +169,7 @@ public enum DiskImageSupport {
     ///
     /// Returns `nil` when the file cannot be read, when it is an ASIF whose
     /// size cannot be determined on this host, or when it is a container havm
-    /// cannot read at all — callers must not guess, since a wrong size is how
+    /// cannot read or boot — callers must not guess, since a wrong size is how
     /// an image gets truncated.
     public static func info(at url: URL) -> DiskImageInfo? {
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .fileAllocatedSizeKey]) else {
@@ -160,6 +184,17 @@ public enum DiskImageSupport {
         case .asif:
             guard let virtualSize = asifVirtualSize(at: url) else { return nil }
             return DiskImageInfo(kind: .asif, virtualSize: virtualSize, allocatedSize: allocated)
+        case .stacked:
+            // The guest sees the base's disk; the layers hold what has been
+            // written to it since and are counted as allocation.
+            guard let virtualSize = asifVirtualSize(at: url) else { return nil }
+            let layerBytes = layerFiles(for: url).reduce(UInt64(0)) { total, layer in
+                let values = try? layer.resourceValues(forKeys: [.fileAllocatedSizeKey, .fileSizeKey])
+                return total + UInt64(values?.fileAllocatedSize ?? values?.fileSize ?? 0)
+            }
+            return DiskImageInfo(
+                kind: .stacked, virtualSize: virtualSize, allocatedSize: allocated + layerBytes
+            )
         case .unsupported:
             return nil
         }

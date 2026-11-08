@@ -530,13 +530,23 @@ public final class HAOSSetupManager: @unchecked Sendable {
         let targetSize = config.effectiveDiskSize
         let url = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
 
-        // A container havm cannot read has no size it can report, so it is
-        // refused here rather than through the generic "could not read" path:
-        // the file must not be extended. The VM start names the format and the
-        // conversion command; this line only records why no resize happened.
-        if case .unsupported(let format) = DiskImageSupport.kind(of: url) {
+        // A container havm cannot read or boot has no size it can act on, so it
+        // is refused here rather than through the generic "could not read"
+        // path: the file must not be extended. The VM start names the problem
+        // and what to do about it; this line only records why no resize
+        // happened.
+        switch DiskImageSupport.kind(of: url) {
+        case .unsupported(let format):
             logger.warning("The disk image is a \(format.displayName) container, which havm cannot boot — skipping the disk size check.")
             return
+        case .stacked:
+            // A stack cannot be truncated: every layer above the base was built
+            // on it as it is (UTM refuses this too). The guest keeps the size
+            // it has.
+            logger.warning("The disk has UTM snapshot layers beside it, so it cannot be resized — skipping the disk size check.")
+            return
+        case .raw, .asif:
+            break
         }
 
         guard let info = DiskImageSupport.info(at: url) else {
@@ -567,6 +577,10 @@ public final class HAOSSetupManager: @unchecked Sendable {
             // container the guest never sees, and the log would claim a resize.
             // The check above has already refused this file; nothing to do.
             logger.debug("Skipping the disk size check for a \(format.displayName) container.")
+            return
+        case .stacked:
+            // Same reasoning: the check above has already refused this file.
+            logger.debug("Skipping the disk size check for a layered image.")
             return
         }
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
@@ -607,6 +621,10 @@ public final class HAOSSetupManager: @unchecked Sendable {
             }
         case .unsupported(let format):
             logger.warning("Console: the disk is a \(format.displayName) container, which havm cannot read — skipping the cmdline patch")
+        case .stacked:
+            // The base must not be modified while layers are stacked on it:
+            // they were built on it as it is.
+            logger.warning("Console: the disk has UTM snapshot layers beside it — skipping the cmdline patch")
         }
     }
 

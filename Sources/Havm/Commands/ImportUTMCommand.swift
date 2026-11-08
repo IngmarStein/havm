@@ -110,7 +110,24 @@ struct ImportUTMCommand: AsyncParsableCommand {
             fputs("Error: \(UTMImportError.unsafePath(mainDisk.imageName))\n", stderr)
             throw ExitCode.failure
         }
-        try copyFile(from: sourceDiskURL, to: URL(fileURLWithPath: targetDiskPath), description: "Disk image")
+        let targetDiskURL = URL(fileURLWithPath: targetDiskPath)
+
+        // A layer is found by the name of the image it sits on, so layers left
+        // beside a disk being replaced would stack onto the new one.
+        try removeStaleLayers(at: targetDiskURL)
+
+        let layered = DiskImageSupport.kind(of: sourceDiskURL) == .stacked
+        if layered, #unavailable(macOS 27.0) {
+            fputs("Error: \(UTMImportError.layeredDiskRequiresNewerOS)\n", stderr)
+            throw ExitCode.failure
+        }
+
+        try copyFile(from: sourceDiskURL, to: targetDiskURL, description: "Disk image")
+        if layered {
+            if #available(macOS 27.0, *) {
+                try importSnapshotLayers(from: sourceDiskURL, to: targetDiskURL)
+            }
+        }
 
         // 5. Copy EFI variable store
         if let efiURL = bundle.efiVarsURL {
@@ -167,6 +184,51 @@ struct ImportUTMCommand: AsyncParsableCommand {
     }
 
     // MARK: - Helpers
+
+    /// A layer is found by the name of the image it sits on, so a layer left
+    /// beside a disk that is being replaced would stack onto the new one.
+    private func removeStaleLayers(at destination: URL) throws {
+        for layer in DiskImageSupport.layerFiles(for: destination) {
+            try FileManager.default.removeItem(at: layer)
+            print("    Removed stale snapshot layer \(layer.lastPathComponent)")
+        }
+    }
+
+    /// Copy the snapshot layers stacked on `source` beside `destination`,
+    /// renamed with it, then check that what was copied is still a chain.
+    @available(macOS 27.0, *)
+    private func importSnapshotLayers(from source: URL, to destination: URL) throws {
+        let chain: [DiskLayer]
+        do {
+            chain = try LayeredDisk.chain(of: source)
+        } catch {
+            fputs("Error: \(error)\n", stderr)
+            throw ExitCode.failure
+        }
+        print("    Snapshot layers: \(chain.map(\.name).joined(separator: ", "))")
+
+        for layer in chain {
+            guard let layerDestination = LayeredDisk.importedURL(
+                for: layer, base: source, destination: destination
+            ) else {
+                fputs("Error: cannot place \(layer.url.lastPathComponent) beside \(destination.lastPathComponent)\n", stderr)
+                throw ExitCode.failure
+            }
+            try copyFile(from: layer.url, to: layerDestination, description: "Layer '\(layer.name)'")
+        }
+
+        // A chain with a hole is not a disk, and the error must not wait for
+        // the first boot to show up.
+        do {
+            let copied = try LayeredDisk.chain(of: destination)
+            guard copied.count == chain.count else {
+                throw LayeredDiskError.importIncomplete(expected: chain.count, found: copied.count)
+            }
+        } catch {
+            fputs("Error: the imported layers do not form a chain: \(error)\n", stderr)
+            throw ExitCode.failure
+        }
+    }
 
     /// Copy a file, preserving APFS sparseness. Uses `clonefile(2)` for
     /// same-volume instant clones; falls back to a sparse-aware copy that

@@ -58,17 +58,29 @@ public final class VMController: NSObject, @unchecked Sendable {
         logger.info("CPU: \(vmConfig.cpuCount), Memory: \(MemorySize(bytes: vmConfig.memorySize))")
 
         // Storage: main HA OS disk (minimal — just the boot disk)
-        let diskURL = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
         // The framework accepts raw and ASIF; anything else it would either
         // reject with an opaque error or boot from a file whose bytes are not
         // the guest's disk. Name the format instead of letting it guess.
-        if case .unsupported(let format) = DiskImageSupport.kind(of: diskURL) {
+        let diskURL = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
+        let mainDisk: VZDiskImageStorageDeviceAttachment
+        switch DiskImageSupport.kind(of: diskURL) {
+        case .unsupported(let format):
             throw VMConfigError.unsupportedDiskImage(diskURL.path, format)
+        case .stacked:
+            // The base alone is the guest as of the first snapshot: attaching
+            // it by URL would boot a stale disk without saying so. Hand the
+            // framework the whole stack instead.
+            guard #available(macOS 27.0, *) else {
+                throw VMConfigError.layeredDiskRequiresNewerOS(diskURL.path)
+            }
+            do {
+                mainDisk = try LayeredDisk.attachment(for: diskURL)
+            } catch {
+                throw VMConfigError.layeredDisk(diskURL.path, String(describing: error))
+            }
+        case .raw, .asif:
+            mainDisk = try VZDiskImageStorageDeviceAttachment(url: diskURL, readOnly: false)
         }
-        let mainDisk = try VZDiskImageStorageDeviceAttachment(
-            url: diskURL,
-            readOnly: false
-        )
         let storageDevices: [VZStorageDeviceConfiguration] = [
             VZVirtioBlockDeviceConfiguration(attachment: mainDisk)
         ]
@@ -495,6 +507,8 @@ public enum VMConfigError: Error, CustomStringConvertible {
     case bridgeInterfaceNotFound(String)
     case noNetworkInterfaces
     case unsupportedDiskImage(String, UnsupportedDiskImageFormat)
+    case layeredDisk(String, String)
+    case layeredDiskRequiresNewerOS(String)
 
     public var description: String {
         switch self {
@@ -506,6 +520,11 @@ public enum VMConfigError: Error, CustomStringConvertible {
         case .unsupportedDiskImage(let path, let format):
             return "\(path) is a \(format.displayName) container, which havm cannot boot. " +
                 "Convert it to a raw image first: qemu-img convert -O raw <source> \(path)"
+        case .layeredDisk(let path, let detail):
+            return "\(path) has UTM snapshot layers beside it, but they could not be opened: \(detail)"
+        case .layeredDiskRequiresNewerOS(let path):
+            return "\(path) has UTM snapshot layers beside it, which need macOS 27 or later to boot. " +
+                "Run havm on macOS 27+, or take a Home Assistant backup in UTM and restore it into a new VM."
         }
     }
 }
