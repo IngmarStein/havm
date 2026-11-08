@@ -106,5 +106,5 @@ enum HavmEntry {
 }
 
 enum HavmVersion {
-    static let current = "1.1.3"
+    static let current = "1.1.4"
 }
