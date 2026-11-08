@@ -148,6 +148,14 @@ inside the container. On an older host the container cannot be read at all, and
 havm says so rather than extending the file and leaving the guest on its
 original disk.
 
+**Foreign containers** — a disk havm recognises but cannot read is refused by its
+magic bytes, not its name. A qcow2 (QEMU's default, and what UTM's QEMU backend
+and Proxmox exports use) or a VMDK (VMware) placed at `haos.img` stops `havm run`
+with the format named and a `qemu-img convert -O raw` command to run, instead of
+being treated as a raw disk, extended, and left unbootable. UTM's Apple
+Virtualization backend only stores raw and ASIF drives, so a genuine
+Apple-backend bundle never hits this.
+
 **Homebrew services use different paths** — `brew services start havm` runs the
 service with `/opt/homebrew/etc/havm/config.yml` and `/opt/homebrew/var/lib/havm`,
 while the CLI defaults to `~/.config/havm` and `~/Library/Application Support/havm`.
@@ -171,6 +179,7 @@ havm import-utm ~/path/to/Home\ Assistant.utm --force
 After import, run `havm run` as usual.
 
 [utm]: https://mac.getutm.app
+[installer]: https://github.com/home-assistant/installer
 
 ## Configuration
 
@@ -504,6 +513,24 @@ Why use havm instead of other ways to run Home Assistant?
 
 **In short:** If you have an Apple Silicon Mac that's always on, havm is the
 simplest way to run full Home Assistant OS with zero additional hardware.
+
+### Home Assistant's official installer
+
+Home Assistant publishes its own [installer][installer] (HAI), which can also put
+HA OS in a VM on a Mac — by driving UTM over Apple Events. It is a setup wizard,
+not a runtime: it creates the VM, starts it, and exits, leaving UTM in charge of
+the guest from then on. havm is the opposite trade. It is the runtime itself, so
+it can report boot status, shut the guest down cleanly, pass USB accessories
+through, and expose metrics, with no UTM or Automation permission involved.
+
+The two meet at `havm import-utm`: an Apple Virtualization VM created in UTM can
+be taken over by havm. A VM the installer creates cannot, because it uses UTM's
+QEMU backend — `import-utm` refuses that by design (see [Importing from
+UTM](#importing-from-utm)).
+
+*This comparison is based on havm 1.1.3 and HAI 0.0.0-alpha.6 (2026-11-04), the
+newest release when it was written. HAI is still pre-1.0, so its UTM flow may
+change.*
 
 ## License
 

@@ -62,6 +62,41 @@ import Testing
         }
     }
 
+    // MARK: - Foreign containers
+
+    /// A file whose first bytes are `magic`, padded out to a plausible size.
+    private func makeContainer(at url: URL, magic: [UInt8], size: Int = 4096) throws {
+        var bytes = [UInt8](repeating: 0, count: size)
+        for (i, byte) in magic.enumerated() {
+            bytes[i] = byte
+        }
+        try Data(bytes).write(to: url)
+    }
+
+    @Test(arguments: [
+        (UnsupportedDiskImageFormat.qcow2, Array([0x51, 0x46, 0x49, 0xfb])),
+        (.vmdk, Array("KDMV".utf8)),
+    ])
+    func recognisesUnreadableContainersByMagic(
+        format: UnsupportedDiskImageFormat, magic: [UInt8]
+    ) throws {
+        try withTempRoot { root in
+            let url = root.appendingPathComponent("haos.img")
+            try makeContainer(at: url, magic: magic)
+            #expect(DiskImageSupport.kind(of: url) == .unsupported(format))
+        }
+    }
+
+    @Test func unreadableContainerHasNoSize() throws {
+        try withTempRoot { root in
+            let url = root.appendingPathComponent("haos.img")
+            try makeContainer(at: url, magic: [0x51, 0x46, 0x49, 0xfb])
+            // Reporting the file's length as the disk size is how a qcow2 gets
+            // "resized" by appending zeros to a container the guest never sees.
+            #expect(DiskImageSupport.info(at: url) == nil)
+        }
+    }
+
     // MARK: - Inspection
 
     @Test func rawVirtualSizeIsTheFileSize() throws {

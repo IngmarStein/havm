@@ -58,8 +58,15 @@ public final class VMController: NSObject, @unchecked Sendable {
         logger.info("CPU: \(vmConfig.cpuCount), Memory: \(MemorySize(bytes: vmConfig.memorySize))")
 
         // Storage: main HA OS disk (minimal — just the boot disk)
+        let diskURL = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
+        // The framework accepts raw and ASIF; anything else it would either
+        // reject with an opaque error or boot from a file whose bytes are not
+        // the guest's disk. Name the format instead of letting it guess.
+        if case .unsupported(let format) = DiskImageSupport.kind(of: diskURL) {
+            throw VMConfigError.unsupportedDiskImage(diskURL.path, format)
+        }
         let mainDisk = try VZDiskImageStorageDeviceAttachment(
-            url: URL(fileURLWithPath: HavmConfig.persistentDiskPath),
+            url: diskURL,
             readOnly: false
         )
         let storageDevices: [VZStorageDeviceConfiguration] = [
@@ -487,6 +494,7 @@ extension VMController: VZUSBController.Delegate {
 public enum VMConfigError: Error, CustomStringConvertible {
     case bridgeInterfaceNotFound(String)
     case noNetworkInterfaces
+    case unsupportedDiskImage(String, UnsupportedDiskImageFormat)
 
     public var description: String {
         switch self {
@@ -495,6 +503,9 @@ public enum VMConfigError: Error, CustomStringConvertible {
                 VZBridgedNetworkInterface.networkInterfaces.map(\.identifier).joined(separator: ", ")
         case .noNetworkInterfaces:
             return "No network interfaces available for bridging."
+        case .unsupportedDiskImage(let path, let format):
+            return "\(path) is a \(format.displayName) container, which havm cannot boot. " +
+                "Convert it to a raw image first: qemu-img convert -O raw <source> \(path)"
         }
     }
 }

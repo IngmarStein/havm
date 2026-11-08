@@ -13,17 +13,45 @@ import Logging
 // a UTM VM's disk verbatim, and a user may drop one in place. Everything here
 // degrades to a warning on hosts that cannot read the container, so a raw
 // image keeps working everywhere and an ASIF is never silently corrupted.
+// A format havm can recognise but not read at all (qcow2, VMDK) is refused by
+// its magic at every chokepoint — see `UnsupportedDiskImageFormat`.
 //
 // DiskImageKit (macOS 27+) is the in-process API for reading and truncating a
 // container. macOS 26 has no public equivalent, so `diskutil` answers there —
 // a system binary, in the same class as the `/usr/bin/ssh` havm already runs.
 
-/// The disk image formats the Virtualization framework accepts.
-public enum DiskImageKind: String, Sendable {
+/// A disk-image container havm can recognise by its magic but cannot read.
+///
+/// UTM's Apple Virtualization backend only ever stores raw and ASIF drives —
+/// qcow2 and friends belong to its QEMU backend, which `import-utm` refuses
+/// before touching a disk. What is left is a file a user copied in by hand:
+/// a qcow2 exported from Proxmox or from UTM's QEMU backend, or a VMDK from
+/// VMware. Neither is a 1:1 map of the guest's disk, so treating one as raw is
+/// how a disk gets silently ruined. The Virtualization framework cannot boot
+/// them either, which is why the answer is a refusal, not a conversion.
+public enum UnsupportedDiskImageFormat: String, Sendable {
+    case qcow2
+    case vmdk
+
+    /// The name a user would recognise from the tool that made the file.
+    public var displayName: String {
+        switch self {
+        case .qcow2: "qcow2"
+        case .vmdk:  "VMDK"
+        }
+    }
+}
+
+/// The disk image formats havm knows how to handle.
+public enum DiskImageKind: Sendable, Equatable {
     /// A file that is a 1:1 map of the guest's disk.
     case raw
     /// Apple Sparse Image Format — a container holding only the blocks in use.
     case asif
+    /// A container havm recognises but cannot read. Its byte offsets are not
+    /// the guest's and the Virtualization framework cannot boot it, so every
+    /// caller must refuse rather than guess.
+    case unsupported(UnsupportedDiskImageFormat)
 }
 
 /// What an image on disk actually is, as opposed to what its file looks like.
@@ -81,22 +109,44 @@ public enum DiskImageSupport {
     // MARK: - Inspection
 
     /// The format of the image at `url`, decided by its contents rather than
-    /// its extension — an ASIF is still an ASIF when it is called `haos.img`.
+    /// its extension — an ASIF is still an ASIF when it is called `haos.img`,
+    /// and a qcow2 is still a qcow2 when it is called `haos.img` too.
     public static func kind(of url: URL) -> DiskImageKind {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return .raw }
+        guard let head = header(at: url) else { return .raw }
+        if head.starts(with: asifMagic) { return .asif }
+        if let format = foreignFormat(in: head) { return .unsupported(format) }
+        return .raw
+    }
+
+    /// The first `count` bytes of the file, or nil if it cannot be read.
+    private static func header(at url: URL, count: Int = 32) -> [UInt8]? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        guard let head = try? handle.read(upToCount: asifMagic.count),
-              Array(head) == asifMagic else {
-            return .raw
+        guard let head = try? handle.read(upToCount: count) else { return nil }
+        return Array(head)
+    }
+
+    /// The container format `head` starts with, if it is one havm cannot read.
+    ///
+    /// Every magic here is checked against the *contents*: a raw HA OS disk
+    /// begins with zeros and a GPT header, so neither can collide with it.
+    private static func foreignFormat(in head: [UInt8]) -> UnsupportedDiskImageFormat? {
+        func matches(_ magic: [UInt8]) -> Bool {
+            head.starts(with: magic)
         }
-        return .asif
+
+        // "QFI\xfb" — QCOW versions 1 through 3 all share it.
+        if matches([0x51, 0x46, 0x49, 0xfb]) { return .qcow2 }
+        if matches(Array("KDMV".utf8)) { return .vmdk }  // VMDK sparse extent
+        return nil
     }
 
     /// Inspect the image at `url`.
     ///
-    /// Returns `nil` when the file cannot be read, or when it is an ASIF whose
-    /// size cannot be determined on this host — callers must not guess, since
-    /// a wrong size is how an image gets truncated.
+    /// Returns `nil` when the file cannot be read, when it is an ASIF whose
+    /// size cannot be determined on this host, or when it is a container havm
+    /// cannot read at all — callers must not guess, since a wrong size is how
+    /// an image gets truncated.
     public static func info(at url: URL) -> DiskImageInfo? {
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .fileAllocatedSizeKey]) else {
             return nil
@@ -110,6 +160,8 @@ public enum DiskImageSupport {
         case .asif:
             guard let virtualSize = asifVirtualSize(at: url) else { return nil }
             return DiskImageInfo(kind: .asif, virtualSize: virtualSize, allocatedSize: allocated)
+        case .unsupported:
+            return nil
         }
     }
 

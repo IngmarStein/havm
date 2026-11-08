@@ -529,6 +529,16 @@ public final class HAOSSetupManager: @unchecked Sendable {
     private func ensureDiskSize() throws {
         let targetSize = config.effectiveDiskSize
         let url = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
+
+        // A container havm cannot read has no size it can report, so it is
+        // refused here rather than through the generic "could not read" path:
+        // the file must not be extended. The VM start names the format and the
+        // conversion command; this line only records why no resize happened.
+        if case .unsupported(let format) = DiskImageSupport.kind(of: url) {
+            logger.warning("The disk image is a \(format.displayName) container, which havm cannot boot — skipping the disk size check.")
+            return
+        }
+
         guard let info = DiskImageSupport.info(at: url) else {
             logger.warning("Could not read the disk image — skipping the disk size check.")
             return
@@ -552,6 +562,12 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 logger.warning("Could not resize the ASIF disk: \(error) — the guest keeps its current size.")
                 return
             }
+        case .unsupported(let format):
+            // The file is not the disk: extending it would append zeros to a
+            // container the guest never sees, and the log would claim a resize.
+            // The check above has already refused this file; nothing to do.
+            logger.debug("Skipping the disk size check for a \(format.displayName) container.")
+            return
         }
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
     }
@@ -589,6 +605,8 @@ public final class HAOSSetupManager: @unchecked Sendable {
             } catch {
                 logger.warning("Console: could not reach the ASIF disk as a block device: \(error) — serial console may not work")
             }
+        case .unsupported(let format):
+            logger.warning("Console: the disk is a \(format.displayName) container, which havm cannot read — skipping the cmdline patch")
         }
     }
 

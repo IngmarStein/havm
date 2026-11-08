@@ -167,6 +167,23 @@ CXZ (C target)
   to one syscall and change nothing. `diskutil` is a system binary, the same
   class as the `/usr/bin/ssh` the shutdown chain already runs, and its
   `--plist` keys are stable where its human-readable output is localised.
+- **Foreign containers refused, never converted** — `DiskImageKind` has a third
+  case for a format havm recognises by magic but cannot read: qcow2 (`QFI\xfb`)
+  and VMDK (`KDMV`). Only those two, because they are the ones that can
+  plausibly reach `haos.img` by hand — a qcow2 from Proxmox or UTM's QEMU
+  backend, a VMDK from VMware. UTM's Apple backend stores raw, ASIF and layered
+  ASIF only (`Services/UTMAppleDiskImage.swift`), and `import-utm` already
+  refuses a QEMU bundle by its `Backend` key, so an import never carries one of
+  these. The refusal lives at the two chokepoints that would otherwise ruin the
+  file: `VMController.createConfiguration` throws
+  `VMConfigError.unsupportedDiskImage` before the framework can boot a container
+  as if it were raw, and `HAOSSetup.ensureDiskSize` returns without `ftruncate`
+  — appending zeros to a qcow2 leaves the guest on the disk it started with
+  while the log claims a resize, the same failure the ASIF path exists to avoid.
+  `info(at:)` returns nil for these, since the file's length is not the disk's
+  size. The message names the format and gives the `qemu-img convert -O raw`
+  command; havm does not convert, because a converter that mishandles backing
+  files or snapshots is how data is lost.
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.
