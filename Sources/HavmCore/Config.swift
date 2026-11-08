@@ -663,6 +663,41 @@ extension HavmConfig {
         dataDirectoryOverride ?? _defaultDataDirectory
     }
 
+    /// The data directory used when no `--data-dir` is given.
+    public static var defaultDataDirectory: String {
+        _defaultDataDirectory
+    }
+
+    /// A VM disk sitting in the default data directory while this process was
+    /// pointed somewhere else.
+    ///
+    /// This is the shape of the `brew services` surprise: the formula's service
+    /// runs with Homebrew's own `--data-dir`, so a VM imported with the CLI
+    /// defaults is invisible to it and the guest is downloaded a second time.
+    /// Nil when the data directory *is* the default, or nothing is there.
+    public static func diskInDefaultDataDirectory() -> String? {
+        diskInDefaultDataDirectory(
+            dataDirectory: dataDirectory,
+            defaultDataDirectory: _defaultDataDirectory,
+            fileExists: FileManager.default.fileExists(atPath:)
+        )
+    }
+
+    /// The paths and the file check are parameters so the decision can be
+    /// tested without touching the process-wide override.
+    static func diskInDefaultDataDirectory(
+        dataDirectory: String,
+        defaultDataDirectory: String,
+        fileExists: (String) -> Bool
+    ) -> String? {
+        guard dataDirectory != defaultDataDirectory else { return nil }
+        let path = URL(fileURLWithPath: defaultDataDirectory)
+            .appendingPathComponent("vm")
+            .appendingPathComponent("haos.img")
+            .path
+        return fileExists(path) ? path : nil
+    }
+
     /// Directory for cached HA OS images: ~/Library/Caches/havm/
     public static let cacheDirectory: String = {
         let caches = NSSearchPathForDirectoriesInDomains(

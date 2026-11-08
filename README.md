@@ -148,6 +148,19 @@ inside the container. On an older host the container cannot be read at all, and
 havm says so rather than extending the file and leaving the guest on its
 original disk.
 
+**Homebrew services use different paths** — `brew services start havm` runs the
+service with `/opt/homebrew/etc/havm/config.yml` and `/opt/homebrew/var/lib/havm`,
+while the CLI defaults to `~/.config/havm` and `~/Library/Application Support/havm`.
+A VM imported with the defaults is invisible to the service, which then downloads
+a fresh image — havm warns when it notices one in the default location while
+running somewhere else. Import into the service's paths instead:
+
+```bash
+havm import-utm -c /opt/homebrew/etc/havm/config.yml -d /opt/homebrew/var/lib/havm ~/VM.utm
+```
+
+`run`, `import-utm` and `cleanup` all take `-c/--config` and `-d/--data-dir`.
+
 If havm data already exists, the command refuses to overwrite it. Use `--force`
 (`-f`) to overwrite:
 

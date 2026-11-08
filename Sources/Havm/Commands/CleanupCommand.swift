@@ -12,8 +12,22 @@ struct CleanupCommand: ParsableCommand {
           help: "Remove all VM data (disk images, NVRAM, machine ID) in addition to caches.")
     var all: Bool = false
 
+    @Option(name: [.customShort("c"), .long],
+            help: "Path to the config file (default: ~/.config/havm/config.yml).")
+    var config: String?
+
+    @Option(name: [.customShort("d"), .long],
+            help: "Data directory holding persistent VM data (default: ~/Library/Application Support/havm/).")
+    var dataDir: String?
+
     func run() throws {
         let fileManager = FileManager.default
+
+        // Set before anything reads a path: the cache is shared, but the VM
+        // data lives wherever this run was pointed.
+        if let dataDir {
+            HavmConfig.dataDirectoryOverride = dataDir
+        }
 
         // Always remove the cache directory.
         let cacheDir = HavmConfig.cacheDirectory
@@ -27,7 +41,8 @@ struct CleanupCommand: ParsableCommand {
         // With --all, also remove persistent VM data.
         if all {
             let dataDir = HavmConfig.dataDirectory
-            let configPath = HavmConfig.defaultConfigPath
+            let configPath = config.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+                ?? HavmConfig.defaultConfigPath
 
             print("")
             print("The following will be removed:")

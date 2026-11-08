@@ -369,4 +369,41 @@ import Testing
         #expect(shortAttr == 0x00 || shortAttr == 0x20,
                 "Entry 3 should be 8.3 file")
     }
+
+    // MARK: - Data directory
+
+    @Test("The default data directory is the Application Support one")
+    func defaultDataDirectory() {
+        #expect(HavmConfig.defaultDataDirectory.hasSuffix("/havm"))
+        #expect(HavmConfig.defaultDataDirectory.hasPrefix("/"))
+    }
+
+    @Test("A VM in the default directory is reported only from another one")
+    func diskInDefaultDataDirectory() {
+        let defaultDir = "/Users/someone/Library/Application Support/havm"
+        let disk = defaultDir + "/vm/haos.img"
+        let present: (String) -> Bool = { $0 == disk }
+
+        // The run *is* the default one — nothing to point at.
+        #expect(HavmConfig.diskInDefaultDataDirectory(
+            dataDirectory: defaultDir,
+            defaultDataDirectory: defaultDir,
+            fileExists: present
+        ) == nil)
+
+        // Pointed elsewhere while the default holds a VM: that is the one the
+        // user most likely meant.
+        #expect(HavmConfig.diskInDefaultDataDirectory(
+            dataDirectory: "/opt/homebrew/var/lib/havm",
+            defaultDataDirectory: defaultDir,
+            fileExists: present
+        ) == disk)
+
+        // Pointed elsewhere with nothing in the default either.
+        #expect(HavmConfig.diskInDefaultDataDirectory(
+            dataDirectory: "/opt/homebrew/var/lib/havm",
+            defaultDataDirectory: defaultDir,
+            fileExists: { _ in false }
+        ) == nil)
+    }
 }
