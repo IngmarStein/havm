@@ -20,6 +20,25 @@ struct ImportUTMCommand: AsyncParsableCommand {
             help: "Data directory for persistent VM data (default: ~/Library/Application Support/havm/).")
     var dataDir: String?
 
+    @Option(name: [.customShort("c"), .long],
+            help: "Config file to generate (default: ~/.config/havm/config.yml).")
+    var config: String?
+
+    /// The config file this import writes, honouring `--config`.
+    private var configPath: String {
+        config.map { URL(fileURLWithPath: $0).standardizedFileURL.path } ?? HavmConfig.defaultConfigPath
+    }
+
+    /// The `havm run` command that starts the VM this import prepared, spelled
+    /// out whenever it needs flags — the paths are only obvious to the person
+    /// who typed them.
+    private var runCommand: String {
+        var command = "havm run"
+        if let dataDir { command += " --data-dir \(dataDir)" }
+        if config != nil { command += " --config \(configPath)" }
+        return command
+    }
+
     func run() async throws {
         // 0. Set data directory override before anything touches the file system.
         if let dir = dataDir {
@@ -130,9 +149,9 @@ struct ImportUTMCommand: AsyncParsableCommand {
         print("✅ Import complete.")
         print("")
         print("  VM data:  \(vmDir)")
-        print("  Config:   \(HavmConfig.defaultConfigPath)")
+        print("  Config:   \(configPath)")
         print("")
-        print("  Run 'havm run' to start the VM.")
+        print("  Run '\(runCommand)' to start the VM.")
         print("")
         if !auxDisks.isEmpty {
             print("  ⚠️  Reminder: auxiliary disks were not imported:")
@@ -216,7 +235,6 @@ struct ImportUTMCommand: AsyncParsableCommand {
     /// Generate a havm config file reflecting the imported VM's settings.
     /// If a config already exists, prints the recommended settings instead of overwriting.
     private func generateConfig(from bundle: UTMBundle) throws {
-        let configPath = HavmConfig.defaultConfigPath
         let configDir = URL(fileURLWithPath: configPath).deletingLastPathComponent().path
 
         // Build the config content

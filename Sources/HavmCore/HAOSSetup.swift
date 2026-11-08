@@ -166,6 +166,20 @@ public final class HAOSSetupManager: @unchecked Sendable {
             return
         }
 
+        // A VM somewhere else is almost always the one the user meant: the
+        // `brew services` job runs with Homebrew's own --data-dir, so a VM
+        // imported with the CLI defaults is invisible to it. Say so before
+        // spending a download on a second guest.
+        if let elsewhere = HavmConfig.diskInDefaultDataDirectory() {
+            logger.warning(
+                """
+                No VM data in \(HavmConfig.dataDirectory), but one exists at \(elsewhere). \
+                This run will download a fresh HA OS image — pass --data-dir \(HavmConfig.defaultDataDirectory) \
+                to use the existing VM instead.
+                """
+            )
+        }
+
         logger.info("Starting HA OS setup...")
         createDirectories()
 
