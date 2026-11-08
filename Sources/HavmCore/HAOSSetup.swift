@@ -44,11 +44,59 @@ struct GitHubAsset: Decodable {
     let name: String
     let browserDownloadURL: String
     let size: Int64
+    /// GitHub's own SHA-256 of the uploaded file (`sha256:<hex>`), the value
+    /// the release page shows beside each asset. HA OS publishes no per-file
+    /// `.sha256` assets, so this is the checksum there is.
+    let digest: String?
 
     enum CodingKeys: String, CodingKey {
         case name
         case browserDownloadURL = "browser_download_url"
         case size
+        case digest
+    }
+
+    init(name: String, browserDownloadURL: String, size: Int64, digest: String? = nil) {
+        self.name = name
+        self.browserDownloadURL = browserDownloadURL
+        self.size = size
+        self.digest = digest
+    }
+}
+
+// MARK: - Checksum parsing
+
+/// Where a release's SHA-256 digests come from.
+///
+/// HA OS does not publish per-file `.sha256` assets — the lookup that expected
+/// `haos_generic-aarch64-<version>.img.xz.sha256` never found anything, so
+/// every download was accepted unverified. What a release does publish is a
+/// digest for each asset in GitHub's API (`sha256:<hex>`, the value the release
+/// page shows) and a `SHA256SUMS` file in the release assets.
+enum HAOSChecksums {
+    /// The hex of a GitHub `digest` field, if it is a SHA-256.
+    static func sha256(fromDigest digest: String) -> String? {
+        let parts = digest.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2, parts[0].lowercased() == "sha256" else { return nil }
+        let hex = parts[1].lowercased()
+        guard hex.count == 64, hex.allSatisfy(\.isHexDigit) else { return nil }
+        return hex
+    }
+
+    /// The hex `SHA256SUMS` lists for `fileName`.
+    ///
+    /// The format is `sha256sum`'s: `<hex>  <name>`, or `<hex> *<name>` for an
+    /// entry recorded in binary mode.
+    static func sha256(fromSumsFile text: String, for fileName: String) -> String? {
+        for line in text.split(whereSeparator: \.isNewline) {
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard fields.count >= 2 else { continue }
+            let hex = String(fields[0]).lowercased()
+            guard hex.count == 64, hex.allSatisfy(\.isHexDigit) else { continue }
+            let name = fields[1].hasPrefix("*") ? fields[1].dropFirst() : fields[1]
+            if name == fileName { return hex }
+        }
+        return nil
     }
 }
 
@@ -114,7 +162,6 @@ public enum SetupError: Error, CustomStringConvertible {
     case downloadFailed(String, Error)
     case decompressFailed(String)
     case checksumMismatch(String)
-    case noChecksumAvailable(String)
 
     public var description: String {
         switch self {
@@ -129,8 +176,6 @@ public enum SetupError: Error, CustomStringConvertible {
             return "Failed to decompress \(path)."
         case .checksumMismatch(let path):
             return "SHA256 checksum mismatch for \(path). The file may be corrupted or truncated. Delete the cached file and try again."
-        case .noChecksumAvailable(let path):
-            return "No SHA256 checksum available to verify \(path)."
         }
     }
 }
@@ -199,11 +244,10 @@ public final class HAOSSetupManager: @unchecked Sendable {
         } else {
             if !fileManager.fileExists(atPath: cachedXZPath) {
                 _ = try await downloadAsset(imageAsset, to: cachedXZPath)
-                // Verify checksum if available
-                if let checksumAsset = findChecksumAsset(in: release, for: imageAsset.name) {
-                    try await verifyChecksum(for: cachedXZPath, checksumAsset: checksumAsset)
+                if let expected = await expectedSHA256(for: imageAsset, in: release) {
+                    try verifyChecksum(for: cachedXZPath, expectedHex: expected)
                 } else {
-                    logger.warning("No SHA256 checksum found for \(imageAsset.name) — skipping integrity check")
+                    logger.warning("The release publishes no SHA-256 for \(imageAsset.name) — skipping integrity check")
                 }
             } else {
                 logger.info("Using cached download: \(cachedXZPath)")
@@ -414,12 +458,34 @@ public final class HAOSSetupManager: @unchecked Sendable {
         return image
     }
 
-    /// Look for a SHA256 checksum file in the release assets.
-    /// HA OS publishes a `.sha256` file alongside each `.img.xz`.
-    private func findChecksumAsset(in release: GitHubRelease, for imageName: String) -> GitHubAsset? {
-        // Expected: e.g. "haos_generic-aarch64-13.2.img.xz.sha256"
-        let checksumName = "\(imageName).sha256"
-        return release.assets.first { $0.name == checksumName }
+    /// The SHA-256 the release publishes for `asset`, if it publishes one.
+    ///
+    /// The asset's own digest is what GitHub recorded when the file was
+    /// uploaded; a release's `SHA256SUMS` covers an asset that has none. When
+    /// neither is available the caller warns and installs unverified, which is
+    /// what every install did until the digest was used.
+    private func expectedSHA256(for asset: GitHubAsset, in release: GitHubRelease) async -> String? {
+        if let digest = asset.digest, let hex = HAOSChecksums.sha256(fromDigest: digest) {
+            return hex
+        }
+
+        guard let sums = release.assets.first(where: { $0.name == "SHA256SUMS" }),
+              let url = URL(string: sums.browserDownloadURL) else {
+            return nil
+        }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse,
+                  (200...299).contains(http.statusCode),
+                  let text = String(data: data, encoding: .utf8) else {
+                logger.warning("Could not read SHA256SUMS for \(release.tagName) — skipping integrity check")
+                return nil
+            }
+            return HAOSChecksums.sha256(fromSumsFile: text, for: asset.name)
+        } catch {
+            logger.warning("Could not fetch SHA256SUMS for \(release.tagName): \(error) — skipping integrity check")
+            return nil
+        }
     }
 
     // MARK: - Download
@@ -460,37 +526,11 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     // MARK: - Checksum verification
 
-    private func verifyChecksum(for filePath: String, checksumAsset: GitHubAsset) async throws {
-        guard let url = URL(string: checksumAsset.browserDownloadURL) else {
-            logger.warning("Invalid checksum URL for \(checksumAsset.name)")
-            return
-        }
-
+    private func verifyChecksum(for filePath: String, expectedHex: String) throws {
         logger.info("Verifying SHA256 checksum...")
 
-        let checksumData: Data
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                throw SetupError.noChecksumAvailable(checksumAsset.name)
-            }
-            checksumData = data
-        } catch let error as SetupError { throw error }
-        catch {
-            throw SetupError.downloadFailed(url.absoluteString, error)
-        }
-
-        // Parse checksum file: "<hex>  <filename>" or "<hex> *<filename>"
-        guard let checksumText = String(data: checksumData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-            throw SetupError.noChecksumAvailable(checksumAsset.name)
-        }
-        let expectedHex = checksumText.split(separator: " ", omittingEmptySubsequences: true).first.map(String.init) ?? checksumText
-
         // Compute SHA256 of the downloaded file (streaming for memory efficiency)
-        let fileURL = URL(fileURLWithPath: filePath)
-        let computed = try SHA256.hash(url: fileURL)
-
+        let computed = try SHA256.hash(url: URL(fileURLWithPath: filePath))
         let computedHex = computed.compactMap { String(format: "%02x", $0) }.joined()
         guard computedHex.lowercased() == expectedHex.lowercased() else {
             // Remove the corrupted file so we re-download next time

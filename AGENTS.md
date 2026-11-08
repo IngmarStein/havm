@@ -255,6 +255,20 @@ CXZ (C target)
   `/latest`) and a ~400 KB response at `per_page=10`, ETag-cached and fetched once on first
   setup. No manual version pin: the selection removes the need, and setup only runs when
   `haos.img` is absent, which would make a pin a first-install-only setting.
+- **Download verified against GitHub's asset digest** — HA OS publishes no per-file
+  `.sha256` assets, so the lookup for
+  `haos_generic-aarch64-<version>.img.xz.sha256` never found anything and every install
+  logged "No SHA256 checksum found" and went ahead unverified. What a release does carry
+  is a `digest` on each asset in GitHub's API — the `sha256:…` the release page shows
+  beside it — with the release's `SHA256SUMS` file as a second source. The digest is
+  preferred; `SHA256SUMS` is fetched only when an asset has none; a release with neither
+  still installs, with a warning, so a GitHub change cannot brick setup. The digest is
+  GitHub's record of what was uploaded, not a signature from Home Assistant OS — the
+  official installer verifies the `SHA256SUMS` Sigstore bundle, which would mean a
+  Sigstore verifier in havm for a threat (a compromised GitHub) that would also serve
+  the image itself. What the check catches is corruption and truncation, which is what
+  it always claimed to do. A cached `.xz` is not re-verified: downloads are renamed into
+  the cache atomically, so a file there is a completed download.
 - **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
   and HA API calls all target `network.hostname` (bridge-mode default `homeassistant.local`)
   and let the resolver try a name's addresses at connect time. Resolving once and committing
