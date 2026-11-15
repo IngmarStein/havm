@@ -77,10 +77,16 @@ HavmCore
 │                    (VZVirtioConsoleDeviceSerialPortConfiguration,
 │                    VZFileHandleSerialPortAttachment),
 │                    @MainActor on start()
-├── ServiceRuntime   SIGTERM/SIGINT → SSH shutdown (port 22222/22) →
-│                    force-stop fallback, DHCP lease guest IP detection,
-│                    console mode: raw terminal, skip SIGINT, restore on exit,
+├── ServiceRuntime   Signals and quit requests → the shutdown chain →
+│                    force-stop fallback, boot poll, HA readiness, config
+│                    hot-reload, metrics rebinding, restart,
 │                    AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
+├── ShutdownChain    ShutdownPolicy (method order, shared deadline, per-attempt
+│                    caps, unconfigured-method tip) + the injected sequencer
+├── DHCPLeases       NAT-mode guest IP: parse /var/db/dhcpd_leases by MAC
+├── ConfigWatcher    Directory + file dispatch sources, re-armed after a rename
+├── TerminalMode     Raw terminal for --console, restored on every exit path
+├── PIDFile          The pid file external tooling reads (a record, not a lock)
 ├── ConfigDiskBuilder MBR + FAT16 with VFAT LFN, volume label "CONFIG",
 │                    authorized_keys file — HA OS auto-imports for SSH
 ├── DiskImageSupport  ASIF containers: format detection, virtual size, resize
@@ -225,6 +231,10 @@ CXZ (C target)
   5 s SSH connect) and the wait for `.stopped` consumes the rest. Restarting the budget per
   method used to force-stop a guest that was still halting cleanly after an accepted
   shutdown request (issue #11), and grew the total to `min(budget, 10) + 3 x budget`.
+  The sequencing lives in `ShutdownChain`, with the network calls injected: a method that
+  accepts the request ends the chain whether or not the guest halts — the wait has spent
+  the budget, so the remaining methods would never be reached anyway. That rule and the
+  deadline are unit-tested against a scripted guest.
   Under `brew services` launchd silently caps `ExitTimeOut` at 60 s — in the `gui` and
   `system` domains alike — so a launchd-initiated stop gives the guest at most 60 s before
   SIGKILL, whatever the configured budget. `ExitTimeOut 0` is worse: launchd SIGKILLs
