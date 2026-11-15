@@ -340,6 +340,8 @@ A `GET /health` endpoint is also available for simple liveness checks.
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `havm_vm_state` | gauge | `state` | VM state (running, stopped, paused, starting, …) |
+| `havm_guest_ready` | gauge | — | `1` once Home Assistant answers, `0` while booting, after the five-minute wait is given up on, and after a restart |
+| `havm_guest_info` | gauge | `url` | `1` while Home Assistant answers, naming the address that replied; the series goes away when it does |
 | `havm_usb_accessories` | gauge | — | USB accessories currently attached to the VM |
 | `havm_disk_usage_bytes` | gauge | `disk`, `type` | Disk image size: `type=logical` (configured size) or `allocated` (actual APFS allocation) |
 

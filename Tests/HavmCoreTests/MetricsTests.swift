@@ -275,6 +275,42 @@ import Testing
         #expect(output.contains("test_metric 0.0"))
     }
 
+    /// A label value is a quoted string in the exposition format, so a quote,
+    /// a backslash or a newline in one would end it early and produce a sample
+    /// no parser accepts. Guest addresses are the first values here that havm
+    /// does not spell itself.
+    @Test("SimpleRegistry emit: label values are escaped")
+    func emitEscapesLabelValues() {
+        let registry = SimpleRegistry()
+        registry.record(name: "test_metric", labels: [("url", #"a"b\c"#)], value: 1.0)
+        #expect(registry.emit().contains(#"test_metric{url="a\"b\\c"} 1.0"#))
+    }
+
+    /// A series is removed, not zeroed: "gone" and "zero" mean different things
+    /// to a scraper.
+    @Test("SimpleRegistry remove: the series is gone from the exposition")
+    func removeDropsTheSeries() {
+        let registry = SimpleRegistry()
+        registry.record(name: "test_metric", labels: [("url", "a")], value: 1.0)
+        registry.record(name: "test_metric", labels: [("url", "b")], value: 1.0)
+
+        registry.remove(name: "test_metric", labels: [("url", "a")])
+        let output = registry.emit()
+        #expect(!output.contains(#"url="a""#))
+        #expect(output.contains(#"url="b""#))
+    }
+
+    @Test("SimpleRegistry remove: the last series takes the metric with it")
+    func removeDropsAnEmptiedMetric() {
+        let registry = SimpleRegistry()
+        registry.record(name: "test_metric", labels: [], value: 1.0)
+        registry.remove(name: "test_metric", labels: [])
+
+        let output = registry.emit()
+        #expect(!output.contains("test_metric"))
+        #expect(!output.contains("# TYPE"))
+    }
+
     @Test("SimpleRegistry emit: very large integer")
     func emitLargeInteger() {
         let registry = SimpleRegistry()

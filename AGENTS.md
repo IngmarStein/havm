@@ -95,6 +95,9 @@ HavmCore
 │                    (macOS 27+), import-time renaming
 ├── Metrics           Prometheus metrics: MetricsServer (NWListener HTTP,
 │                    TCP and/or Unix socket), bootstrap, process gauges
+├── GuestStatusMetrics Guest readiness for /metrics: havm_guest_ready (0/1,
+│                    one series) and havm_guest_info{url} (removed, not zeroed,
+│                    when the address changes)
 └── Config/MemorySize Human-readable sizes ("4 GiB" → bytes)
 
 CXZ (C target)
@@ -317,6 +320,18 @@ CXZ (C target)
   mode's cleared ISIG means Ctrl+C passes `0x03` to the guest. Shutdown via `poweroff` in
   guest, or SIGTERM from outside. Forces text log format (stderr) to keep stdout clean.
   Primarily a debugging tool, not a headline feature.
+- **Readiness is a gauge, not an endpoint** — `/health` answers 200 whatever the guest
+  is doing; it is liveness for the process, which is what it always claimed. What was
+  missing is whether Home Assistant is up, and that is `havm_guest_ready` (0/1, no
+  labels) plus `havm_guest_info{url="…"}`, recorded from `GuestStatus` so the Dock badge
+  and the scrape cannot disagree. The address is a label on its own metric rather than
+  on the ready gauge: a DHCP lease change would otherwise end one time series and start
+  another, which is exactly the churn that breaks alerts. The old address's info series is
+  **removed**, not zeroed — "gone" is what Prometheus reports as stale, where a zero
+  would say the address is current and the guest is not ready there. `/ready` was
+  considered and dropped: it would ride the same opt-in metrics server, so it reaches
+  nobody the gauge does not, and a second source of truth for readiness can disagree
+  with the first.
 - **Metrics over a Unix socket** — `metrics.prometheus.host` takes `unix://<path>`
   entries next to TCP hosts; a socket-only list serves no TCP port at all (the port
   is then unused). No entitlement is involved — the tiers are unchanged. Four

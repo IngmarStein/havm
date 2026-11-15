@@ -15,12 +15,15 @@ public enum GuestStatus: Sendable, Equatable {
     /// answering, and the boot phase is over either way.
     case unreachable
 
+    /// The address Home Assistant answered on, when it has answered.
+    public var readyURL: URL? {
+        if case .ready(let url) = self { return url }
+        return nil
+    }
+
     /// Whether Home Assistant is answering, i.e. whether there is an address
     /// worth opening.
-    public var isReady: Bool {
-        if case .ready = self { return true }
-        return false
-    }
+    public var isReady: Bool { readyURL != nil }
 }
 
 /// Manages the blocking service runtime: signal handling, VM lifecycle,
@@ -107,6 +110,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var webUITask: Task<Void, Never>?
     private var metricsServer: MetricsServer?
     private let registry: SimpleRegistry
+    /// What `/metrics` says about the guest. Written on the main thread with
+    /// `guestStatus`, so the two cannot disagree.
+    private let guestMetrics: GuestStatusMetrics
     /// Strong reference to the macOS 27+ `USBAccessoryCoordinator`, if USB
     /// discovery is active. Typed `Any?` because the coordinator's type is
     /// only available on macOS 27.
@@ -130,8 +136,12 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         self.logLevelOverride = logLevelOverride
         self.metricsServer = metricsServer
         self.registry = registry
+        self.guestMetrics = GuestStatusMetrics(registry: registry)
         self.logger = logger
         super.init()
+        // Seed the gauge so it is present from the first scrape, before the
+        // guest has had a chance to change anything.
+        guestMetrics.record(guestStatus)
         observe(vmController)
     }
 
@@ -531,6 +541,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private func applyGuestStatus(_ status: GuestStatus) {
         guard guestStatus != status else { return }
         guestStatus = status
+        guestMetrics.record(status)
         guestStatusChanged?(status)
     }
 

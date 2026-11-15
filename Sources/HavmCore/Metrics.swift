@@ -20,9 +20,44 @@ public final class SimpleRegistry: Sendable {
 
     public func record(name: String, labels: [(String, String)], value: Double) {
         values.withLock { values in
-            let key = labels.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: ",")
-            values[name, default: [:]][key] = value
+            values[name, default: [:]][Self.labelKey(labels)] = value
         }
+    }
+
+    /// Drop one series, for a label set that no longer describes anything —
+    /// an address the guest has moved off, say. A series that merely went
+    /// away is what Prometheus reports as stale; leaving it behind with a zero
+    /// would say something different, that the value is now zero.
+    public func remove(name: String, labels: [(String, String)]) {
+        values.withLock { values in
+            values[name]?.removeValue(forKey: Self.labelKey(labels))
+            if values[name]?.isEmpty == true { values.removeValue(forKey: name) }
+        }
+    }
+
+    /// The Prometheus label set for `labels`: `name="value",name2="value2"`, or
+    /// empty when there are none.
+    ///
+    /// Values are escaped as the exposition format requires — a backslash,
+    /// a double quote or a newline in a value would otherwise end the string
+    /// early and produce a malformed sample. Guest addresses are the first
+    /// values here that havm does not spell itself.
+    private static func labelKey(_ labels: [(String, String)]) -> String {
+        labels.map { "\($0.0)=\"\(escapeLabelValue($0.1))\"" }.joined(separator: ",")
+    }
+
+    private static func escapeLabelValue(_ value: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(value.count)
+        for character in value {
+            switch character {
+            case "\\": escaped += #"\\"#
+            case "\"": escaped += #"\""#
+            case "\n": escaped += #"\n"#
+            default: escaped.append(character)
+            }
+        }
+        return escaped
     }
 
     /// Emit the Prometheus exposition format.
