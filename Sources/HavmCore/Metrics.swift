@@ -315,6 +315,34 @@ public final class MetricsServer: @unchecked Sendable {
         guard waitForSocketFile(at: socketPath) else {
             throw MetricsError.socketBindFailed(socketPath)
         }
+        // The file appears at bind, a moment before `listen()`: a client that
+        // connects in that window is refused. Waiting for `.ready` makes a
+        // successful `start()` mean the endpoint answers, not merely that a
+        // file exists — which is what a scrape issued right after startup, and
+        // every test that connects to it, needs.
+        guard waitForReady(of: listener) else {
+            throw MetricsError.socketBindFailed(socketPath)
+        }
+    }
+
+    /// Wait for a listener to reach `.ready`, the state in which it accepts
+    /// connections. `.failed` and `.cancelled` are final, so there is nothing
+    /// left to wait for.
+    private func waitForReady(of listener: NWListener, timeout: TimeInterval = 2) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            switch listener.state {
+            case .ready:
+                return true
+            case .failed, .cancelled:
+                return false
+            case .setup, .waiting:
+                guard Date() < deadline else { return false }
+                Thread.sleep(forTimeInterval: 0.005)
+            @unknown default:
+                return false
+            }
+        }
     }
 
     /// Wait for a bound listener to create its socket file.
