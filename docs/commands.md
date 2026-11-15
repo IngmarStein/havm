@@ -44,9 +44,9 @@ The `--data-dir` flag overrides the default `~/Library/Application Support/havm/
 location for persistent VM data. This is useful for:
 
 - **Multi-instance support**: run multiple HA OS VMs by giving each its own data
-  directory. Each instance needs a unique data directory and must be configured
-  with a different metrics port (set `metrics.prometheus.port` in `config.yml`
-  to avoid conflicts).
+  directory. Each instance needs a unique data directory — a second process on
+  the same one is refused — and must be configured with a different metrics port
+  (set `metrics.prometheus.port` in `config.yml` to avoid conflicts).
 
 - **External storage**: place the 32 GiB disk image on an external drive to
   conserve internal SSD space.

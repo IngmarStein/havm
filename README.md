@@ -191,6 +191,7 @@ After import, run `havm run` as usual.
 
 [utm]: https://mac.getutm.app
 [installer]: https://github.com/home-assistant/installer
+[matter]: https://www.home-assistant.io/integrations/matter/
 
 ## Configuration
 
@@ -520,12 +521,18 @@ Why use havm instead of other ways to run Home Assistant?
 | **Performance** | Apple Silicon native | Apple Silicon native | Apple Silicon native | Slower (ARM SBC) |
 | **Resource use** | ~4 GB RAM (balloon-reclaimable) | ~4 GB RAM | Less (no full OS) | Dedicated device |
 | **USB passthrough** | Menu bar accessory | Built-in UI | Not practical | Native GPIO/USB |
-| **Snapshots** | Planned (APFS snapshots) | Built-in | Not applicable | Via HA backups |
 | **Cost** | $0 (uses existing Mac) | $0 | $0 | $50–200+ |
 | **Best for** | Mac users who want a "set and forget" HA | Users who want a VM GUI | Lightweight HA without add-ons | Dedicated always-on appliance |
 
 **In short:** If you have an Apple Silicon Mac that's always on, havm is the
 simplest way to run full Home Assistant OS with zero additional hardware.
+
+The Docker column deserves a closer look: it is a supported way to run Home
+Assistant Core, but not every integration has a container equivalent. Home
+Assistant's [Matter integration][matter] names Home Assistant OS with the Matter
+Server app as the supported path and calls a standalone Matter Server container
+unsupported, so a home built on Matter or Thread is not the lightweight option
+that column suggests.
 
 ### Home Assistant's official installer
 

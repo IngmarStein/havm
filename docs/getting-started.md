@@ -81,6 +81,13 @@ with foreground runs:
 | VM data | `/opt/homebrew/var/lib/havm/` |
 | Config (optional) | `/opt/homebrew/etc/havm/config.yml` |
 
+Only one `havm` can use a data directory at a time: the disk and the EFI
+variable store are opened for writing, and two processes on them would corrupt
+the guest. A second instance exits with "Another havm is using this data
+directory" and the pid of the one that holds it. The lock is held by the
+running process, so nothing is left behind to clean up after a crash — the
+next start simply takes it.
+
 ## First Run
 
 On first run, `havm` handles everything automatically:

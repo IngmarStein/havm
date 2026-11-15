@@ -56,6 +56,13 @@ A method that fails falls through to the next one. If the REST API request is
 sent but no response comes back, `havm` treats the guest as already halting and
 waits for it rather than moving on to SSH.
 
+The SSH steps connect without host-key verification. The guest generates its
+host keys on first boot and there is no out-of-band way to learn them, so a
+first connection has nothing to check against; the channel carries one fixed
+shutdown command, so what a man-in-the-middle could do is swallow it, not
+obtain a credential — the private key never leaves the Mac and SSH signatures
+are bound to the session.
+
 `shutdown.timeout_seconds` is **one budget for the whole chain, not a
 timeout per method**. Every request attempt and every wait for the guest to
 halt is drawn from the same deadline, so falling through to the next method

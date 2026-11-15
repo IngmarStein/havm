@@ -113,6 +113,30 @@ If another Home Assistant on your network already answers to
 `homeassistant.local`, set this explicitly so havm doesn't address the wrong
 device — including for shutdown.
 
+## Home Assistant
+
+### `ha.url`
+Base URL of the Home Assistant web UI, e.g. `https://homeassistant.local:443`.
+By default `havm` probes the address the guest answered on — no port on HAOS
+2026.8 and newer, `8123` on installations that predate it — and remembers which
+one replied. Set this only if Home Assistant lives somewhere neither default
+covers, or behind HTTPS.
+
+### `ha.api_token`
+A [long-lived access token][token], used for the REST API shutdown call and for
+the Dock menu's "Restart Home Assistant". Without it, `havm` shuts the guest
+down over SSH instead.
+
+The token is a bearer credential: anyone who can read `config.yml` can use it.
+`havm` warns at startup when the file is accessible by other users, and the fix
+it names is the right one:
+
+```bash
+chmod 600 ~/.config/havm/config.yml
+```
+
+[token]: https://www.home-assistant.io/docs/authentication/#your-account-profile
+
 ## Logging
 
 `havm` logs to stdout. The format and level are configurable both in the

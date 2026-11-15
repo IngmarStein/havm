@@ -32,13 +32,36 @@ The server binds to `127.0.0.1:9210` and `[::1]:9210` (both loopbacks) by defaul
 | `GET /metrics` | Prometheus text format metrics |
 | `GET /health` | Liveness check — returns `200 OK` |
 
+`/health` is liveness for the `havm` process: it answers `200` whatever the
+guest is doing, including while it is still booting. Whether Home Assistant
+itself is up is `havm_guest_ready`, below.
+
 ## Available Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `havm_vm_state` | gauge | `state` | VM state (running, stopped, paused, starting, …) |
+| `havm_guest_ready` | gauge | — | `1` once Home Assistant answers; `0` while booting, after the five-minute wait is given up on, and after a restart |
+| `havm_guest_info` | gauge | `url` | `1` while Home Assistant answers, naming the address that replied |
 | `havm_usb_accessories` | gauge | — | USB accessories currently attached to the VM |
 | `havm_disk_usage_bytes` | gauge | `disk`, `type` | Disk image size: `type=logical` (configured size) or `allocated` (actual APFS allocation) |
+
+### Waiting for Home Assistant
+
+`havm_guest_ready` is the signal a startup script or an alert should use —
+it flips to `1` when the guest's web UI first answers, and back to `0` when a
+restart begins:
+
+```promql
+# Alert when Home Assistant has been unreachable for 10 minutes.
+havm_guest_ready == 0
+```
+
+The address Home Assistant answered on is on a metric of its own,
+`havm_guest_info{url="…"}`, rather than a label on the ready gauge: a new DHCP
+lease would otherwise end one time series and start another. When the address
+changes, or the guest stops answering, the old `url` series is removed — it
+does not linger with a zero value.
 
 Prometheus also adds its synthetic `up` metric — `1` when the scrape
 succeeds, `0` when `havm` is unreachable.
