@@ -100,6 +100,30 @@ enum HAOSChecksums {
     }
 }
 
+// MARK: - ETag caching
+
+/// GitHub's `Etag` response header, turned into the value to send back in
+/// `If-None-Match`.
+///
+/// The header arrives as `W/"<hex>"`. Only the weak marker is dropped, not the
+/// quotes: an entity-tag is a quoted string (RFC 9110 §8.8.3), and a bare hex
+/// value is not one. GitHub answers 200 rather than 304 for an unquoted value,
+/// which turned the cache into a no-op that still spent a request against the
+/// rate limit. Both `W/"…"` and `"…"` are accepted back; the strong form is
+/// the one to store, since weak comparison is what `If-None-Match` uses.
+enum HAOSETag {
+    /// The `If-None-Match` value for a response's `Etag` header, or `nil` when
+    /// the header is missing or not an entity-tag at all.
+    static func ifNoneMatch(fromHeader raw: String?) -> String? {
+        guard var value = raw?.trimmingCharacters(in: .whitespaces), !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("W/") { value = String(value.dropFirst(2)) }
+        guard value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 else { return nil }
+        return value
+    }
+}
+
 // MARK: - Release selection
 
 /// Picks the HA OS release to install from the repo's release list.
@@ -411,8 +435,11 @@ public final class HAOSSetupManager: @unchecked Sendable {
     ) async throws -> (Data, String?)? {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        if let etag {
-            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        // Sanitized again on the way out: a cache written before this was
+        // fixed stored the tag without its quotes, which no server matches.
+        // Such an entry simply stops being sent, and the 200 replaces it.
+        if let value = HAOSETag.ifNoneMatch(fromHeader: etag) {
+            request.setValue(value, forHTTPHeaderField: "If-None-Match")
         }
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -432,21 +459,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
             throw SetupError.noAssetsFound("HTTP \(http.statusCode)")
         }
 
-        // GitHub returns ETag values like W/"abc123". Strip the qualifier
-        // so re-sending the raw value as If-None-Match works correctly.
-        let responseEtag: String? = {
-            guard var raw = (http.allHeaderFields["Etag"] as? String) ?? nil else {
-                return nil
-            }
-            if raw.hasPrefix("W/\"") && raw.hasSuffix("\"") {
-                raw = String(raw.dropFirst(3).dropLast(1))
-            } else if raw.hasPrefix("\"") && raw.hasSuffix("\"") {
-                raw = String(raw.dropFirst().dropLast())
-            }
-            return raw.isEmpty ? nil : raw
-        }()
-
-        return (data, responseEtag)
+        return (data, HAOSETag.ifNoneMatch(fromHeader: http.value(forHTTPHeaderField: "Etag")))
     }
 
     private func findAArch64Image(in release: GitHubRelease) throws -> GitHubAsset {
