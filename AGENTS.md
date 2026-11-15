@@ -421,6 +421,12 @@ via `VZUSBPassthroughDevice`.
 - On connect: listener hot-attaches via `VZUSBPassthroughDevice` +
   `usbControllers.first?.attach(device:)` with fresh registryIDs.
 - On boot: listener registers after VM start, hot-attaches discovery results.
+- `VMController.createConfiguration` sets `VZVirtualMachineConfiguration.label`
+  (macOS 27, hence the `#available`) to `havm` — the framework's documented hook
+  for naming a VM in system services. It is **not** what the accessory prompt
+  credits: that follows the executable's identity (the terminal for a shell run,
+  "Havm" from inside the bundle, per the paragraph above), which is decided by
+  how havm is launched. Don't advertise the label as a fix for the prompt.
 - A failed attach is diagnosed by **reading, never writing**. On the
   `VZUSBPassthroughDevice` error path `VMController` logs the framework's error
   and a census of `accessory.configurationDescriptorData`; when that is empty —

@@ -157,6 +157,15 @@ public final class VMController: NSObject, @unchecked Sendable {
         platform.machineIdentifier = loadOrCreateMachineIdentifier()
         vmConfig.platform = platform
 
+        // The framework's documented hook for naming a VM in system services
+        // that show one (macOS 27). It is not what the USB accessory prompt
+        // credits: that follows the executable's identity — the terminal for a
+        // shell run, "Havm" from inside the bundle — which is set by how havm
+        // is launched, not here. See `USBAccessorySupport`.
+        if #available(macOS 27.0, *) {
+            vmConfig.label = "havm"
+        }
+
         // Entropy device — provides random numbers to the guest kernel for
         // cryptographic operations and ASLR.
         vmConfig.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
