@@ -1,48 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="havm">
+  <title>havm</title>
+  <!--
+    The Dock tile, drawn from the same geometry as scripts/make-app-icon.swift:
+    a cyan house holding a white isometric box, on the near-white tile the
+    system composes the real icon over. Keep the two in step — the house is a
+    500×500 rect at (262,262) with a 176 apex and 46 corner radius, and the box
+    is centred at (512,546) with a 152×76 top face and a 108-tall body.
+  -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1e3d4f"/>
-      <stop offset="100%" stop-color="#0f2632"/>
-    </linearGradient>
-    <linearGradient id="topShine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(255,255,255,0.05)"/>
-      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    <linearGradient id="house" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3dc7fa"/>
+      <stop offset="1" stop-color="#12a3ed"/>
     </linearGradient>
   </defs>
 
-  <!-- Shadow -->
-  <rect x="10" y="12" width="180" height="180" rx="36" ry="36"
-        fill="rgba(0,0,0,0.3)"/>
+  <!-- Tile -->
+  <rect width="1024" height="1024" rx="230" ry="230" fill="#f5faff"/>
 
-  <!-- Main rounded square -->
-  <rect x="8" y="8" width="184" height="184" rx="36" ry="36"
-        fill="url(#bg)" stroke="#18bcf2" stroke-width="2.5"/>
+  <!-- House: rounded at every vertex, 46 at the square corners and a little
+       tighter where the roof meets the walls and at the apex, as the
+       generator's tangent arcs do. -->
+  <path fill="url(#house)" d="
+      M 308 762
+      Q 262 762 262 716
+      L 262 462
+      Q 262 438 281 424
+      L 486 281
+      Q 512 262 538 281
+      L 743 424
+      Q 762 438 762 462
+      L 762 716
+      Q 762 762 716 762
+      Z"/>
 
-  <!-- Inner ring -->
-  <rect x="17" y="17" width="166" height="166" rx="28" ry="28"
-        fill="none" stroke="rgba(24,188,242,0.12)" stroke-width="1"/>
-
-  <!-- Top shine -->
-  <path d="M 8 44 Q 8 8 44 8 L 156 8 Q 192 8 192 44 L 192 100 L 8 100 Z"
-        fill="url(#topShine)"/>
-
-  <!-- House icon -->
-  <g transform="translate(100, 95)">
-    <!-- Roof -->
-    <polygon points="0,-46 -60,-4 60,-4"
-             fill="rgba(24,188,242,0.15)" stroke="#18bcf2"
-             stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-    <!-- Walls -->
-    <rect x="-40" y="-4" width="80" height="52"
-          fill="rgba(24,188,242,0.08)" stroke="#18bcf2"
-          stroke-width="6" stroke-linejoin="round"/>
-    <!-- Door -->
-    <rect x="-12" y="16" width="24" height="32" rx="2"
-          fill="#0d2632" stroke="#18bcf2" stroke-width="4"/>
-    <!-- Door knob -->
-    <circle cx="6" cy="33" r="2.5" fill="#18bcf2"/>
-    <!-- Chimney hint -->
-    <rect x="28" y="-36" width="10" height="16" rx="1"
-          fill="rgba(24,188,242,0.06)" stroke="#18bcf2" stroke-width="3"/>
+  <!-- Box: white top, then the two sides, lighter on the right. -->
+  <g>
+    <polygon points="512,470 664,546 512,622 360,546" fill="#fff"/>
+    <polygon points="360,546 512,622 512,730 360,654" fill="#fff" fill-opacity="0.70"/>
+    <polygon points="512,622 664,546 664,654 512,730" fill="#fff" fill-opacity="0.86"/>
   </g>
 </svg>
