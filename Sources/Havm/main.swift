@@ -1,4 +1,5 @@
 import ArgumentParser
+import Darwin
 import Foundation
 
 /// havm — Home Assistant VM Runner
@@ -48,6 +49,13 @@ struct HavmCLI: ParsableCommand {
 @main
 enum HavmEntry {
     static func main() {
+        // Logs go to stdout, and a reader that goes away — `havm run | head`,
+        // a log shipper that exits — would otherwise raise SIGPIPE on the next
+        // write and kill the process with the guest still running. Ignoring it
+        // turns those writes into EPIPE, which the log handlers already
+        // discard.
+        signal(SIGPIPE, SIG_IGN)
+
         do {
             var command = try HavmCLI.parseAsRoot(arguments())
 
