@@ -216,6 +216,18 @@ CXZ (C target)
   on, so a stale one would stack onto the new disk — and the copied chain is
   reopened to prove it still resolves, because a chain with a hole is not a
   disk.
+- **One process per data directory, locked by the kernel** — `run`, `import-utm` and
+  `cleanup --all` take an exclusive `flock(2)` on `<data dir>/vm/.lock` before touching
+  the disk, so a second instance fails with "another havm is using … (pid N)" instead of
+  opening the same `haos.img` and EFI store read-write. The lock is the *descriptor*, not
+  the file: the kernel releases it however the process ends, so a crash or `SIGKILL`
+  leaves nothing to clean up and no "remove the stale lock" step to document — verified by
+  SIGKILLing a holder and acquiring again with no cleanup. The file is never unlinked,
+  because unlinking it while a holder lives lets a third process lock a fresh inode and
+  two processes each believe they hold it; a zero-byte `.lock` costs nothing. The pid is
+  written for the error message only. A file system that cannot lock (a network volume)
+  logs and continues — this guards against an accident, and refusing to start over a
+  filesystem quirk would be worse than the risk it removes.
 - **Stable machine ID** — persists `VZGenericMachineIdentifier` for consistent MAC addresses across reboots.
 - **EFI variable store** — persists NVRAM file for GRUB boot state survival across reboots.
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.
@@ -371,6 +383,7 @@ for `ch.ingmar.havm` — the CLI build script picks it up automatically.
 ~/Library/Application Support/havm/vm/
   haos.img                       32 GiB raw GPT disk (APFS sparse)
   config.img                     2 MB FAT16 SSH key import disk (optional)
+  .lock                          Instance lock (flock; never removed)
   NVRAM                          EFI variable store
   MachineIdentifier              Stable machine ID
 ~/.config/havm/config.yml        Optional overrides
