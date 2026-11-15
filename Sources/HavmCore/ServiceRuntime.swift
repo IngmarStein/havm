@@ -97,9 +97,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var signalSourceTerm: DispatchSourceSignal?
     private var signalSourceInt: DispatchSourceSignal?
     private var signalSourceHup: DispatchSourceSignal?
-    private var configDirWatcher: DispatchSourceFileSystemObject?
-    private var configDirDescriptor: Int32 = -1
-    private var configFileWatcher: DispatchSourceFileSystemObject?
+    private var configWatcher: ConfigWatcher?
     private var observerPollCount = 0
     private let observerPollMax = 1200  // 1200 × 250 ms = 5 minutes
     private var healthPollCount = 0
@@ -113,8 +111,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// discovery is active. Typed `Any?` because the coordinator's type is
     /// only available on macOS 27.
     private var usbCoordinator: Any?
-    private var originalTermios: termios?
-    private var rawModeEnabled = false
+    private lazy var terminal = TerminalMode(logger: logger)
     private var lastDHCPLeaseModDate: Date?
     private var cachedDHCPLeaseIP: String?
 
@@ -172,7 +169,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 }
 
                 if self.consoleMode {
-                    self.enableRawMode()
+                    self.terminal.enable()
                     self.logger.info("Console: interactive serial console active (hvc0). Type 'poweroff' or send SIGTERM to stop.")
                 } else {
                     self.logger.info("VM is running. Press Ctrl+C to stop, or send SIGTERM for graceful shutdown.")
@@ -298,7 +295,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// (including Virtualization.framework's NVRAM backing store) a
     /// chance to flush pending writes.
     private func cleanupAndExit(_ code: Int32) -> Never {
-        restoreTerminal()
+        terminal.restore()
         removePIDFile()
         // Unlink any Unix socket files. `exit()` closes the descriptors for us,
         // but the filesystem entries would survive — leaving a socket file
@@ -385,52 +382,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
     private func startConfigWatcher() {
         guard let path = config.configPath else { return }
-        let dir = URL(fileURLWithPath: path).deletingLastPathComponent().path
-
-        // 1. Directory watcher — catches atomic saves (temp file + rename).
-        let dirFD = open(dir, O_EVTONLY)
-        guard dirFD >= 0 else {
-            logger.debug("Config watcher: cannot open \(dir)")
-            return
-        }
-        configDirDescriptor = dirFD
-        let dirSource = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: dirFD, eventMask: .write, queue: .main
-        )
-        dirSource.setEventHandler { [weak self] in
-            guard let self, let path = self.config.configPath else { return }
-            guard FileManager.default.fileExists(atPath: path) else { return }
-            self.reloadConfig()
-            self.restartFileWatcher()  // atomic save → new inode
-        }
-        dirSource.setCancelHandler { [weak self] in
-            if let fd = self?.configDirDescriptor, fd >= 0 {
-                close(fd)
-                self?.configDirDescriptor = -1
-            }
-        }
-        dirSource.resume()
-        configDirWatcher = dirSource
-
-        // 2. File watcher — catches in-place writes.
-        restartFileWatcher()
-    }
-
-    private func restartFileWatcher() {
-        configFileWatcher?.cancel()
-        configFileWatcher = nil
-        guard let path = config.configPath else { return }
-        let fileFD = open(path, O_EVTONLY)
-        guard fileFD >= 0 else { return }
-        let fileSource = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fileFD, eventMask: [.write, .extend], queue: .main
-        )
-        fileSource.setEventHandler { [weak self] in
+        let watcher = ConfigWatcher(path: path, logger: logger) { [weak self] in
             self?.reloadConfig()
         }
-        fileSource.setCancelHandler { close(fileFD) }
-        fileSource.resume()
-        configFileWatcher = fileSource
+        watcher.start()
+        configWatcher = watcher
     }
 
     private func reloadConfig() {
@@ -640,93 +596,73 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         let deadline = Date().addingTimeInterval(TimeInterval(config.effectiveShutdownTimeout))
         logger.info("Waiting up to \(config.effectiveShutdownTimeout)s for the guest to halt.")
 
-        // Set once a method has accepted the shutdown request — distinguishes
-        // "guest is halting, just slowly" from "no method worked at all".
-        var shutdownAccepted = false
-
-        if let ip = guestIP {
-            // 1. HA REST API (if api_token is configured) — on whichever
-            // address the guest answered, or both defaults if it never did
-            if let token = config.effectiveHAAPIToken, let budget = remaining(until: deadline) {
-                logger.info("Attempting shutdown via REST API...")
-                let result = await supervisorShutdown(host: ip, token: token, timeout: budget)
-                switch result {
-                case .success:
-                    shutdownAccepted = true
-                    if await waitForStop(until: deadline) { return }
-                case .timedOut:
-                    // Request sent but host may be shutting down — response
-                    // didn't come back. Wait for the VM to stop anyway.
-                    logger.debug("REST API timed out — host may already be shutting down.")
-                    shutdownAccepted = true
-                    if await waitForStop(until: deadline) { return }
-                case .failed:
-                    break // fall through to SSH
-                }
-            }
-            // 2. Debug SSH on port 22222 (root on host, direct shutdown)
-            if let budget = remaining(until: deadline) {
-                logger.info("Attempting SSH shutdown via port 22222...")
-                if await sshShutdown(host: ip, port: 22222, command: "shutdown -h now", timeout: budget) {
-                    shutdownAccepted = true
-                    if await waitForStop(until: deadline) { return }
-                }
-            }
-            // 3. Terminal & SSH add-on on port 22 (container, uses ha host shutdown)
-            if let budget = remaining(until: deadline) {
-                logger.info("Attempting SSH shutdown via port 22...")
-                if await sshShutdown(host: ip, port: 22, command: "ha host shutdown", timeout: budget) {
-                    shutdownAccepted = true
-                    if await waitForStop(until: deadline) { return }
-                }
-            }
-            if shutdownAccepted {
-                logger.warning(
-                    "Shutdown was accepted, but the guest had not halted after \(config.effectiveShutdownTimeout)s — force-stopping. Raise shutdown.timeout_seconds if the guest needs longer."
-                )
-            } else {
-                logger.warning("All shutdown methods failed — force-stopping...")
-                logUnconfiguredShutdownTip(config: config)
-            }
-        } else {
+        guard let ip = guestIP else {
             logger.warning("Guest IP unknown (network not ready) — force-stopping...")
+            await forceStop()
+            return
         }
 
-        do {
-            try await vmController.forceStop()
-            logger.info("Force stop completed.")
+        let token = config.effectiveHAAPIToken
+        let chain = ShutdownChain(
+            deadline: deadline,
+            methods: ShutdownPolicy.methods(hasAPIToken: token != nil),
+            attempt: { [self] method, budget in
+                logger.info("\(method.logDescription)")
+                switch method {
+                case .restAPI:
+                    guard let token else { return .failed }
+                    switch await supervisorShutdown(host: ip, token: token, timeout: budget) {
+                    case .success:
+                        return .accepted
+                    case .timedOut:
+                        // Request sent but the host may already be shutting
+                        // down — the response didn't come back.
+                        logger.debug("REST API timed out — host may already be shutting down.")
+                        return .unanswered
+                    case .failed:
+                        return .failed
+                    }
+                case .debugSSH:
+                    let ok = await sshShutdown(
+                        host: ip, port: 22222, command: "shutdown -h now", timeout: budget)
+                    return ok ? .accepted : .failed
+                case .sshAddon:
+                    let ok = await sshShutdown(
+                        host: ip, port: 22, command: "ha host shutdown", timeout: budget)
+                    return ok ? .accepted : .failed
+                }
+            },
+            waitForStop: { [self] deadline in await waitForStop(until: deadline) }
+        )
+
+        switch await chain.run() {
+        case .halted:
+            return
+        case .acceptedButStillRunning:
+            logger.warning(
+                "Shutdown was accepted, but the guest had not halted after \(config.effectiveShutdownTimeout)s — force-stopping. Raise shutdown.timeout_seconds if the guest needs longer."
+            )
+        case .nothingAccepted:
+            logger.warning("All shutdown methods failed — force-stopping...")
+            if let tip = ShutdownPolicy.unconfiguredTip(
+                hasAPIToken: config.effectiveHAAPIToken != nil,
+                hasSSHKeys: config.effectiveSSHKeyPath != nil
+            ) {
+                logger.warning("\(tip).")
+            }
         }
-        catch { logger.error("Force stop failed: \(error)") }
+
+        await forceStop()
         // defer block above handles restart-vs-exit decision
     }
 
-    /// Suggest the shutdown methods that are actually unconfigured.
-    ///
-    /// Naming a method the user has already set up sends them looking in the
-    /// wrong place: a wrong tip is worse than no tip, and a log line telling
-    /// someone who configured `ssh.authorized_keys` to configure
-    /// `ssh.authorized_keys` is how a real failure gets reported as a
-    /// configuration mistake (issue #19). So name only what is unset, and stay
-    /// silent when nothing is.
-    private func logUnconfiguredShutdownTip(config: HavmConfig) {
-        // The Terminal & SSH add-on runs in the guest, so havm cannot see whether
-        // it is installed. Offering it is only unambiguous when there is no
-        // config-based method at all — otherwise the user has chosen a path, and
-        // we don't get to assume the add-on is what's missing.
-        let candidates: [String?] = [
-            config.effectiveHAAPIToken == nil ? "ha.api_token (REST API)" : nil,
-            // A path that is set but points at nothing is reported by HAOSSetup at
-            // startup, so "configured" is the right test here.
-            config.effectiveSSHKeyPath == nil ? "ssh.authorized_keys (debug SSH)" : nil
-        ]
-        let unconfigured = candidates.compactMap { $0 }
-        guard !unconfigured.isEmpty else { return }
-
-        var tip = "Tip: configure " + unconfigured.joined(separator: " or ")
-        if unconfigured.count == 2 {
-            tip += ", or install the Terminal & SSH app in Home Assistant"
+    private func forceStop() async {
+        do {
+            try await vmController.forceStop()
+            logger.info("Force stop completed.")
+        } catch {
+            logger.error("Force stop failed: \(error)")
         }
-        logger.warning("\(tip).")
     }
 
     /// Restart the VM in-process: reload config, create a fresh
@@ -803,14 +739,6 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 self.startBootPhase()
             }
         }
-    }
-
-    /// Seconds left before `deadline`, or `nil` once the graceful-shutdown
-    /// budget is spent. Callers skip an attempt entirely on `nil` rather than
-    /// issuing a request with no time to answer it.
-    private func remaining(until deadline: Date) -> Int? {
-        let seconds = Int(deadline.timeIntervalSinceNow.rounded(.down))
-        return seconds > 0 ? seconds : nil
     }
 
     /// Wait for the VM to reach `.stopped` state, within the shared
@@ -910,7 +838,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Self.emptyJSONBody
-        request.timeoutInterval = TimeInterval(min(timeout, 10))
+        request.timeoutInterval = TimeInterval(ShutdownPolicy.restTimeout(within: timeout))
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
@@ -951,7 +879,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         process.arguments = [
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=\(min(timeout, 5))",
+            "-o", "ConnectTimeout=\(ShutdownPolicy.sshConnectTimeout(within: timeout))",
             "-o", "BatchMode=yes",
             "-p", "\(port)",
             "root@\(host)",
@@ -1173,21 +1101,20 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Parse the macOS DHCP lease file to find the guest's IP by its MAC address.
-    /// Only works in NAT mode where macOS vmnet acts as the DHCP server.
-    /// The MAC address is stable after VM start, so we parse the byte representation
-    /// once on first call.
+    /// The guest's address in NAT mode, where macOS vmnet is the DHCP server
+    /// and the lease file is the only record of it.
     ///
-    /// Caches the last-modification timestamp so we don't re-read the file on
-    /// every 250 ms tick when the lease hasn't been granted yet.
+    /// The MAC address is stable after VM start, so its byte form is parsed
+    /// once. The file's modification date is cached too, so the 250 ms boot
+    /// tick does not re-read and re-parse it while the lease is still pending.
     private lazy var guestMACBytes: [UInt8]? = {
-        vmController.guestMAC?.split(separator: ":").compactMap { UInt8($0, radix: 16) }
+        vmController.guestMAC.flatMap(DHCPLeases.bytes(ofMAC:))
     }()
 
     private func discoverViaDHCPLeases() -> String? {
         guard let guestMACBytes else { return nil }
 
-        let leaseURL = URL(fileURLWithPath: "/var/db/dhcpd_leases")
+        let leaseURL = URL(fileURLWithPath: DHCPLeases.path)
 
         // Skip re-reading if the file hasn't changed since last check.
         if let lastMod = lastDHCPLeaseModDate,
@@ -1204,82 +1131,18 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         lastDHCPLeaseModDate = (try? FileManager.default.attributesOfItem(atPath: leaseURL.path))
             .flatMap { $0[.modificationDate] as? Date }
 
-        let blocks = leaseText.components(separatedBy: "}\n")
-        for block in blocks {
-            var blockMAC: [UInt8] = []
-            var blockIP: String?
-            for line in block.split(separator: "\n") {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix("hw_address=1,") {
-                    let raw = String(trimmed.dropFirst(13))
-                    blockMAC = raw.split(separator: ":").compactMap { UInt8($0, radix: 16) }
-                } else if trimmed.hasPrefix("ip_address=") {
-                    blockIP = String(trimmed.dropFirst(11))
-                }
-            }
-            if blockMAC == guestMACBytes, let ip = blockIP, !ip.isEmpty {
-                cachedDHCPLeaseIP = ip
-                return ip
-            }
-        }
-
-        cachedDHCPLeaseIP = nil
-        return nil
+        cachedDHCPLeaseIP = DHCPLeases.address(forMAC: guestMACBytes, in: leaseText)
+        return cachedDHCPLeaseIP
     }
 
     // MARK: - PID file
 
     private func writePIDFile() {
-        let pidPath = HavmConfig.pidFilePath
-        let pidDir = URL(fileURLWithPath: pidPath).deletingLastPathComponent().path
-        do {
-            try FileManager.default.createDirectory(atPath: pidDir, withIntermediateDirectories: true)
-            try "\(getpid())\n".write(toFile: pidPath, atomically: true, encoding: .utf8)
-        } catch {
-            logger.warning("PID file write failed (\(pidPath)): \(error)")
-        }
+        PIDFile.write(at: HavmConfig.pidFilePath, logger: logger)
     }
 
     private func removePIDFile() {
-        do {
-            try FileManager.default.removeItem(atPath: HavmConfig.pidFilePath)
-        } catch {
-            logger.debug("PID file remove failed: \(error)")
-        }
-    }
-
-    // MARK: - Terminal raw mode
-
-    /// Enable raw terminal mode so keystrokes pass directly to the guest
-    /// without line buffering, local echo, or signal generation (ISIG).
-    /// Stores the original termios for restoration on exit.
-    private func enableRawMode() {
-        guard !rawModeEnabled else { return }
-        var raw = termios()
-        guard tcgetattr(STDIN_FILENO, &raw) == 0 else {
-            logger.warning("Console: tcgetattr failed — terminal may behave unexpectedly")
-            return
-        }
-        originalTermios = raw
-        cfmakeraw(&raw)
-        // Re-enable NL→CR-NL translation so stderr log lines don't drift
-        // across the terminal at whatever column the guest cursor left off.
-        // OPOST must be set for ONLCR to take effect.
-        raw.c_oflag |= tcflag_t(OPOST | ONLCR)
-        guard tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0 else {
-            logger.warning("Console: tcsetattr failed — terminal may behave unexpectedly")
-            return
-        }
-        rawModeEnabled = true
-    }
-
-    /// Restore the original terminal settings saved by ``enableRawMode()``.
-    /// Safe to call even if raw mode was never enabled.
-    private func restoreTerminal() {
-        guard rawModeEnabled, let original = originalTermios else { return }
-        var copy = original
-        tcsetattr(STDIN_FILENO, TCSANOW, &copy)
-        rawModeEnabled = false
+        PIDFile.remove(at: HavmConfig.pidFilePath, logger: logger)
     }
 
 }
