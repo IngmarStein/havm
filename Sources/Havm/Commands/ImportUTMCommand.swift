@@ -2,6 +2,7 @@ import ArgumentParser
 import Darwin
 import Foundation
 import HavmCore
+import Logging
 
 struct ImportUTMCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -81,6 +82,17 @@ struct ImportUTMCommand: AsyncParsableCommand {
         let fileManager = FileManager.default
         let vmDir = HavmConfig.vmDirectory
         try fileManager.createDirectory(atPath: vmDir, withIntermediateDirectories: true)
+
+        // Replacing a disk under a running guest is how a VM is corrupted, and
+        // `--force` is exactly the flag someone reaches for when an import
+        // "already exists" because the service is running.
+        do {
+            try InstanceLock.holdForProcess(
+                at: HavmConfig.instanceLockPath, logger: Logger(label: "havm.import"))
+        } catch {
+            fputs("Error: \(error)\n", stderr)
+            throw ExitCode.failure
+        }
 
         let targetDiskPath = HavmConfig.persistentDiskPath
         if fileManager.fileExists(atPath: targetDiskPath) {

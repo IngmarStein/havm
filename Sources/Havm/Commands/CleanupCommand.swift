@@ -1,6 +1,7 @@
 import ArgumentParser
 import Foundation
 import HavmCore
+import Logging
 
 struct CleanupCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -40,6 +41,17 @@ struct CleanupCommand: ParsableCommand {
 
         // With --all, also remove persistent VM data.
         if all {
+            // The disk cannot be removed from under a running guest. Taken
+            // before the confirmation, so the answer is "a VM is running"
+            // rather than "yes, delete it" followed by a failure.
+            do {
+                try InstanceLock.holdForProcess(
+                    at: HavmConfig.instanceLockPath, logger: Logger(label: "havm.cleanup"))
+            } catch {
+                fputs("Error: \(error)\n", stderr)
+                throw ExitCode.failure
+            }
+
             let dataDir = HavmConfig.dataDirectory
             let configPath = config.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
                 ?? HavmConfig.defaultConfigPath

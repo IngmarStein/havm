@@ -161,6 +161,20 @@ struct RunCommand: AsyncParsableCommand {
         var logger = Logger(label: "havm.run")
         logger.logLevel = effectiveLogLevel
 
+        // One havm per data directory. A second instance would open the same
+        // disk and the same EFI variable store read-write, which is how a VM
+        // gets corrupted — and the `brew services` job runs with its own
+        // --data-dir, so the collision is easy to cause by hand. The lock is
+        // released by the kernel however this process ends, so a crash leaves
+        // nothing to clean up.
+        do {
+            try InstanceLock.holdForProcess(at: HavmConfig.instanceLockPath, logger: logger)
+            logger.debug("Instance lock: \(HavmConfig.instanceLockPath)")
+        } catch {
+            logger.error("\(error)")
+            throw ExitCode.failure
+        }
+
         // Print where havm looked for config so users can see which file is
         // in effect (or would be). Uses the configured format/level above.
         let configPath = havmConfig.configPath ?? HavmConfig.defaultConfigPath

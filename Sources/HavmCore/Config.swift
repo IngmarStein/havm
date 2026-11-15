@@ -751,6 +751,14 @@ extension HavmConfig {
             .path
     }
 
+    /// The instance lock, beside the disk it protects. The file is never
+    /// removed — see ``InstanceLock``.
+    public static var instanceLockPath: String {
+        URL(fileURLWithPath: vmDirectory)
+            .appendingPathComponent(".lock")
+            .path
+    }
+
     /// Path to the PID file for the running VM process.
     public static var pidFilePath: String {
         URL(fileURLWithPath: vmDirectory)
