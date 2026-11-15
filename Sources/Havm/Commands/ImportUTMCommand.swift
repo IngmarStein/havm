@@ -278,12 +278,17 @@ struct ImportUTMCommand: AsyncParsableCommand {
         defer { try? input.close() }
 
         // Pre-allocate the destination to the full logical size.
-        // APFS will hole-punch regions we never write to.
+        // APFS will hole-punch regions we never write to. An empty source has
+        // no last byte to seek to, and no size to report progress against —
+        // `sourceSize - 1` on a `UInt64` traps, which is a crash on a malformed
+        // bundle rather than a readable error.
         fileManager.createFile(atPath: destination.path, contents: nil)
         let output = try FileHandle(forWritingTo: destination)
         defer { try? output.close() }
-        try output.seek(toOffset: UInt64(sourceSize - 1))
-        try output.write(contentsOf: Data([0]))
+        if sourceSize > 0 {
+            try output.seek(toOffset: UInt64(sourceSize - 1))
+            try output.write(contentsOf: Data([0]))
+        }
 
         let chunkSize = 1_048_576
         var offset: UInt64 = 0
@@ -297,6 +302,7 @@ struct ImportUTMCommand: AsyncParsableCommand {
             }
             offset += UInt64(chunk.count)
             totalRead += chunk.count
+            guard sourceSize > 0 else { continue }
             let pct = totalRead * 100 / sourceSize
             if pct - lastProgress >= 5 {
                 print("    Progress: \(pct)%")

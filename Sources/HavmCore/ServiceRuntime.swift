@@ -461,6 +461,12 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 // running, and a typo in a socket path should not take it
                 // down. Logged at error level so a silent metrics loss is
                 // still visible.
+                //
+                // The old server has already been stopped, so the reference
+                // must not outlive it: a non-nil `metricsServer` is what tells
+                // a later reload there is one running, and it would skip the
+                // restart.
+                metricsServer = nil
                 let level: Logger.Level = sockets.isEmpty ? .warning : .error
                 logger.log(
                     level: level,
@@ -669,7 +675,21 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// `VMController`, and start the new VM with updated config.
     /// Called after graceful shutdown when `restartRequested` is set
     /// (e.g. SIGHUP). No process exit — the calling task continues.
+    ///
+    /// The work happens on the main queue, wherever this is called from. The
+    /// shutdown chain finishes on a background executor, and everything below
+    /// — `config`, the poll counters, the flags — is read on the main queue by
+    /// the boot timer, the Dock menu and the VM state callback. `@unchecked
+    /// Sendable` on this class means the compiler will not catch that for us.
     private func restartVM() {
+        guard !Thread.isMainThread else {
+            restartVMOnMain()
+            return
+        }
+        DispatchQueue.main.async { [weak self] in self?.restartVMOnMain() }
+    }
+
+    private func restartVMOnMain() {
         // A quit that landed while the guest was halting outranks the restart:
         // starting a fresh VM here would leave the quit unanswered, and the
         // session would kill the process with the new guest already booting.
@@ -717,27 +737,23 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         observerTask?.cancel()
         webUITask?.cancel()
 
-        // VZVirtualMachine.start() asserts for the main queue, but
-        // restartVM() is called from the defer of an async Task on the
-        // global executor. Dispatch explicitly.
-        DispatchQueue.main.async { [self] in
-            newController.startVMBlocking { [weak self] startError in
-                guard let self else { return }
-                if let error = startError {
-                    self.logger.error("Failed to restart VM: \(error)")
-                    self.cleanupAndExit(1)
-                }
-
-                self.vmController = newController
-
-                // USB accessories are hot-attached — the new controller's
-                // XHCI configuration will pick up any devices the listener
-                // re-discovers after the new VM boots.
-                self.setupUSBDiscovery()
-
-                self.logger.info("VM restarted successfully")
-                self.startBootPhase()
+        // Already on the main queue, which `VZVirtualMachine.start()` requires.
+        newController.startVMBlocking { [weak self] startError in
+            guard let self else { return }
+            if let error = startError {
+                self.logger.error("Failed to restart VM: \(error)")
+                self.cleanupAndExit(1)
             }
+
+            self.vmController = newController
+
+            // USB accessories are hot-attached — the new controller's XHCI
+            // configuration will pick up any devices the listener re-discovers
+            // after the new VM boots.
+            self.setupUSBDiscovery()
+
+            self.logger.info("VM restarted successfully")
+            self.startBootPhase()
         }
     }
 
