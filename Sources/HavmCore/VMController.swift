@@ -27,6 +27,13 @@ public final class VMController: NSObject, @unchecked Sendable {
     /// distinguish an intentional force-stop from an unexpected VM crash.
     private var isForceStopping = false
 
+    /// Whether the last stop was the framework reporting an error rather than
+    /// the guest halting on its own. A guest that runs `poweroff` — the
+    /// documented way out of `--console` — stopped cleanly, and the process
+    /// exit code says so; only a stop havm did not ask for and the framework
+    /// reported as an error is a failure.
+    public private(set) var stoppedWithError = false
+
     public init(config: HavmConfig, consoleMode: Bool = false, logger: Logger = Logger(label: "havm.vm")) {
         self.config = config
         self.consoleMode = consoleMode
@@ -256,6 +263,7 @@ public final class VMController: NSObject, @unchecked Sendable {
     ) {
         // USB passthrough devices are hot-attached by the listener after
         // boot, not pre-configured from stale persisted accessory files.
+        stoppedWithError = false
         do {
             let vmConfig = try createConfiguration()
             let virtualMachine = VZVirtualMachine(configuration: vmConfig)
@@ -467,6 +475,7 @@ public final class VMController: NSObject, @unchecked Sendable {
 
 extension VMController: VZVirtualMachineDelegate {
     public func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
+        stoppedWithError = !isForceStopping
         if isForceStopping {
             logger.info("VM stopped (force stop)")
         } else {
@@ -479,6 +488,7 @@ extension VMController: VZVirtualMachineDelegate {
     }
 
     public func guestDidStop(_ virtualMachine: VZVirtualMachine) {
+        stoppedWithError = false
         logger.info("Guest OS stopped")
         MainActor.assumeIsolated { transition(to: .stopped) }
     }

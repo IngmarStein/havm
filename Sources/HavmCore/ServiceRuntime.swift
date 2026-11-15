@@ -135,13 +135,24 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         self.registry = registry
         self.logger = logger
         super.init()
+        observe(vmController)
+    }
 
-        vmController.onStateChange = { [weak self] state in
-            let name = state.description
-            self?.logger.info("VM state: \(name)")
-            if state == .stopped, self?.shutdownRequested != true {
-                self?.cleanupAndExit(1)
-            }
+    /// Install the state callback on a controller the runtime is about to run.
+    ///
+    /// Every controller needs this — the first one and each restart's. A
+    /// restart used to build a fresh controller and never wire it up, so after
+    /// a SIGHUP the guest could stop without the runtime hearing about it: the
+    /// boot timer is cancelled once Home Assistant answers, and nothing else
+    /// looks at `state`.
+    private func observe(_ controller: VMController) {
+        controller.onStateChange = { [weak self, weak controller] state in
+            guard let self else { return }
+            self.logger.info("VM state: \(state.description)")
+            guard state == .stopped, !self.shutdownRequested else { return }
+            // A guest that halted itself is not a failure, and a stop the
+            // runtime asked for is handled by the shutdown chain's own exit.
+            self.cleanupAndExit(controller?.stoppedWithError == true ? 1 : 0)
         }
     }
 
@@ -257,7 +268,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             if restartRequested {
                 restartVM()
             } else {
-                cleanupAndExit(0)
+                cleanupAndExit(vmController.stoppedWithError ? 1 : 0)
             }
             return
         }
@@ -748,6 +759,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         vmLogger.logLevel = logLevelOverride ?? config.effectiveLogLevel
 
         let newController = VMController(config: config, consoleMode: consoleMode, logger: vmLogger)
+        observe(newController)
 
         // Reset boot-phase state for the new VM.
         guestReachableNotified = false
