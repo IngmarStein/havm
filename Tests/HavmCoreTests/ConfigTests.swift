@@ -98,7 +98,7 @@ import Testing
     @Test("CONFIG disk builder produces valid MBR + FAT structure")
     func configDiskBuilder() throws {
         let key = Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test".utf8)
-        let disk = ConfigDiskBuilder.build(authorizedKey: key)
+        let disk = try ConfigDiskBuilder.build(authorizedKey: key)
         #expect(disk.count > 1024)
         // MBR signature at sector 0
         #expect(disk[510] == 0x55)
@@ -115,7 +115,7 @@ import Testing
     @Test("CONFIG disk authorized_keys LFN entry")
     func configDiskAuthorizedKeys() throws {
         let key = Data("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test".utf8)
-        let disk = ConfigDiskBuilder.build(authorizedKey: key)
+        let disk = try ConfigDiskBuilder.build(authorizedKey: key)
 
         // Root directory: MBR(512) + FAT(512) + 2*4*512(FATs) = 5120
         let rootDirOffset = 512 + 512 + 2 * 4 * 512
@@ -161,13 +161,53 @@ import Testing
     func configDiskKeyContent() throws {
         let keyContent = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA test-key\n"
         let keyData = Data(keyContent.utf8)
-        let disk = ConfigDiskBuilder.build(authorizedKey: keyData)
+        let disk = try ConfigDiskBuilder.build(authorizedKey: keyData)
 
         // Data region: MBR(512) + FAT(512) + 2*4*512(FATs) + 32*512(root dir) = 21504
         let dataRegionOffset = 512 + 512 + 2 * 4 * 512 + 32 * 512
         let cluster2 = disk[dataRegionOffset..<(dataRegionOffset + keyData.count)]
         #expect(String(data: cluster2, encoding: .utf8) == keyContent,
                 "Key content at cluster 2 should match")
+    }
+
+    /// A key file larger than one cluster is a chain in the FAT. Recording the
+    /// size without the chain made the guest read the first 2048 bytes and drop
+    /// the rest — silently, since the directory entry claimed the full size, so
+    /// the keys past the first cluster simply never worked.
+    @Test("CONFIG disk chains clusters for a key file larger than one cluster")
+    func configDiskKeySpanningClusters() throws {
+        let clusterSize = 2048
+        let keyData = Data(repeating: UInt8(ascii: "k"), count: clusterSize * 2 + 100)
+        let disk = try ConfigDiskBuilder.build(authorizedKey: keyData)
+
+        // MBR(512) + reserved(512), then both FAT copies of 4 sectors each.
+        let fatOffset = 512 + 512
+        let fatSectors = 4
+        func fatEntry(_ cluster: Int, inCopy copy: Int) -> UInt16 {
+            let o = fatOffset + copy * fatSectors * 512 + cluster * 2
+            return UInt16(disk[o]) | (UInt16(disk[o + 1]) << 8)
+        }
+
+        for copy in 0..<2 {
+            #expect(fatEntry(0, inCopy: copy) == 0xFFF8, "cluster 0 media descriptor")
+            #expect(fatEntry(1, inCopy: copy) == 0xFFFF, "cluster 1 reserved")
+            // 4196 bytes: three clusters, the last one ending the chain.
+            #expect(fatEntry(2, inCopy: copy) == 3)
+            #expect(fatEntry(3, inCopy: copy) == 4)
+            #expect(fatEntry(4, inCopy: copy) == 0xFFFF)
+        }
+
+        // The chain is consecutive, so the data is one contiguous run.
+        let dataRegionOffset = 512 + 512 + 2 * fatSectors * 512 + 32 * 512
+        #expect(disk[dataRegionOffset..<(dataRegionOffset + keyData.count)] == keyData)
+    }
+
+    @Test("A key file too large for the CONFIG disk is refused, not written past the end")
+    func configDiskRefusesAnOversizedKey() {
+        let tooLarge = Data(repeating: UInt8(ascii: "k"), count: 3 * 1024 * 1024)
+        #expect(throws: ConfigDiskError.self) {
+            _ = try ConfigDiskBuilder.build(authorizedKey: tooLarge)
+        }
     }
 
     @Test("Metrics config defaults")
@@ -352,7 +392,7 @@ import Testing
     @Test("CONFIG disk raw directory structure")
     func configDiskRawDirectory() throws {
         let keyData = Data("ssh-ed25519 test\n".utf8)
-        let disk = ConfigDiskBuilder.build(authorizedKey: keyData)
+        let disk = try ConfigDiskBuilder.build(authorizedKey: keyData)
         // Root directory at MBR(512) + FAT(512) + 2*4*512(FATs) = 5120
         let rootDir = 5120
 

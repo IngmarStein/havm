@@ -10,7 +10,9 @@ enum ConfigDiskBuilder {
     /// Create an MBR + FAT16 disk image containing an authorized_keys file.
     /// - Parameter keyData: The SSH public key text (one key per line, LF-separated).
     /// - Returns: Raw disk image data (MBR + FAT16 partition, volume label "CONFIG").
-    static func build(authorizedKey keyData: Data) -> Data {
+    /// - Throws: ``ConfigDiskError/authorizedKeysTooLarge(bytes:capacity:)`` for a
+    ///   key file the disk has no room for.
+    static func build(authorizedKey keyData: Data) throws -> Data {
         // 2 MB disk size — Data(count: 67108864) crashes the process on
         // macOS 27, so we use a minimal allocation. HA OS only needs a
         // few hundred bytes for authorized_keys, so 2 MB is plenty.
@@ -48,10 +50,26 @@ enum ConfigDiskBuilder {
 
         // --- FAT tables ---
         let fatOffset = fsOffset + reservedSectors * sectorSize
-        writeFAT16Tables(&data, fatOffset: fatOffset, fatCount: fatCount, fatSectors: fatSectors)
+        let rootDirOffset = fatOffset + Int(fatCount) * Int(fatSectors) * sectorSize
+        let dataRegionOffset = rootDirOffset + rootDirSectors * sectorSize
+
+        // What the key file needs, and what the disk has room for. A file
+        // larger than one cluster is a chain in the FAT — leaving it out, as
+        // this did, recorded the full size in the directory entry while the
+        // chain ended after 2048 bytes, so the guest read that much and
+        // silently dropped the rest of the keys.
+        let clusterSize = spc * sectorSize
+        let fatEntries = fatSectors * sectorSize / 2
+        let capacity = min(diskSize - dataRegionOffset, max(0, fatEntries - 2) * clusterSize)
+        guard keyData.count <= capacity else {
+            throw ConfigDiskError.authorizedKeysTooLarge(bytes: keyData.count, capacity: capacity)
+        }
+        let fileClusters = max(1, (keyData.count + clusterSize - 1) / clusterSize)
+
+        writeFAT16Tables(&data, fatOffset: fatOffset, fatCount: fatCount,
+                         fatSectors: fatSectors, fileClusters: fileClusters)
 
         // --- Root directory ---
-        let rootDirOffset = fatOffset + Int(fatCount) * Int(fatSectors) * sectorSize
 
         // Entry 1: Volume label "CONFIG"
         writeVolumeLabelEntry(&data, rootDirOffset, label: "CONFIG")
@@ -94,9 +112,9 @@ enum ConfigDiskBuilder {
                             cluster: 2, fileSize: fileSize)
 
         // --- Data region ---
-        let dataRegionOffset = rootDirOffset + rootDirSectors * sectorSize
-        let cluster2Offset = dataRegionOffset
-        data[cluster2Offset..<(cluster2Offset + keyData.count)] = keyData
+        // The chain starts at cluster 2 and runs consecutively, so the file is
+        // one contiguous run at the start of the region.
+        data[dataRegionOffset..<(dataRegionOffset + keyData.count)] = keyData
 
         return data
     }
@@ -162,12 +180,23 @@ enum ConfigDiskBuilder {
 
     // MARK: - FAT Tables
 
-    private static func writeFAT16Tables(_ data: inout Data, fatOffset: Int, fatCount: Int, fatSectors: Int) {
+    /// Both FAT copies, with the file's cluster chain.
+    ///
+    /// Cluster 0 carries the media descriptor and cluster 1 is reserved. The
+    /// file starts at cluster 2, and each entry names the cluster after it,
+    /// with the last one ending the chain.
+    private static func writeFAT16Tables(_ data: inout Data, fatOffset: Int, fatCount: Int,
+                                         fatSectors: Int, fileClusters: Int) {
+        let firstCluster = 2
         for fatIdx in 0..<fatCount {
             let offset = fatOffset + fatIdx * fatSectors * 512
-            data[offset] = 0xF8; data[offset + 1] = 0xFF
-            data[offset + 2] = 0xFF; data[offset + 3] = 0xFF
-            data[offset + 4] = 0xFF; data[offset + 5] = 0xFF
+            writeLE16(&data, offset: offset, value: 0xFFF8)      // cluster 0: media descriptor
+            writeLE16(&data, offset: offset + 2, value: 0xFFFF)  // cluster 1: reserved
+            for i in 0..<fileClusters {
+                let cluster = firstCluster + i
+                let next: UInt16 = i == fileClusters - 1 ? 0xFFFF : UInt16(cluster + 1)
+                writeLE16(&data, offset: offset + cluster * 2, value: next)
+            }
         }
     }
 
@@ -208,6 +237,22 @@ enum ConfigDiskBuilder {
         let bytes = Array(text.utf8).prefix(maxLen)
         for i in 0..<maxLen {
             data[offset + i] = i < bytes.count ? bytes[i] : padChar
+        }
+    }
+}
+
+// MARK: - Errors
+
+public enum ConfigDiskError: Error, CustomStringConvertible {
+    /// More key material than the 2 MB disk can hold. It used to be written
+    /// past the end of the image, which traps rather than fails.
+    case authorizedKeysTooLarge(bytes: Int, capacity: Int)
+
+    public var description: String {
+        switch self {
+        case .authorizedKeysTooLarge(let bytes, let capacity):
+            return "authorized_keys is \(MemorySize(bytes: UInt64(bytes))) — the CONFIG disk holds at most "
+                + "\(MemorySize(bytes: UInt64(capacity)))"
         }
     }
 }

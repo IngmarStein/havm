@@ -322,7 +322,16 @@ public final class HAOSSetupManager: @unchecked Sendable {
             return
         }
 
-        let configDisk = ConfigDiskBuilder.build(authorizedKey: keyData)
+        let configDisk: Data
+        do {
+            configDisk = try ConfigDiskBuilder.build(authorizedKey: keyData)
+        } catch {
+            // The guest boots either way, and the same is true when the key
+            // file is missing — but a key file that is simply too large is a
+            // configuration mistake worth naming, not a reason to abort setup.
+            logger.warning("SSH CONFIG disk not created: \(error)")
+            return
+        }
         try configDisk.write(to: URL(fileURLWithPath: HavmConfig.configDiskPath))
         logger.info("SSH CONFIG disk created at \(HavmConfig.configDiskPath)")
     }
