@@ -181,6 +181,11 @@ struct RunCommand: AsyncParsableCommand {
         let configHint = FileManager.default.fileExists(atPath: configPath)
             ? "" : " (not found — using defaults)"
         logger.info("Config: \(configPath)\(configHint)")
+        if let warning = ConfigFilePermissions.warning(
+            path: configPath, hasAPIToken: havmConfig.effectiveHAAPIToken != nil
+        ) {
+            logger.warning("\(warning)")
+        }
 
         let logMode = useJSON ? "json" : "text"
         let extras = console ? " console" : ""

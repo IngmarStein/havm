@@ -581,6 +581,37 @@ public enum HAEndpoint {
     }
 }
 
+// MARK: - Config file permissions
+
+/// Whether a config file's mode lets other users read it.
+///
+/// `ha.api_token` is a bearer token for Home Assistant's REST API: whoever can
+/// read the file can shut the guest down, restart Home Assistant, and anything
+/// else the token's owner can do. The file belongs to the user and havm does not
+/// own its mode, so this warns — once, at startup — rather than refusing to run.
+public enum ConfigFilePermissions {
+    /// The warning for the config file at `path`, or `nil` when it is fine,
+    /// missing, or holds no token.
+    public static func warning(path: String, hasAPIToken: Bool) -> String? {
+        guard hasAPIToken,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let mode = (attributes[.posixPermissions] as? NSNumber)?.uint16Value else {
+            return nil
+        }
+        return warning(path: path, mode: mode)
+    }
+
+    /// The warning for a file with `mode`, or `nil` when only the owner can
+    /// read it. Group and other bits of any kind are reported: write access
+    /// lets someone else change what havm does, which matters as much as
+    /// reading the token.
+    static func warning(path: String, mode: UInt16) -> String? {
+        guard mode & 0o077 != 0 else { return nil }
+        return "\(path) holds ha.api_token and is accessible by other users "
+            + "(mode \(String(mode, radix: 8))). Run: chmod 600 \(path)"
+    }
+}
+
 // MARK: - Config loading
 
 public enum ConfigError: Error, CustomStringConvertible {
