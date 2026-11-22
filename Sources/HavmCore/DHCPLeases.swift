@@ -22,24 +22,41 @@ enum DHCPLeases {
 
     /// The address `mac` holds in `text`, or `nil` when there is no stanza for
     /// it — a lease not yet granted, or one for a different guest.
+    ///
+    /// When multiple stanzas exist for the same MAC (e.g., an expired lease
+    /// alongside a renewed one), prefers the stanza with the latest `lease=`
+    /// expiry timestamp, breaking ties in favor of the later entry in the file.
     static func address(forMAC mac: [UInt8], in text: String) -> String? {
         guard !mac.isEmpty else { return nil }
-        for stanza in text.components(separatedBy: "}\n") {
+        var bestIP: String?
+        var bestExpiry: UInt64?
+        for stanza in text.components(separatedBy: "}") {
             var stanzaMAC: [UInt8] = []
             var stanzaIP: String?
+            var stanzaExpiry: UInt64?
             for line in stanza.split(separator: "\n") {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.hasPrefix(hwAddressPrefix) {
                     stanzaMAC = bytes(ofMAC: String(trimmed.dropFirst(hwAddressPrefix.count))) ?? []
                 } else if trimmed.hasPrefix(ipAddressPrefix) {
                     stanzaIP = String(trimmed.dropFirst(ipAddressPrefix.count))
+                } else if trimmed.hasPrefix(leasePrefix) {
+                    let raw = String(trimmed.dropFirst(leasePrefix.count))
+                    let hex = raw.hasPrefix("0x") || raw.hasPrefix("0X") ? String(raw.dropFirst(2)) : raw
+                    stanzaExpiry = UInt64(hex, radix: 16)
                 }
             }
-            if stanzaMAC == mac, let ip = stanzaIP, !ip.isEmpty {
-                return ip
+            guard stanzaMAC == mac, let ip = stanzaIP, !ip.isEmpty else { continue }
+            if let expiry = stanzaExpiry {
+                if bestExpiry == nil || expiry >= bestExpiry! {
+                    bestExpiry = expiry
+                    bestIP = ip
+                }
+            } else if bestExpiry == nil {
+                bestIP = ip
             }
         }
-        return nil
+        return bestIP
     }
 
     /// A colon-separated MAC address as six bytes, or `nil` when it is not
@@ -63,4 +80,5 @@ enum DHCPLeases {
     /// Ethernet, the only kind a VM's virtual NIC is.
     private static let hwAddressPrefix = "hw_address=1,"
     private static let ipAddressPrefix = "ip_address="
+    private static let leasePrefix = "lease="
 }

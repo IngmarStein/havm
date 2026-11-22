@@ -446,4 +446,72 @@ import Testing
             fileExists: { _ in false }
         ) == nil)
     }
+
+    // MARK: - HA URL, TLS, Secret Indirection
+
+    @Test("ha.url strips whitespace and trailing slashes, and blank yields nil")
+    func haURLNormalization() {
+        #expect(HavmConfig(ha: .init(url: "https://homeassistant.local/")).effectiveHAURL == "https://homeassistant.local")
+        #expect(HavmConfig(ha: .init(url: "  http://192.168.1.5:8123///  ")).effectiveHAURL == "http://192.168.1.5:8123")
+        #expect(HavmConfig(ha: .init(url: "   ")).effectiveHAURL == nil)
+        #expect(HavmConfig(ha: .init(url: "///")).effectiveHAURL == nil)
+    }
+
+    @Test("HA API token precedence: env var > api_token_file > inline api_token")
+    func haAPITokenSecretIndirection() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-secret-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let tokenFile = dir.appendingPathComponent("ha.token")
+        try "  file-secret-token\n".write(to: tokenFile, atomically: true, encoding: .utf8)
+
+        let config = HavmConfig(ha: .init(apiToken: "inline-token", apiTokenFile: tokenFile.path))
+
+        #expect(config.effectiveHAAPIToken(environment: ["HAVM_HA_API_TOKEN": " env-token\n"]) == "env-token")
+        #expect(config.effectiveHAAPIToken(environment: [:]) == "file-secret-token")
+
+        let inlineOnly = HavmConfig(ha: .init(apiToken: " inline-token ", apiTokenFile: "/nonexistent/token"))
+        #expect(inlineOnly.effectiveHAAPIToken(environment: [:]) == "inline-token")
+    }
+
+    @Test("ha.ca_cert, ha.insecure_skip_verify, and ha.api_token_file decode from YAML")
+    func haTLSAndTokenFileDecodeFromYAML() throws {
+        try withConfigFile("""
+        ha:
+          url: "https://homeassistant.local/"
+          api_token_file: "~/ha.token"
+          ca_cert: "~/ca.pem"
+          insecure_skip_verify: true
+        configPath: "/evil/override"
+        """) { path in
+            let config = try loadConfig(path: path)
+            #expect(config.effectiveHAURL == "https://homeassistant.local")
+            #expect(config.effectiveHAAPITokenFilePath?.hasSuffix("/ha.token") == true)
+            #expect(config.effectiveHACACertPath?.hasSuffix("/ca.pem") == true)
+            #expect(config.effectiveHAInsecureSkipVerify == true)
+            #expect(config.configPath == URL(fileURLWithPath: path).standardizedFileURL.path)
+        }
+    }
+
+    @Test("ConfigFilePermissions.warnings checks both inline token and api_token_file")
+    func configPermissionsChecksTokenFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-perm-multi-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let cfg = dir.appendingPathComponent("config.yml")
+        let tok = dir.appendingPathComponent("ha.token")
+        try "ha:\n  api_token_file: \(tok.path)\n".write(to: cfg, atomically: true, encoding: .utf8)
+        try "secret".write(to: tok, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: cfg.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: tok.path)
+
+        let loaded = try loadConfig(path: cfg.path)
+        let warnings = ConfigFilePermissions.warnings(for: loaded, configPath: cfg.path)
+        #expect(warnings.count == 1)
+        #expect(warnings[0].contains(tok.path))
+    }
 }

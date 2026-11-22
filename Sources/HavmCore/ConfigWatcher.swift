@@ -14,7 +14,6 @@ final class ConfigWatcher {
     private let onChange: () -> Void
 
     private var directoryWatcher: DispatchSourceFileSystemObject?
-    private var directoryDescriptor: Int32 = -1
     private var fileWatcher: DispatchSourceFileSystemObject?
 
     /// - Parameters:
@@ -40,7 +39,6 @@ final class ConfigWatcher {
             logger.debug("Config watcher: cannot open \(directory)")
             return
         }
-        directoryDescriptor = dirFD
         let dirSource = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: dirFD, eventMask: .write, queue: .main
         )
@@ -52,12 +50,9 @@ final class ConfigWatcher {
             self.onChange()
             self.restartFileWatcher()  // atomic save → new inode
         }
-        dirSource.setCancelHandler { [weak self] in
-            if let fd = self?.directoryDescriptor, fd >= 0 {
-                close(fd)
-                self?.directoryDescriptor = -1
-            }
-        }
+        // Capture `dirFD` by value so `deinit` cancelling the source closes
+        // the descriptor even after `self` is nil.
+        dirSource.setCancelHandler { close(dirFD) }
         dirSource.resume()
         directoryWatcher = dirSource
 

@@ -134,7 +134,8 @@ metrics:
 
 A list with only `unix://` entries serves the socket and no TCP port at all;
 combine both kinds of entry to serve both. The socket's parent directory is
-created if it does not exist. `metrics.enabled: true` is still required.
+created if it does not exist, and `havm` restricts the socket file to mode
+`0600` (owner-only). `metrics.enabled: true` is still required.
 
 Check it from the shell:
 

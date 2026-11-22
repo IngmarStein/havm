@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import Synchronization
 
 /// A `LogHandler` that writes structured JSON lines to a file handle (e.g. stdout).
 ///
@@ -12,10 +13,14 @@ import Logging
 /// - `.string` → JSON string
 /// - `.stringConvertible` → JSON string via `.description`
 /// - `.dictionary` → JSON object (recursively converted)
+/// - `.array` → JSON array (recursively converted)
 public struct JSONLogHandler: LogHandler, Sendable {
     /// Thread-safe since macOS 10.12 (per docs), but Foundation hasn't
     /// adopted Sendable annotations for it yet.
     private nonisolated(unsafe) static let isoFormatter = ISO8601DateFormatter()
+
+    /// Serializes writes so concurrent log calls never interleave mid-line.
+    private static let writeLock = Mutex<Void>(())
 
     private let stream: FileHandle
 
@@ -39,38 +44,48 @@ public struct JSONLogHandler: LogHandler, Sendable {
     }
 
     private func writeEntry(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?) {
-        var entry: [String: Any] = [
-            "timestamp": Self.isoFormatter.string(from: Date()),
-            "level": level.rawValue,
-            "label": self.label,
-            "message": message.description,
-        ]
+        var entry: [String: Any] = [:]
+        // Merge handler-level metadata first, then per-event metadata so
+        // per-event keys take precedence.
+        for (k, v) in self.metadata {
+            entry[k] = convertMetadataValue(v)
+        }
         if let metadata {
             for (k, v) in metadata {
                 entry[k] = convertMetadataValue(v)
             }
         }
-        // encodeJSON never fails because we pre-convert all values to
-        // JSON-safe representations.
-        if var data = encodeJSON(entry) {
-            data.append(0x0A) // '\n'
-            try? stream.write(contentsOf: data)
-        } else {
-            // Fallback: write a log line that is still valid JSON, so log
-            // parsers don't choke. This should never happen with the
-            // pre-conversion above, but we guard anyway.
-            let fallback = #"{"timestamp":"\#(Self.isoFormatter.string(from: Date()))","level":"error","label":"\#(self.label)","message":"Log serialization failed"}"#
-            var data = Data(fallback.utf8)
-            data.append(0x0A)
+        // Core fields are written last so arbitrary metadata keys cannot
+        // overwrite the structured log schema.
+        entry["timestamp"] = Self.isoFormatter.string(from: Date())
+        entry["level"] = level.rawValue
+        entry["label"] = self.label
+        entry["message"] = message.description
+
+        var data = encodeJSON(entry) ?? encodeFallback(label: self.label)
+        data.append(0x0A) // '\n'
+        Self.writeLock.withLock { _ in
             try? stream.write(contentsOf: data)
         }
+    }
+
+    private func encodeFallback(label: String) -> Data {
+        let fallback: [String: Any] = [
+            "timestamp": Self.isoFormatter.string(from: Date()),
+            "level": "error",
+            "label": label,
+            "message": "Log serialization failed",
+        ]
+        if let encoded = encodeJSON(fallback) {
+            return encoded
+        }
+        return Data(#"{"level":"error","message":"Log serialization failed"}"#.utf8)
     }
 }
 
 // MARK: - Metadata → JSON conversion
 
-/// Recursively convert a `Logger.Metadata.Value` to a JSON-safe type
-/// (String, [String: Any], or NSNull).
+/// Recursively convert a `Logger.Metadata.Value` to a JSON-safe type.
 private func convertMetadataValue(_ value: Logger.Metadata.Value) -> Any {
     switch value {
     case .string(let s):

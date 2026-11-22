@@ -18,6 +18,8 @@ public final class VMController: NSObject, @unchecked Sendable {
     public private(set) var state: VZVirtualMachine.State = .stopped
     /// Stable MAC address persisted across reboots.
     public private(set) var guestMAC: String?
+    /// Network mode actually attached (tracks bridge→NAT fallback).
+    public private(set) var actualNetworkType: HavmConfig.NetworkType
 
     /// When true, attach a virtio serial console device for interactive
     /// guest access via stdin/stdout (``--console``).
@@ -37,6 +39,7 @@ public final class VMController: NSObject, @unchecked Sendable {
     public init(config: HavmConfig, consoleMode: Bool = false, logger: Logger = Logger(label: "havm.vm")) {
         self.config = config
         self.consoleMode = consoleMode
+        self.actualNetworkType = config.effectiveNetworkType
         self.logger = logger
         super.init()
         // Seed the initial state so the gauge is present in /metrics
@@ -57,7 +60,7 @@ public final class VMController: NSObject, @unchecked Sendable {
 
         // EFI Boot Loader — boots directly from the GPT disk image via UEFI.
         let bootLoader = VZEFIBootLoader()
-        bootLoader.variableStore = loadOrCreateEFIVariableStore()
+        bootLoader.variableStore = try loadOrCreateEFIVariableStore()
         vmConfig.bootLoader = bootLoader
 
         vmConfig.cpuCount = config.effectiveCPUCount
@@ -113,13 +116,14 @@ public final class VMController: NSObject, @unchecked Sendable {
 
         // Network: stable MAC for consistent DHCP leases across reboots.
         let net = VZVirtioNetworkDeviceConfiguration()
-        let macAddress = loadOrCreateMACAddress()
+        let macAddress = try loadOrCreateMACAddress()
         net.macAddress = macAddress
         self.guestMAC = macAddress.string
 
         switch config.effectiveNetworkType {
         case .nat:
             net.attachment = VZNATNetworkDeviceAttachment()
+            self.actualNetworkType = .nat
             logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
         case .bridge:
             let bridgeInterface: VZBridgedNetworkInterface
@@ -139,6 +143,7 @@ public final class VMController: NSObject, @unchecked Sendable {
                     if config.network?.type == nil {
                         logger.warning("Bridge not available — com.apple.vm.networking entitlement missing (self-compiled binary). Falling back to NAT.")
                         net.attachment = VZNATNetworkDeviceAttachment()
+                        self.actualNetworkType = .nat
                         logger.info("Network: NAT (MAC \(self.guestMAC ?? "?"))")
                         break
                     }
@@ -147,6 +152,7 @@ public final class VMController: NSObject, @unchecked Sendable {
                 bridgeInterface = primary
             }
             net.attachment = VZBridgedNetworkDeviceAttachment(interface: bridgeInterface)
+            self.actualNetworkType = .bridge
             logger.info("Network: Bridge (\(bridgeInterface.identifier), MAC \(self.guestMAC ?? "?"))")
         }
 
@@ -226,7 +232,7 @@ public final class VMController: NSObject, @unchecked Sendable {
 
     // MARK: - EFI variable store
 
-    private func loadOrCreateEFIVariableStore() -> VZEFIVariableStore {
+    private func loadOrCreateEFIVariableStore() throws -> VZEFIVariableStore {
         let url = URL(fileURLWithPath: HavmConfig.nvramPath)
         let fileManager = FileManager.default
 
@@ -240,33 +246,23 @@ public final class VMController: NSObject, @unchecked Sendable {
         }
 
         // Create new store
-        if let store = try? VZEFIVariableStore(creatingVariableStoreAt: url) {
-            return store
+        do {
+            return try VZEFIVariableStore(creatingVariableStoreAt: url)
+        } catch {
+            logger.warning("Could not create EFI variable store — recreating: \(error.localizedDescription)")
+            try? fileManager.removeItem(atPath: url.path)
+            do {
+                return try VZEFIVariableStore(creatingVariableStoreAt: url)
+            } catch {
+                throw VMConfigError.efiVariableStoreFailed(url.path, error.localizedDescription)
+            }
         }
-
-        // Last resort: recreate from scratch
-        logger.warning("Could not create EFI variable store — recreating")
-        try? fileManager.removeItem(atPath: url.path)
-        if let store = try? VZEFIVariableStore(creatingVariableStoreAt: url) {
-            return store
-        }
-        // Disk full, permissions, or filesystem error — should be
-        // extremely rare, but give a readable message.
-        fatalError(
-            "Cannot create EFI variable store at \(url.path). "
-            + "Check disk space and permissions."
-        )
     }
 
-    // MARK: - Blocking VM start (for ServiceRuntime, called from main dispatch queue)
+    // MARK: - VM start (called from main dispatch queue)
 
-    /// Build config, create VZVirtualMachine, and call start().
-    /// Must be called from the main dispatch queue (VZ requirement).
-    /// The VZ completion handler fires on an arbitrary queue — we wait
-    /// on a background thread to avoid blocking the main queue.
-    /// Start the VM from the main queue. Does NOT block — calls `onComplete`
+    /// Start the VM from the main queue. Does not block — calls `onComplete`
     /// when VZ delivers its start callback (on the main queue).
-    /// Called from ServiceRuntime via DispatchQueue.main.async.
     public func startVMBlocking(
         onComplete: @escaping @Sendable (Error?) -> Void
     ) {
@@ -307,10 +303,13 @@ public final class VMController: NSObject, @unchecked Sendable {
 
     // MARK: - MAC address
 
-    private func loadOrCreateMACAddress() -> VZMACAddress {
+    private func loadOrCreateMACAddress() throws -> VZMACAddress {
         // Config override takes priority.
-        if let macString = config.network?.mac,
-           let mac = VZMACAddress(string: macString) {
+        if let macString = config.network?.mac?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !macString.isEmpty {
+            guard let mac = VZMACAddress(string: macString) else {
+                throw VMConfigError.invalidMACAddress(macString)
+            }
             return mac
         }
         // Otherwise use persisted random address.
@@ -343,7 +342,7 @@ public final class VMController: NSObject, @unchecked Sendable {
         do {
             let dir = URL(fileURLWithPath: path).deletingLastPathComponent().path
             try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            try id.dataRepresentation.write(to: URL(fileURLWithPath: path))
+            try id.dataRepresentation.write(to: URL(fileURLWithPath: path), options: .atomic)
         } catch {
             logger.warning("Failed to persist machine identifier: \(error)")
         }
@@ -525,6 +524,8 @@ extension VMController: VZUSBController.Delegate {
 public enum VMConfigError: Error, CustomStringConvertible {
     case bridgeInterfaceNotFound(String)
     case noNetworkInterfaces
+    case invalidMACAddress(String)
+    case efiVariableStoreFailed(String, String)
     case unsupportedDiskImage(String, UnsupportedDiskImageFormat)
     case layeredDisk(String, String)
     case layeredDiskRequiresNewerOS(String)
@@ -536,6 +537,10 @@ public enum VMConfigError: Error, CustomStringConvertible {
                 VZBridgedNetworkInterface.networkInterfaces.map(\.identifier).joined(separator: ", ")
         case .noNetworkInterfaces:
             return "No network interfaces available for bridging."
+        case .invalidMACAddress(let mac):
+            return "Invalid network.mac address '\(mac)' — expected six colon-separated hex octets (e.g. 02:00:00:00:00:01)."
+        case .efiVariableStoreFailed(let path, let detail):
+            return "Cannot create EFI variable store at \(path): \(detail). Check disk space and permissions."
         case .unsupportedDiskImage(let path, let format):
             return "\(path) is a \(format.displayName) container, which havm cannot boot. " +
                 "Convert it to a raw image first: qemu-img convert -O raw <source> \(path)"

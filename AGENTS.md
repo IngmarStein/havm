@@ -78,9 +78,14 @@ HavmCore
 │                    VZFileHandleSerialPortAttachment),
 │                    @MainActor on start()
 ├── ServiceRuntime   Signals and quit requests → the shutdown chain →
-│                    force-stop fallback, boot poll, HA readiness, config
-│                    hot-reload, metrics rebinding, restart,
-│                    AAUSBAccessoryListener + VZUSBPassthroughDevice for USB
+│                    force-stop fallback, boot poll (per-candidate deadlines),
+│                    HA readiness, config hot-reload, metrics rebinding,
+│                    in-process SIGHUP restart, AAUSBAccessoryListener +
+│                    VZUSBPassthroughDevice for USB
+├── HAClient         Home Assistant HTTP(S) client: observer ping, manifest
+│                    probe, REST shutdown/restart, custom CA (PEM/DER) &
+│                    insecure_skip_verify TLS delegate, same-host / no-HTTPS-
+│                    downgrade redirect guard, bounded resource timeout
 ├── ShutdownChain    ShutdownPolicy (method order, shared deadline, per-attempt
 │                    caps, unconfigured-method tip) + the injected sequencer
 ├── DHCPLeases       NAT-mode guest IP: parse /var/db/dhcpd_leases by MAC
@@ -236,9 +241,15 @@ CXZ (C target)
 - **SSH key import** — creates a 2 MB MBR + FAT16 disk with VFAT LFN entries for `authorized_keys`. HA OS auto-imports from USB mass storage on boot for root SSH on port 22222.
 - **Graceful shutdown chain** — on Ctrl+C/SIGTERM, or on a quit request (logout,
   restart, or Quit from the Dock tile's context menu; see the AppKit loop above):
-  1. `POST /api/services/hassio/host_shutdown` (REST API service call, requires `ha.api_token`;
-     the address is the one the readiness probe found, else `HAEndpoint.probePorts`)
-  2. `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, requires `ssh.authorized_keys`)
+  1. `POST /api/services/hassio/host_shutdown` (REST API service call, requires a token
+     from `HAVM_HA_API_TOKEN`, `ha.api_token_file`, or `ha.api_token`; the address is
+     the one the readiness probe found, else `HAEndpoint.probePorts`; supports custom CA
+     via `ha.ca_cert` or `ha.insecure_skip_verify`, and refuses cross-host and
+     `https` → non-`https` redirects so custom TLS trust and bearer credentials never
+     apply to an unconfigured host or downgrade to cleartext)
+  2. `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, requires `ssh.authorized_keys`;
+     passes `ForwardAgent=no`, `ClearAllForwardings=yes`, `PermitLocalCommand=no`,
+     `RequestTTY=no`, and `--`)
   3. `ssh root@<ip> -p 22 ha host shutdown` (SSH add-on)
   4. `vm.stop()` — force-stop fallback
   All four share a **single deadline** (`shutdown.timeout_seconds`, default 90) rather
@@ -292,8 +303,9 @@ CXZ (C target)
   official installer verifies the `SHA256SUMS` Sigstore bundle, which would mean a
   Sigstore verifier in havm for a threat (a compromised GitHub) that would also serve
   the image itself. What the check catches is corruption and truncation, which is what
-  it always claimed to do. A cached `.xz` is not re-verified: downloads are renamed into
-  the cache atomically, so a file there is a completed download.
+  it always claimed to do. A cached `.xz` is not re-verified: downloads are verified
+  in `.downloads/` *before* being renamed into the cache atomically, so a file there is
+  a verified, completed download (decompression and persistent disk copies are atomic too).
 - **Guest addressed by name, not by a resolved address** — readiness checks, SSH shutdown,
   and HA API calls all target `network.hostname` (bridge-mode default `homeassistant.local`)
   and let the resolver try a name's addresses at connect time. Resolving once and committing
@@ -344,17 +356,18 @@ CXZ (C target)
      *not* report a longer path as an error: the listener reaches `.ready` and
      silently creates no socket file. havm rejects overlength paths up front
      against `maxSocketPathBytes` (104) so the failure names the byte count.
-  3. `start()` binds asynchronously on its own queue, so the socket file is the
-     evidence the bind happened — `waitForSocketFile` waits for it. Checking
-     `fileExists` right after `start()` returns races the listener's queue.
+  3. `start()` binds asynchronously on its own queue, so `ListenerStartupSignal` waits
+     on `stateUpdateHandler` for `.ready` and then checks `fileExists` (rather than
+     racing the listener's queue right after `start()` returns). Bound sockets are
+     restricted to `0o600` (`chmod`) so other local users cannot scrape metrics.
   4. `requiredLocalEndpoint` is honoured only for a *numeric* host entry. For
      anything else — `localhost`, a name, a `host:port` pair — the listener
      reaches `.ready` with no `.failed` and no `.waiting` while binding a
      wildcard ephemeral port, leaving the configured port unbound: a silent
      unauthenticated `/metrics` on every interface (issue #12). `listener.port`
      is the evidence, the TCP counterpart of the socket file, so
-     `waitForBoundPort` waits for `.ready` and throws `portNotBound` when it
-     reports a different port. Measured on macOS 27: `127.0.0.1`, `::1`,
+     `ListenerStartupSignal` waits for `.ready` and `start()` throws `portNotBound`
+     when it reports a different port. Measured on macOS 27: `127.0.0.1`, `::1`,
      `0.0.0.0` and `::` all report the requested port; `localhost` reports the
      ephemeral one. `PrometheusConfig.validate()` refuses the shapes that are
      wrong on their face — a bracketed literal, a `host:port` pair, a port

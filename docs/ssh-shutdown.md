@@ -45,7 +45,8 @@ the Dock icon's context menu — `havm` tries these shutdown methods in order:
 
 1. **HA REST API** — `POST <ha.url>/api/services/hassio/host_shutdown`, where the default
    address is probed: `http://<ip>` on HAOS 2026.8+, `http://<ip>:8123` before it
-   (requires a [long-lived access token][token] in `ha.api_token`)
+   (requires a [long-lived access token][token] via `HAVM_HA_API_TOKEN`,
+   `ha.api_token_file`, or `ha.api_token`)
 2. **Debug SSH (port 22222)** — `ssh root@<ip> -p 22222 shutdown -h now`
    (requires `ssh.authorized_keys` for CONFIG disk import)
 3. **SSH add-on (port 22)** — `ssh root@<ip> -p 22 ha host shutdown`
@@ -59,9 +60,11 @@ waits for it rather than moving on to SSH.
 The SSH steps connect without host-key verification. The guest generates its
 host keys on first boot and there is no out-of-band way to learn them, so a
 first connection has nothing to check against; the channel carries one fixed
-shutdown command, so what a man-in-the-middle could do is swallow it, not
-obtain a credential — the private key never leaves the Mac and SSH signatures
-are bound to the session.
+shutdown command with agent forwarding, port forwarding, local commands, and
+TTY allocation disabled (`ForwardAgent=no`, `ClearAllForwardings=yes`,
+`PermitLocalCommand=no`, `RequestTTY=no`), so what a man-in-the-middle could do
+is swallow it, not obtain a credential — the private key never leaves the Mac
+and SSH signatures are bound to the session.
 
 `shutdown.timeout_seconds` is **one budget for the whole chain, not a
 timeout per method**. Every request attempt and every wait for the guest to
@@ -88,8 +91,11 @@ and ignores ACPI power button events.
 
 ```yaml
 ha:
-  api_token: "eyJ..."     # HA long-lived access token
+  api_token: "eyJ..."     # or use api_token_file / HAVM_HA_API_TOKEN
+  api_token_file: "~/.config/havm/ha.token"
   url: "https://homeassistant.local:443"  # default: probed (see above)
+  ca_cert: "~/.config/havm/ca.pem"        # optional PEM/DER custom CA cert
+  insecure_skip_verify: false             # skip TLS verification for self-signed certs
 
 shutdown:
   timeout_seconds: 90     # budget for the whole shutdown chain (default: 90)
@@ -100,11 +106,13 @@ shutdown:
 1. In Home Assistant, go to your profile (click your username)
 2. Scroll to **Long-Lived Access Tokens**
 3. Click **Create Token**, give it a name (e.g., "havm shutdown"), and copy it
-4. Add it to your config as `ha.api_token`
+4. Supply it via the `HAVM_HA_API_TOKEN` environment variable, `ha.api_token_file`, or inline as `ha.api_token`
 
 <div class="warning">
-The token is a secret. Keep your <code>config.yml</code> permissions
-restrictive (<code>chmod 600 ~/.config/havm/config.yml</code>).
+The token is a secret. Keep the file holding it restrictive
+(<code>chmod 600 ~/.config/havm/config.yml</code> or your <code>api_token_file</code>).
+On shared or untrusted LANs, set <code>ha.url</code> to HTTPS rather than relying on
+the default plaintext HTTP mDNS probe.
 </div>
 
 ### Guest IP detection
@@ -122,16 +130,17 @@ network:
 
 ## Graceful Restart
 
-Send `SIGHUP` to trigger a clean shutdown and restart. launchd / Homebrew
-`keep_alive` will restart the process automatically:
+Send `SIGHUP` to trigger a clean shutdown, config reload, and in-process VM
+restart:
 
 ```bash
 kill -HUP $(cat ~/Library/Application\ Support/havm/vm/havm.pid)
 ```
 
-This runs the full shutdown chain (REST API → SSH → force-stop) before
-exiting. Useful after changing config settings that require a restart
-(CPU, memory, disk size, network, USB).
+This runs the full shutdown chain (REST API → SSH → force-stop), reloads
+`config.yml` (re-applying disk size, SSH keys, and metrics), and boots a new VM
+instance without exiting. Useful after changing config settings that require a
+VM restart (CPU, memory, disk size, network, USB).
 
 [token]: https://www.home-assistant.io/docs/authentication/#your-account-profile
 

@@ -68,8 +68,9 @@ stopping the service. Stop the service with `brew services stop havm`.
 
 `havm run` is a regular macOS application for as long as it runs. Its Dock tile
 carries a badge while Home Assistant is still starting, and right-clicking it
-opens the web UI, copies the SSH command, and — when `ha.api_token` is
-configured — restarts Home Assistant Core. Logging out or restarting the Mac
+opens the web UI, copies the SSH command, and — when an API token is
+configured (`HAVM_HA_API_TOKEN`, `ha.api_token_file`, or `ha.api_token`) —
+restarts Home Assistant Core. Logging out or restarting the Mac
 quits havm the same graceful way, and the system waits for the guest to stop
 before the session goes away.
 

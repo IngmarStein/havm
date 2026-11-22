@@ -17,14 +17,9 @@ jobs:
   release:
     # GitHub's xcode-27 image (macOS 27, arm64) carries Xcode 27 — see
     # scripts/select-xcode.sh. The runner is ephemeral, so every credential
-    # arrives as a secret and dies with it: the Developer ID certificate is
-    # imported into a throwaway keychain, and the Developer ID provisioning
-    # profile is installed per run. That profile is not optional — the
-    # restricted entitlements sign fine without it and are then ignored at
-    # runtime, so see the "Verify signature" step.
+    # arrives as a secret scoped only to the step that consumes it.
     runs-on: xcode-27
     env:
-      HAS_DEV_CERT: ${{ secrets.DEVELOPER_ID_CERT || '' }}
       # Same pin as ci.yml: releases are built with the toolchain CI tested.
       # select-xcode.sh validates it and falls back to the newest install if
       # the image drops the path.
@@ -32,6 +27,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Check signing configuration
+        id: signing
+        env:
+          DEVELOPMENT_TEAM: ${{ vars.DEVELOPMENT_TEAM }}
+          DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
+        run: |
+          if [ -n "$DEVELOPMENT_TEAM" ] && [ -n "$DEVELOPER_ID_CERT" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Select Xcode 27+
         run: |
@@ -42,36 +49,49 @@ jobs:
         run: xcodebuild -version
 
       - name: Set version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           CURRENT=$(grep 'static let current' Sources/Havm/main.swift | sed 's/.*"\(.*\)".*/\1/')
-          if [ "${{ github.event_name }}" = "push" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$EVENT_NAME" = "push" ]; then
+            VERSION="${REF_NAME#v}"
             if [ "$CURRENT" != "$VERSION" ]; then
               echo "    $CURRENT -> $VERSION"
-              sed -i '' "s/static let current = \"$CURRENT\"/static let current = \"$VERSION\"/" Sources/Havm/main.swift
+              python3 -c '
+          import pathlib, sys
+          p = pathlib.Path("Sources/Havm/main.swift")
+          old, new = sys.argv[1], sys.argv[2]
+          text = p.read_text(encoding="utf-8")
+          updated = text.replace(f"static let current = \"{old}\"", f"static let current = \"{new}\"", 1)
+          assert updated != text, "version line not found"
+          p.write_text(updated, encoding="utf-8")
+          ' "$CURRENT" "$VERSION"
             fi
           else
-            # A dispatch checks out a branch, so GITHUB_REF_NAME is not a tag.
+            # A dispatch checks out a branch, so REF_NAME is not a tag.
             VERSION="$CURRENT"
           fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "    version: $VERSION"
 
       - name: Import Developer ID certificate
-        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        if: steps.signing.outputs.enabled == 'true'
         env:
-          DEVELOPER_ID_CERT: ${{ env.HAS_DEV_CERT }}
+          DEVELOPER_ID_CERT: ${{ secrets.DEVELOPER_ID_CERT }}
           DEVELOPER_ID_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
         run: |
           # Throwaway keychain. The image's login keychain has a password we
           # don't know, and set-key-partition-list wants the *keychain*
           # password.
+          umask 077
           KEYCHAIN="$RUNNER_TEMP/havm-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 21600 "$KEYCHAIN"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-          echo "$DEVELOPER_ID_CERT" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          printf '%s' "$DEVELOPER_ID_CERT" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          trap 'rm -f "$RUNNER_TEMP/cert.p12"' EXIT
           security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
             -P "$DEVELOPER_ID_PASSWORD" \
             -T /usr/bin/codesign -T /usr/bin/security
@@ -82,11 +102,10 @@ jobs:
           security default-keychain -s "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" \
             $(security list-keychains -d user | tr -d '"')
-          rm -f "$RUNNER_TEMP/cert.p12"
           security find-identity -v -p basic | grep "Developer ID"
 
       - name: Install provisioning profile
-        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        if: steps.signing.outputs.enabled == 'true'
         env:
           PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
         run: |
@@ -112,7 +131,7 @@ jobs:
           echo "    Profile installed."
 
       - name: Build and sign (Developer ID — tier 3)
-        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        if: steps.signing.outputs.enabled == 'true'
         env:
           DEVELOPMENT_TEAM: ${{ vars.DEVELOPMENT_TEAM }}
           CODE_SIGN_IDENTITY: ${{ vars.DEVELOPER_ID }}
@@ -120,14 +139,14 @@ jobs:
         run: ./scripts/build.sh release
 
       - name: Build and sign (ad-hoc — tier 1)
-        if: vars.DEVELOPMENT_TEAM == '' || env.HAS_DEV_CERT == ''
+        if: steps.signing.outputs.enabled != 'true'
         env:
           ENTITLEMENTS_TIER: "1"
           CODE_SIGN_IDENTITY: "-"
         run: ./scripts/build.sh release
 
       - name: Verify signature
-        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           APP=".build/Havm.app"
 
@@ -164,28 +183,31 @@ jobs:
           (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
       - name: Notarize
-        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        if: steps.signing.outputs.enabled == 'true'
         env:
           NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
           NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ vars.NOTARY_ISSUER }}
         run: |
-          echo "$NOTARY_KEY" > notary.p8
-          trap "rm -f notary.p8" EXIT
+          umask 077
+          NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8"
+          NOTARY_LOG_PATH="$RUNNER_TEMP/notary.log"
+          printf '%s\n' "$NOTARY_KEY" > "$NOTARY_KEY_PATH"
+          trap 'rm -f "$NOTARY_KEY_PATH" "$NOTARY_LOG_PATH"' EXIT
           echo "==> Submitting for notarization..."
           if xcrun notarytool submit havm.zip \
-              --key notary.p8 \
+              --key "$NOTARY_KEY_PATH" \
               --key-id "$NOTARY_KEY_ID" \
               --issuer "$NOTARY_ISSUER" \
-              --wait --timeout 5m 2>&1 | tee notary.log | grep -q "status: Accepted"; then
+              --wait --timeout 5m 2>&1 | tee "$NOTARY_LOG_PATH" | grep -q "status: Accepted"; then
             echo "    Notarization: Accepted"
           else
             echo "Error: notarization failed."
-            SUBMIT_ID=$(grep "id:" notary.log | head -1 | awk '{print $NF}')
+            SUBMIT_ID=$(grep "id:" "$NOTARY_LOG_PATH" | head -1 | awk '{print $NF}')
             if [ -n "$SUBMIT_ID" ]; then
               echo "--- Notarization log ---"
               xcrun notarytool log "$SUBMIT_ID" \
-                --key notary.p8 \
+                --key "$NOTARY_KEY_PATH" \
                 --key-id "$NOTARY_KEY_ID" \
                 --issuer "$NOTARY_ISSUER"
             fi
@@ -193,18 +215,12 @@ jobs:
           fi
 
       - name: Staple notarization ticket
-        if: vars.DEVELOPMENT_TEAM != '' && env.HAS_DEV_CERT != ''
+        if: steps.signing.outputs.enabled == 'true'
         run: |
-          # notarytool submit only registers the build with Apple. Stapling
-          # embeds the ticket in the bundle so Gatekeeper can verify it without
-          # reaching Apple's servers. This must run before the final zip, since
-          # stapling modifies Havm.app.
           echo "==> Stapling..."
           xcrun stapler staple .build/Havm.app
           xcrun stapler validate .build/Havm.app
 
-          # Repackage so the released asset carries the stapled bundle. VERSION
-          # is still on disk from the Package step.
           rm -f havm.zip
           (cd .build && zip -qr "$OLDPWD/havm.zip" Havm.app VERSION)
 
