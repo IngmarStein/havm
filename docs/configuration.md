@@ -125,6 +125,11 @@ By default `havm` probes the address the guest answered on — no port on HAOS
 one replied. Set this only if Home Assistant lives somewhere neither default
 covers, or behind HTTPS.
 
+Redirects are followed only when they stay on the same host and do not downgrade
+`https` to `http` (for example, an `http://` → `https://` upgrade on the same
+host is allowed). A reverse proxy that canonicalises to a different hostname is
+refused with a warning — set `ha.url` to the canonical URL instead.
+
 ### `ha.api_token` / `ha.api_token_file` / `HAVM_HA_API_TOKEN`
 A [long-lived access token][token], used for the REST API shutdown call and for
 the Dock menu's "Restart Home Assistant". Without it, `havm` shuts the guest

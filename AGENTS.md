@@ -84,7 +84,8 @@ HavmCore
 │                    VZUSBPassthroughDevice for USB
 ├── HAClient         Home Assistant HTTP(S) client: observer ping, manifest
 │                    probe, REST shutdown/restart, custom CA (PEM/DER) &
-│                    insecure_skip_verify TLS delegate, bounded resource timeout
+│                    insecure_skip_verify TLS delegate, same-host / no-HTTPS-
+│                    downgrade redirect guard, bounded resource timeout
 ├── ShutdownChain    ShutdownPolicy (method order, shared deadline, per-attempt
 │                    caps, unconfigured-method tip) + the injected sequencer
 ├── DHCPLeases       NAT-mode guest IP: parse /var/db/dhcpd_leases by MAC
@@ -243,7 +244,9 @@ CXZ (C target)
   1. `POST /api/services/hassio/host_shutdown` (REST API service call, requires a token
      from `HAVM_HA_API_TOKEN`, `ha.api_token_file`, or `ha.api_token`; the address is
      the one the readiness probe found, else `HAEndpoint.probePorts`; supports custom CA
-     via `ha.ca_cert` or `ha.insecure_skip_verify`)
+     via `ha.ca_cert` or `ha.insecure_skip_verify`, and refuses cross-host and
+     `https` → non-`https` redirects so custom TLS trust and bearer credentials never
+     apply to an unconfigured host or downgrade to cleartext)
   2. `ssh root@<ip> -p 22222 shutdown -h now` (debug SSH, requires `ssh.authorized_keys`;
      passes `ForwardAgent=no`, `ClearAllForwardings=yes`, `PermitLocalCommand=no`,
      `RequestTTY=no`, and `--`)
