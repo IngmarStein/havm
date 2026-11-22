@@ -473,6 +473,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 logger: logger
             )
         }
+        if haURLChanged {
+            resolvedHAURL = nil
+        }
         if haURLChanged || tlsChanged {
             cancelActiveWebUIProbes()
         }

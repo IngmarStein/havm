@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import Synchronization
 @_weakLinked import DiskImageKit
 
 // ASIF (Apple Sparse Image Format) is a *container*, not a raw disk: byte
@@ -336,15 +337,17 @@ public enum DiskImageSupport {
         }
         // Drain stdout and stderr concurrently so neither pipe buffer can fill
         // and deadlock the child process.
-        nonisolated(unsafe) var errData = Data()
+        let errBox = Mutex(Data())
         let group = DispatchGroup()
         group.enter()
         DispatchQueue.global(qos: .utility).async {
-            errData = err.fileHandleForReading.readDataToEndOfFile()
+            let data = err.fileHandleForReading.readDataToEndOfFile()
+            errBox.withLock { $0 = data }
             group.leave()
         }
         let outData = out.fileHandleForReading.readDataToEndOfFile()
         group.wait()
+        let errData = errBox.withLock { $0 }
         process.waitUntilExit()
 
         let message = (String(bytes: errData, encoding: .utf8) ?? "")

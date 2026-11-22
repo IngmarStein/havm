@@ -161,7 +161,8 @@ struct RunCommand: AsyncParsableCommand {
         var logger = Logger(label: "havm.run")
         logger.logLevel = effectiveLogLevel
         if let configuredLogFile, logFile == nil {
-            logger.warning("Could not open logging.file at \(configuredLogFile) — falling back to standard output")
+            let fallbackStream = useStderr ? "standard error" : "standard output"
+            logger.warning("Could not open logging.file at \(configuredLogFile) — falling back to \(fallbackStream)")
         }
 
         // One havm per data directory. A second instance would open the same

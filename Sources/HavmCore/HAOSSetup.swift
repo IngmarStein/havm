@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CXZ
 import Logging
@@ -537,7 +538,20 @@ public final class HAOSSetupManager: @unchecked Sendable {
         return tempDir
     }
 
+    /// Atomically replace `destinationPath` with `sourcePath` via `rename(2)`
+    /// (same-volume atomic swap), falling back to remove+move only across volumes.
     private func atomicMove(from sourcePath: String, to destinationPath: String) throws {
+        if Darwin.rename(sourcePath, destinationPath) == 0 {
+            return
+        }
+        let code = errno
+        guard code == EXDEV else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(code),
+                userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(code))]
+            )
+        }
         if fileManager.fileExists(atPath: destinationPath) {
             try fileManager.removeItem(atPath: destinationPath)
         }
@@ -651,13 +665,12 @@ public final class HAOSSetupManager: @unchecked Sendable {
         guard info.virtualSize < targetSize else { return }
         logger.info("Resizing disk from \(MemorySize(bytes: info.virtualSize)) to \(MemorySize(bytes: targetSize))...")
 
-        switch info.kind {
-        case .raw:
+        if info.kind == .raw {
             let fh = try FileHandle(forWritingTo: url)
             defer { try? fh.close() }
             // APFS extends files with sparse zero blocks — no actual data written.
             try fh.truncate(atOffset: targetSize)
-        case .asif:
+        } else if info.kind == .asif {
             // Extending the file would append zeros and leave the guest on the
             // disk it started with, so the container has to be told instead.
             do {
@@ -667,8 +680,6 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 logger.warning("Could not resize the ASIF disk: \(error) — the guest keeps its current size.")
                 return
             }
-        case .unsupported, .stacked:
-            return
         }
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
     }

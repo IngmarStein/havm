@@ -1,6 +1,7 @@
 import Foundation
 import Logging
 import Security
+import Synchronization
 
 /// Loads X.509 certificates from PEM (single or multi-cert bundle) or DER data.
 enum HACertificateLoader {
@@ -40,8 +41,9 @@ enum HACertificateLoader {
 }
 
 /// Evaluates server TLS trust against optional custom CA certificates or an
-/// explicit `insecure_skip_verify` opt-in.
-final class HATLSDelegate: NSObject, URLSessionDelegate, Sendable {
+/// explicit `insecure_skip_verify` opt-in, and blocks cross-host redirects so
+/// bearer tokens and custom TLS rules never apply to another host.
+final class HATLSDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     private let anchorCertificates: [SecCertificate]
     private let insecureSkipVerify: Bool
 
@@ -49,6 +51,22 @@ final class HATLSDelegate: NSObject, URLSessionDelegate, Sendable {
         self.anchorCertificates = anchorCertificates
         self.insecureSkipVerify = insecureSkipVerify
         super.init()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        let originalHost = task.originalRequest?.url?.host?.lowercased()
+        let nextHost = request.url?.host?.lowercased()
+        guard let originalHost, originalHost == nextHost else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
     }
 
     func urlSession(
@@ -113,6 +131,7 @@ final class HAClient: Sendable {
 
     private let session: URLSession
     private let logger: Logger
+    private let warnedProbeTLS = Mutex(false)
 
     init(
         caCertPath: String? = nil,
@@ -143,9 +162,7 @@ final class HAClient: Sendable {
         // or stalled peer cannot inherit URLSession.shared's 7-day cap.
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForResource = 15
-        let delegate: URLSessionDelegate? = (insecureSkipVerify || !anchors.isEmpty)
-            ? HATLSDelegate(anchorCertificates: anchors, insecureSkipVerify: insecureSkipVerify)
-            : nil
+        let delegate = HATLSDelegate(anchorCertificates: anchors, insecureSkipVerify: insecureSkipVerify)
         self.session = URLSession(configuration: cfg, delegate: delegate, delegateQueue: nil)
     }
 
@@ -175,7 +192,17 @@ final class HAClient: Sendable {
             let (_, response) = try await session.data(for: request)
             return (response as? HTTPURLResponse)?.statusCode == 200
         } catch let error as URLError where Self.isTLSError(error) {
-            logger.warning("Home Assistant TLS error at \(baseURL): \(error.localizedDescription) — configure ha.ca_cert or ha.insecure_skip_verify if using a self-signed certificate")
+            let firstWarning = warnedProbeTLS.withLock { warned -> Bool in
+                guard !warned else { return false }
+                warned = true
+                return true
+            }
+            let message: Logger.Message = "Home Assistant TLS error at \(baseURL): \(error.localizedDescription) — configure ha.ca_cert or ha.insecure_skip_verify if using a self-signed certificate"
+            if firstWarning {
+                logger.warning(message)
+            } else {
+                logger.debug(message)
+            }
             return false
         } catch {
             return false

@@ -218,21 +218,23 @@ public struct UTMBundle: Sendable {
             url = url.appendingPathComponent(String(component))
         }
 
-        // Comparing resolved paths against the resolved bundle root (rather
-        // than `Data/`) also covers `Data` being a symlink out of the bundle.
-        let root = bundleURL.resolvingSymlinksInPath()
-        let resolved = url.resolvingSymlinksInPath()
-        guard resolved.pathComponents.starts(with: root.pathComponents) else { return nil }
-        return resolved
+        return containedResolvedURL(url)
     }
 
     /// Whether `url` resolves inside this bundle after following symlinks.
     /// Used to enforce containment on snapshot layer siblings (`<image>.*.asif`)
     /// discovered alongside a disk image.
     public func isContainedURL(_ url: URL) -> Bool {
+        containedResolvedURL(url) != nil
+    }
+
+    /// Resolve symlinks in `url` and return it only if it stays within the
+    /// resolved bundle root (also catches `Data` itself being a symlink out).
+    private func containedResolvedURL(_ url: URL) -> URL? {
         let root = bundleURL.resolvingSymlinksInPath()
         let resolved = url.resolvingSymlinksInPath()
-        return resolved.pathComponents.starts(with: root.pathComponents)
+        guard resolved.pathComponents.starts(with: root.pathComponents) else { return nil }
+        return resolved
     }
 
     /// Generate a `config.yml` reflecting this bundle's settings.

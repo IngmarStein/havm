@@ -311,7 +311,10 @@ public final class MetricsServer: @unchecked Sendable {
               FileManager.default.fileExists(atPath: socketPath) else {
             throw MetricsError.socketBindFailed(socketPath)
         }
-        _ = chmod(socketPath, 0o600)
+        if chmod(socketPath, 0o600) != 0 {
+            let reason = String(cString: strerror(errno))
+            logger.warning("Metrics: chmod 600 failed for \(socketPath) — \(reason)")
+        }
     }
 
     /// Create a listener that serves the metrics endpoints.

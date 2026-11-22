@@ -695,7 +695,7 @@ public enum ConfigFilePermissions {
     /// reading the token.
     static func warning(path: String, mode: UInt16) -> String? {
         guard mode & 0o077 != 0 else { return nil }
-        return "\(path) holds ha.api_token and is accessible by other users "
+        return "\(path) holds an API token and is accessible by other users "
             + "(mode \(String(mode, radix: 8))). Run: chmod 600 \(path)"
     }
 
