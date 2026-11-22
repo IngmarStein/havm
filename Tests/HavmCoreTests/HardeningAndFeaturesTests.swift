@@ -228,4 +228,47 @@ import Testing
         let output = try String(contentsOf: outFile, encoding: .utf8)
         #expect(output == "hello\nhello\n")
     }
+
+    // MARK: - Redirect policy
+
+    @Test("HATLSDelegate allows same-host scheme/port upgrades and blocks cross-host or userinfo redirects")
+    func redirectPolicyEnforcesSameHost() {
+        let httpHA = URL(string: "http://homeassistant.local/manifest.json")
+        let httpsHA = URL(string: "https://homeassistant.local:443/manifest.json")
+        let upperHA = URL(string: "https://HomeAssistant.LOCAL/manifest.json")
+        let otherHost = URL(string: "https://ha.example.com/manifest.json")
+        let userinfoTrick = URL(string: "http://homeassistant.local@evil.com/manifest.json")
+
+        #expect(HATLSDelegate.shouldFollowRedirect(from: httpHA, to: httpsHA))
+        #expect(HATLSDelegate.shouldFollowRedirect(from: httpHA, to: upperHA))
+        #expect(!HATLSDelegate.shouldFollowRedirect(from: httpHA, to: otherHost))
+        #expect(!HATLSDelegate.shouldFollowRedirect(from: httpHA, to: userinfoTrick))
+        #expect(!HATLSDelegate.shouldFollowRedirect(from: httpHA, to: nil))
+        #expect(!HATLSDelegate.shouldFollowRedirect(from: nil, to: httpsHA))
+    }
+
+    // MARK: - Atomic rename
+
+    @Test("HAOSSetupManager.atomicMove atomically creates and replaces same-volume destinations")
+    func atomicMoveCreatesAndReplaces() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("havm-rename-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let src1 = dir.appendingPathComponent("src1")
+        let src2 = dir.appendingPathComponent("src2")
+        let dest = dir.appendingPathComponent("dest")
+
+        try "first".write(to: src1, atomically: true, encoding: .utf8)
+        try HAOSSetupManager.atomicMove(from: src1.path, to: dest.path)
+        #expect(try String(contentsOf: dest, encoding: .utf8) == "first")
+        #expect(!FileManager.default.fileExists(atPath: src1.path))
+
+        // Replacing an existing destination must succeed atomically via rename(2).
+        try "second".write(to: src2, atomically: true, encoding: .utf8)
+        try HAOSSetupManager.atomicMove(from: src2.path, to: dest.path)
+        #expect(try String(contentsOf: dest, encoding: .utf8) == "second")
+        #expect(!FileManager.default.fileExists(atPath: src2.path))
+    }
 }

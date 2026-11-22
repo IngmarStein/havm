@@ -46,11 +46,29 @@ enum HACertificateLoader {
 final class HATLSDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     private let anchorCertificates: [SecCertificate]
     private let insecureSkipVerify: Bool
+    private let logger: Logger?
+    private let loggedBlockedRedirects = Mutex<Set<String>>([])
 
-    init(anchorCertificates: [SecCertificate] = [], insecureSkipVerify: Bool = false) {
+    init(
+        anchorCertificates: [SecCertificate] = [],
+        insecureSkipVerify: Bool = false,
+        logger: Logger? = nil
+    ) {
         self.anchorCertificates = anchorCertificates
         self.insecureSkipVerify = insecureSkipVerify
+        self.logger = logger
         super.init()
+    }
+
+    /// Whether a redirect from `originalURL` to `nextURL` stays on the same
+    /// host (case-insensitive). Allows `http` → `https` and port changes on the
+    /// same host while blocking cross-host hops and userinfo spoofing.
+    static func shouldFollowRedirect(from originalURL: URL?, to nextURL: URL?) -> Bool {
+        guard let originalHost = originalURL?.host?.lowercased(), !originalHost.isEmpty,
+              let nextHost = nextURL?.host?.lowercased(), !nextHost.isEmpty else {
+            return false
+        }
+        return originalHost == nextHost
     }
 
     func urlSession(
@@ -60,9 +78,19 @@ final class HATLSDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        let originalHost = task.originalRequest?.url?.host?.lowercased()
-        let nextHost = request.url?.host?.lowercased()
-        guard let originalHost, originalHost == nextHost else {
+        let originalURL = task.originalRequest?.url
+        let nextURL = request.url
+        guard Self.shouldFollowRedirect(from: originalURL, to: nextURL) else {
+            let fromHost = originalURL?.host ?? "(unknown)"
+            let toHost = nextURL?.host ?? "(unknown)"
+            let key = "\(fromHost)->\(toHost)"
+            let isFirst = loggedBlockedRedirects.withLock { $0.insert(key).inserted }
+            let message: Logger.Message = "Blocked cross-host redirect from \(fromHost) to \(toHost) — set ha.url to the canonical URL if Home Assistant is behind a reverse proxy"
+            if isFirst {
+                logger?.warning(message)
+            } else {
+                logger?.debug(message)
+            }
             completionHandler(nil)
             return
         }
@@ -162,7 +190,11 @@ final class HAClient: Sendable {
         // or stalled peer cannot inherit URLSession.shared's 7-day cap.
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForResource = 15
-        let delegate = HATLSDelegate(anchorCertificates: anchors, insecureSkipVerify: insecureSkipVerify)
+        let delegate = HATLSDelegate(
+            anchorCertificates: anchors,
+            insecureSkipVerify: insecureSkipVerify,
+            logger: logger
+        )
         self.session = URLSession(configuration: cfg, delegate: delegate, delegateQueue: nil)
     }
 

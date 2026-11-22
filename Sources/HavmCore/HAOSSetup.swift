@@ -275,7 +275,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
                     } else {
                         logger.warning("The release publishes no SHA-256 for \(imageAsset.name) — skipping integrity check")
                     }
-                    try atomicMove(from: tempPath, to: cachedXZPath)
+                    try Self.atomicMove(from: tempPath, to: cachedXZPath)
                 } catch {
                     try? fileManager.removeItem(atPath: tempPath)
                     throw error
@@ -294,7 +294,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
         if clonefile(cachedImagePath, tempDest, 0) != 0 {
             try fileManager.copyItem(atPath: cachedImagePath, toPath: tempDest)
         }
-        try atomicMove(from: tempDest, to: destPath)
+        try Self.atomicMove(from: tempDest, to: destPath)
         logger.info("Copied disk image to \(destPath)")
 
         // 4. Resize disk image if needed & create SSH CONFIG disk
@@ -540,7 +540,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     /// Atomically replace `destinationPath` with `sourcePath` via `rename(2)`
     /// (same-volume atomic swap), falling back to remove+move only across volumes.
-    private func atomicMove(from sourcePath: String, to destinationPath: String) throws {
+    static func atomicMove(from sourcePath: String, to destinationPath: String) throws {
         if Darwin.rename(sourcePath, destinationPath) == 0 {
             return
         }
@@ -552,10 +552,11 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(code))]
             )
         }
-        if fileManager.fileExists(atPath: destinationPath) {
-            try fileManager.removeItem(atPath: destinationPath)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destinationPath) {
+            try fm.removeItem(atPath: destinationPath)
         }
-        try fileManager.moveItem(atPath: sourcePath, toPath: destinationPath)
+        try fm.moveItem(atPath: sourcePath, toPath: destinationPath)
     }
 
     private func downloadAssetToTemp(_ asset: GitHubAsset) async throws -> String {
@@ -622,7 +623,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
         guard result == 0 else {
             throw SetupError.decompressFailed(xzPath)
         }
-        try atomicMove(from: tempOut, to: outputPath)
+        try Self.atomicMove(from: tempOut, to: outputPath)
         return outputPath
     }
 
@@ -665,12 +666,13 @@ public final class HAOSSetupManager: @unchecked Sendable {
         guard info.virtualSize < targetSize else { return }
         logger.info("Resizing disk from \(MemorySize(bytes: info.virtualSize)) to \(MemorySize(bytes: targetSize))...")
 
-        if info.kind == .raw {
+        switch info.kind {
+        case .raw:
             let fh = try FileHandle(forWritingTo: url)
             defer { try? fh.close() }
             // APFS extends files with sparse zero blocks — no actual data written.
             try fh.truncate(atOffset: targetSize)
-        } else if info.kind == .asif {
+        case .asif:
             // Extending the file would append zeros and leave the guest on the
             // disk it started with, so the container has to be told instead.
             do {
@@ -680,6 +682,8 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 logger.warning("Could not resize the ASIF disk: \(error) — the guest keeps its current size.")
                 return
             }
+        case .stacked, .unsupported:
+            return
         }
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
     }
