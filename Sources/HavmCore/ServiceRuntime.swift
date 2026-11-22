@@ -2,6 +2,7 @@ import Foundation
 @preconcurrency import Virtualization
 import Logging
 import Metrics
+import Synchronization
 
 /// What the running guest is doing, as far as havm can tell from outside it.
 /// The application layer turns this into a Dock badge and a menu item; it is
@@ -73,6 +74,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// answered rather than as a shutdown that silently stopped.
     private var terminationRequestedAt: Date?
 
+    /// Guards `cleanupAndExit` so concurrent signals / stop callbacks cannot
+    /// double-resume `runContinuation` or race teardown.
+    private let exitGuard = Mutex(false)
+    private var haClient: HAClient
+
     /// Called from `cleanupAndExit` when the process is ending because of a
     /// quit Apple Event. The application layer sets this to reply to the
     /// pending quit; replying terminates the process. Left `nil` when havm runs
@@ -101,13 +107,19 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private var signalSourceInt: DispatchSourceSignal?
     private var signalSourceHup: DispatchSourceSignal?
     private var configWatcher: ConfigWatcher?
-    private var observerPollCount = 0
-    private let observerPollMax = 1200  // 1200 × 250 ms = 5 minutes
-    private var healthPollCount = 0
-    private let healthPollMax = 1200  // 1200 × 250 ms = 5 minutes
     private var bootTimer: DispatchSourceTimer?
-    private var observerTask: Task<Void, Never>?
-    private var webUITask: Task<Void, Never>?
+    private var bootDeadline: Date?
+    private var observerProbe: (task: Task<Void, Never>, deadline: Date)?
+    private var nextObserverProbeAt: Date = .distantPast
+    /// In-flight web UI probes keyed by candidate base URL, each with a hard
+    /// wall-clock deadline so a stalled or blackholed port can never block
+    /// retries or another candidate port.
+    private var activeWebUIProbes: [String: (task: Task<Void, Never>, deadline: Date)] = [:]
+    private var nextWebUIProbeAt: [String: Date] = [:]
+    private static let bootWaitTimeoutSeconds: TimeInterval = 5 * 60
+    private static let observerProbeTimeoutSeconds: TimeInterval = 3
+    private static let webUIProbeTimeoutSeconds: TimeInterval = 5
+    private static let probeRetryIntervalSeconds: TimeInterval = 1
     private var metricsServer: MetricsServer?
     private let registry: SimpleRegistry
     /// What `/metrics` says about the guest. Written on the main thread with
@@ -120,6 +132,8 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     private lazy var terminal = TerminalMode(logger: logger)
     private var lastDHCPLeaseModDate: Date?
     private var cachedDHCPLeaseIP: String?
+    private var cachedMACString: String?
+    private var cachedMACBytes: [UInt8]?
 
     public init(
         config: HavmConfig,
@@ -138,6 +152,11 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         self.registry = registry
         self.guestMetrics = GuestStatusMetrics(registry: registry)
         self.logger = logger
+        self.haClient = HAClient(
+            caCertPath: config.effectiveHACACertPath,
+            insecureSkipVerify: config.effectiveHAInsecureSkipVerify,
+            logger: logger
+        )
         super.init()
         // Seed the gauge so it is present from the first scrape, before the
         // guest has had a chance to change anything.
@@ -211,7 +230,8 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         // art would break JSON consumers that parse stdout.
         guard isatty(STDOUT_FILENO) != 0 else { return }
         var lines: [String]
-        let mode = config.effectiveNetworkType == .nat ? " (NAT mode)" : ""
+        let networkType = vmController.actualNetworkType
+        let mode = networkType == .nat ? " (NAT mode)" : ""
         // 57-character content area between ║ borders.
         let header = "Home Assistant OS is booting\(mode)."
         let pad = String(repeating: " ", count: 55 - header.count)
@@ -221,7 +241,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             "║  \(header)\(pad) ║",
             "║                                                          ║",
         ]
-        switch config.effectiveNetworkType {
+        switch networkType {
         case .nat:
             lines += [
                 "║  SSH:  ssh root@<guest-ip> -p 22222                      ║",
@@ -260,6 +280,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// Uses `DispatchSourceTimer` instead of recursive `asyncAfter` to avoid
     /// creating a new scheduled work item every tick.
     private func startBootPhase() {
+        bootDeadline = Date().addingTimeInterval(Self.bootWaitTimeoutSeconds)
+        nextObserverProbeAt = .distantPast
+        nextWebUIProbeAt.removeAll()
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(250), leeway: .milliseconds(50))
         timer.setEventHandler { [weak self] in
@@ -305,6 +328,15 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
     /// (including Virtualization.framework's NVRAM backing store) a
     /// chance to flush pending writes.
     private func cleanupAndExit(_ code: Int32) -> Never {
+        let isFirst = exitGuard.withLock { already -> Bool in
+            guard !already else { return false }
+            already = true
+            return true
+        }
+        guard isFirst else {
+            while true { pause() }
+        }
+
         terminal.restore()
         removePIDFile()
         // Unlink any Unix socket files. `exit()` closes the descriptors for us,
@@ -313,7 +345,9 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         // still leaves them behind; the next start replaces them.
         metricsServer?.stop()
         fflush(stdout)
-        runContinuation?.resume()
+        let cont = runContinuation
+        runContinuation = nil
+        cont?.resume()
 
         // A quit Apple Event is still pending: answer it, now that the guest is
         // stopped, so loginwindow sees a clean quit instead of an app that
@@ -359,9 +393,8 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             signalSourceInt?.resume()
         }
 
-        // SIGHUP triggers graceful shutdown, then launchd / Homebrew
-        // keep_alive restarts the process — giving the user a clean
-        // config-change restart path.
+        // SIGHUP triggers graceful shutdown, config reload, and an in-process
+        // VM restart without exiting.
         signal(SIGHUP, SIG_IGN)
         signalSourceHup = DispatchSource.makeSignalSource(signal: SIGHUP, queue: .main)
         signalSourceHup?.setEventHandler { [weak self] in
@@ -410,28 +443,51 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
         let levelChanged = newConfig.effectiveLogLevel != oldConfig.effectiveLogLevel
         let tokenChanged = newConfig.effectiveHAAPIToken != oldConfig.effectiveHAAPIToken
+            || newConfig.hasInlineHAAPIToken != oldConfig.hasInlineHAAPIToken
+            || newConfig.effectiveHAAPITokenFilePath != oldConfig.effectiveHAAPITokenFilePath
+        let haURLChanged = newConfig.effectiveHAURL != oldConfig.effectiveHAURL
+        let tlsChanged = newConfig.effectiveHACACertPath != oldConfig.effectiveHACACertPath
+            || newConfig.effectiveHAInsecureSkipVerify != oldConfig.effectiveHAInsecureSkipVerify
+        let timeoutChanged = newConfig.effectiveShutdownTimeout != oldConfig.effectiveShutdownTimeout
 
-        let metricsEnabledChanged = newConfig.effectiveMetricsEnabled != oldConfig.effectiveMetricsEnabled
-        let metricsHostChanged = newConfig.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
-        let metricsSocketChanged =
-            newConfig.effectivePrometheusSocketPaths != oldConfig.effectivePrometheusSocketPaths
-        let metricsPortChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
-        let metricsChanged = metricsEnabledChanged || metricsHostChanged || metricsSocketChanged || metricsPortChanged
+        let metricsEndpointsChanged =
+            newConfig.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
+            || newConfig.effectivePrometheusSocketPaths != oldConfig.effectivePrometheusSocketPaths
+            || newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
+        let metricsChanged =
+            newConfig.effectiveMetricsEnabled != oldConfig.effectiveMetricsEnabled
+            || metricsEndpointsChanged
 
-        if metricsChanged { applyMetricsConfig(old: oldConfig, new: newConfig) }
+        if metricsChanged { applyMetricsConfig(new: newConfig, endpointsChanged: metricsEndpointsChanged) }
 
         config = newConfig
-
-        guard levelChanged || tokenChanged || metricsChanged else { return }
 
         if levelChanged {
             // A CLI level outranks the file, hot reload included.
             logger.logLevel = logLevelOverride ?? newConfig.effectiveLogLevel
         }
+        if tlsChanged {
+            haClient = HAClient(
+                caCertPath: newConfig.effectiveHACACertPath,
+                insecureSkipVerify: newConfig.effectiveHAInsecureSkipVerify,
+                logger: logger
+            )
+        }
+        if haURLChanged || tlsChanged {
+            cancelActiveWebUIProbes()
+        }
+        if tokenChanged {
+            for warning in ConfigFilePermissions.warnings(for: newConfig, configPath: path) {
+                logger.warning("\(warning)")
+            }
+        }
+
+        guard levelChanged || tokenChanged || haURLChanged
+            || tlsChanged || timeoutChanged || metricsChanged else { return }
         logger.info("Config reloaded")
     }
 
-    private func applyMetricsConfig(old oldConfig: HavmConfig, new newConfig: HavmConfig) {
+    private func applyMetricsConfig(new newConfig: HavmConfig, endpointsChanged: Bool) {
         if !newConfig.effectiveMetricsEnabled {
             if metricsServer != nil {
                 metricsServer?.stop()
@@ -441,13 +497,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             return
         }
 
-        // Enabled — if host, socket, or port changed (or first enable), restart.
-        let hostChanged = newConfig.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
-        let socketChanged =
-            newConfig.effectivePrometheusSocketPaths != oldConfig.effectivePrometheusSocketPaths
-        let portChanged = newConfig.effectivePrometheusPort != oldConfig.effectivePrometheusPort
-
-        if hostChanged || socketChanged || portChanged || metricsServer == nil {
+        if endpointsChanged || metricsServer == nil {
             metricsServer?.stop()
             let hosts = newConfig.effectivePrometheusHosts
             let sockets = newConfig.effectivePrometheusSocketPaths
@@ -562,25 +612,17 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             logger.warning("Cannot restart Home Assistant yet: no address or API token.")
             return
         }
-        guard let url = URL(string: "\(base)/api/services/homeassistant/restart") else { return }
+        let client = haClient
+        let logger = self.logger
         logger.info("Restarting Home Assistant at \(base)...")
         Task {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Self.emptyJSONBody
-            request.timeoutInterval = 10
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-                if code == 200 {
-                    logger.info("Home Assistant restart accepted.")
-                } else {
-                    logger.warning("Home Assistant restart rejected (HTTP \(code)).")
-                }
-            } catch {
-                logger.warning("Home Assistant restart failed: \(error.localizedDescription)")
+            switch await client.restartHomeAssistant(baseURL: base, token: token) {
+            case .accepted:
+                logger.info("Home Assistant restart accepted.")
+            case .rejected(let code):
+                logger.warning("Home Assistant restart rejected (HTTP \(code)).")
+            case .failed(let detail):
+                logger.warning("Home Assistant restart failed: \(detail)")
             }
         }
     }
@@ -590,10 +632,14 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         logger.info("\(message)")
         let ip = guestIP
         let cfg = config
-        Task { await performGracefulShutdown(guestIP: ip, config: cfg) }
+        let candidates = haBaseURLCandidates(host: ip)
+        let client = haClient
+        Task { await performGracefulShutdown(guestIP: ip, candidates: candidates, config: cfg, client: client) }
     }
 
-    private func performGracefulShutdown(guestIP: String?, config: HavmConfig) async {
+    private func performGracefulShutdown(
+        guestIP: String?, candidates: [String], config: HavmConfig, client: HAClient
+    ) async {
         // The defer fires on every exit path — graceful stop (early return),
         // force-stop fallthrough, or error. For SIGHUP (restartRequested set),
         // we restart the VM in-process instead of exiting.
@@ -628,7 +674,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
                 switch method {
                 case .restAPI:
                     guard let token else { return .failed }
-                    switch await supervisorShutdown(host: ip, token: token, timeout: budget) {
+                    switch await client.supervisorShutdown(candidates: candidates, token: token, timeout: budget) {
                     case .success:
                         return .accepted
                     case .timedOut:
@@ -707,6 +753,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         if terminationRequested { cleanupAndExit(0) }
         // Reload config from disk so VM settings (CPU, memory, disk,
         // network) take effect on restart.
+        let oldConfig = config
         do {
             // By the recorded path, not `loadConfig()`: that reads the default
             // location and misses `-c`, which is what brew services passes
@@ -717,8 +764,36 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
             logger.warning("Failed to reload config: \(error) — keeping current config")
         }
 
-        // Re-apply hot-reloadable settings (log level may have changed).
+        // Re-apply hot-reloadable settings (log level, metrics, HA TLS, token permissions).
         logger.logLevel = logLevelOverride ?? config.effectiveLogLevel
+        if let configPath = config.configPath {
+            for warning in ConfigFilePermissions.warnings(for: config, configPath: configPath) {
+                logger.warning("\(warning)")
+            }
+        }
+        let metricsEndpointsChanged =
+            config.effectivePrometheusHosts != oldConfig.effectivePrometheusHosts
+            || config.effectivePrometheusSocketPaths != oldConfig.effectivePrometheusSocketPaths
+            || config.effectivePrometheusPort != oldConfig.effectivePrometheusPort
+        if config.effectiveMetricsEnabled != oldConfig.effectiveMetricsEnabled || metricsEndpointsChanged {
+            applyMetricsConfig(new: config, endpointsChanged: metricsEndpointsChanged)
+        }
+        haClient = HAClient(
+            caCertPath: config.effectiveHACACertPath,
+            insecureSkipVerify: config.effectiveHAInsecureSkipVerify,
+            logger: logger
+        )
+
+        // Re-apply pre-boot disk settings (disk_size increase, ssh.authorized_keys).
+        let setupManager = HAOSSetupManager(config: config, logger: logger)
+        do {
+            try setupManager.refreshBeforeBoot()
+            if consoleMode {
+                HAOSSetupManager.ensureConsoleCmdline()
+            }
+        } catch {
+            logger.warning("Pre-restart setup refresh failed: \(error) — continuing with existing disk state")
+        }
 
         // Use a fresh logger for the new VM controller so its label
         // doesn't carry the old instance's identity.
@@ -738,15 +813,17 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         setGuestStatus(.booting)
         lastDHCPLeaseModDate = nil
         cachedDHCPLeaseIP = nil
-        observerPollCount = 0
-        healthPollCount = 0
+        cachedMACString = nil
+        cachedMACBytes = nil
         shutdownRequested = false
         restartRequested = false
         terminationRequested = false
         terminationRequestedAt = nil
         bootTimer?.cancel()
-        observerTask?.cancel()
-        webUITask?.cancel()
+        bootTimer = nil
+        observerProbe?.task.cancel()
+        observerProbe = nil
+        cancelActiveWebUIProbes()
 
         // Already on the main queue, which `VZVirtualMachine.start()` requires.
         newController.startVMBlocking { [weak self] startError in
@@ -782,34 +859,7 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         return false
     }
 
-    /// Result of a REST API shutdown call.
-    private enum RESTAPIResult {
-        case success   // HTTP 200 — shutdown accepted
-        case timedOut  // Request timed out — host may be shutting down
-        case failed    // Definitive failure — fall through to next method
-    }
-
-    /// Outcome of one REST shutdown attempt against a *single* candidate
-    /// address. Distinct from ``RESTAPIResult``, which is what the shutdown
-    /// chain consumes: the difference between `unreachable` and `rejected` is
-    /// only meaningful while there are addresses left to try.
-    private enum ShutdownAttempt {
-        case accepted     // HTTP 200 — shutdown accepted
-        case timedOut     // No response — the host may already be shutting down
-        case unreachable  // Nothing is listening here — this address is wrong
-        case rejected     // The server answered and declined — verdict stands
-    }
-
-    private static let emptyJSONBody = Data("{}".utf8)
-
     /// Base URLs to try for the Home Assistant HTTP server, in order.
-    ///
-    /// A configured `ha.url` is authoritative and the only candidate. Otherwise
-    /// the address a probe already answered on, if there is one — that is the
-    /// common case by the time shutdown runs. Failing that, every default the
-    /// guest might be serving on (see ``HAEndpoint/probePorts``): havm cannot
-    /// tell a fresh install from one predating HAOS 2026.8 without asking, and
-    /// asking is one refused connection when the guess is wrong.
     private func haBaseURLCandidates(host: String? = nil) -> [String] {
         if let configured = config.effectiveHAURL {
             return [configured]
@@ -821,97 +871,32 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         return HAEndpoint.probePorts.map { HAEndpoint.baseURL(host: ip, port: $0) }
     }
 
-    /// Send a shutdown command to the guest via the Home Assistant REST API.
-    /// Calls the `hassio.host_shutdown` service with a Bearer token.
-    ///
-    /// Walks the candidate addresses, but only passes over one that nothing is
-    /// listening on. A request that *was* answered is the server's verdict and
-    /// stands: a 401 will not become a 200 on another port. Neither does a
-    /// timeout earn a second attempt — an unanswered request to a host that may
-    /// already be halting is exactly what issue #11 was about, and the shared
-    /// deadline is not there to be spent twice.
-    private func supervisorShutdown(host: String, token: String, timeout: Int) async -> RESTAPIResult {
-        let candidates = haBaseURLCandidates(host: host)
-        for (index, baseURL) in candidates.enumerated() {
-            switch await postShutdown(to: baseURL, token: token, timeout: timeout) {
-            case .accepted:
-                logger.info("REST API shutdown accepted.")
-                return .success
-            case .timedOut:
-                return .timedOut
-            case .rejected:
-                return .failed
-            case .unreachable:
-                // Name the address that was wrong when there is another to
-                // try, so the extra request in the log has an explanation.
-                if index < candidates.count - 1 {
-                    logger.info("REST API not listening on \(baseURL) — trying the next address.")
-                }
-            }
-        }
-        logger.info("REST API unavailable — falling through to SSH.")
-        return .failed
-    }
-
-    /// One POST of `hassio.host_shutdown` to a single candidate address.
-    /// Logs the reason for anything short of success.
-    private func postShutdown(to baseURL: String, token: String, timeout: Int) async -> ShutdownAttempt {
-        guard let url = URL(string: "\(baseURL)/api/services/hassio/host_shutdown") else {
-            return .unreachable
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Self.emptyJSONBody
-        request.timeoutInterval = TimeInterval(ShutdownPolicy.restTimeout(within: timeout))
-
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return .rejected
-            }
-            if httpResponse.statusCode == 200 {
-                return .accepted
-            }
-            // 401/403: token is wrong or expired — user needs to know.
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                logger.warning("REST API: HTTP \(httpResponse.statusCode) — check ha.api_token in config.")
-            } else {
-                logger.info("REST API: HTTP \(httpResponse.statusCode) — falling through to SSH.")
-            }
-            return .rejected
-        } catch let error as URLError where error.code == .timedOut {
-            return .timedOut
-        } catch {
-            logger.debug("REST API unreachable at \(baseURL): \(error.localizedDescription)")
-            return .unreachable
-        }
-    }
-
-    /// Send a shutdown command to the guest via SSH.
-    /// - Parameter timeout: Seconds left in the shared graceful-shutdown
-    ///   budget — not a fresh per-method allowance. Capped internally for the
-    ///   connect phase so an unreachable host can't eat the whole budget.
-    /// - Returns: `true` if the SSH command succeeded (exit code 0).
-    ///
-    /// A deadline task terminates the process if it exceeds `timeout` seconds,
-    /// preventing SSH from hanging indefinitely when the guest kernel is blocked
-    /// (e.g. systemd shutdown ordering deadlock). The caller depends on this
-    /// returning so the defer block fires and the process exits or restarts.
-    private func sshShutdown(host: String, port: Int, command: String, timeout: Int) async -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = [
+    /// Hardened SSH arguments for automated guest shutdown. Disables agent and
+    /// port forwarding, local commands, and TTY so `~/.ssh/config` cannot expose
+    /// credentials when host-key verification is off over mDNS.
+    static func sshShutdownArguments(host: String, port: Int, command: String, timeout: Int) -> [String] {
+        [
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
             "-o", "ConnectTimeout=\(ShutdownPolicy.sshConnectTimeout(within: timeout))",
             "-o", "BatchMode=yes",
+            "-o", "ForwardAgent=no",
+            "-o", "ClearAllForwardings=yes",
+            "-o", "PermitLocalCommand=no",
+            "-o", "RequestTTY=no",
             "-p", "\(port)",
+            "--",
             "root@\(host)",
-            command
+            command,
         ]
+    }
+
+    private func sshShutdown(host: String, port: Int, command: String, timeout: Int) async -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = Self.sshShutdownArguments(
+            host: host, port: port, command: command, timeout: timeout
+        )
 
         // Capture stderr so we can log why SSH failed (key issues, connection
         // refused, etc.). This helps users troubleshoot SSH shutdown problems.
@@ -955,18 +940,13 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
 
     // MARK: - Guest connectivity
 
-    /// Discover the guest IP. If a hostname is configured (or defaults to
-    /// `homeassistant.local` in bridge mode), try mDNS resolution. Falls back
-    /// to DHCP lease parsing in NAT mode.
+    /// Discover the guest host/IP. Hands `network.hostname` (or
+    /// `homeassistant.local` in bridge mode) directly to the network stack;
+    /// falls back to DHCP lease parsing in NAT mode (including runtime bridge→NAT fallback).
     private func checkGuestNetwork() {
         let ip: String?
 
-        if let hostname = config.effectiveGuestHostname {
-            // Hand the name to the network stack as-is rather than resolving it
-            // here: a name can map to several addresses at once, including
-            // stale records left over from an earlier DHCP lease, and letting
-            // the resolver try them at connect time beats pinning whichever one
-            // came back first (issue #10).
+        if let hostname = config.effectiveGuestHostname(networkType: vmController.actualNetworkType) {
             ip = hostname
         } else {
             // NAT mode without explicit hostname: parse DHCP lease file by MAC
@@ -986,115 +966,95 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         if !guestReachableNotified {
             guestReachableNotified = true
             logger.info("Waiting for Home Assistant at \(ip)...")
-            // Candidates, not a settled address — the ready message names the
-            // one that answers.
-            let webCandidates = HAEndpoint.probePorts.map { HAEndpoint.baseURL(host: ip, port: $0) }
+            let webCandidates = haBaseURLCandidates(host: ip)
             logger.info("  Web: \(webCandidates.joined(separator: " or "))")
             logger.info("  SSH: ssh root@\(ip) -p 22222")
         }
     }
 
-    /// Poll the Supervisor's Observer `/ping` endpoint on port 4357.
-    /// The Observer is a Supervisor plugin that starts before Home Assistant Core,
-    /// so it can provide an earlier readiness signal. This check is fully optional —
-    /// it stops as soon as the web UI responds, which also ends the boot phase.
-    private func checkObserver() {
-        guard observerPollCount < observerPollMax else { return }
-        observerPollCount += 1
-        guard let ip = guestIP else { return }
-
-        // Built through HAEndpoint so an IPv6 guest is bracketed: a bare
-        // literal here parses as host-and-port, URL(string:) returns nil, and
-        // the readiness signal silently never fires.
-        guard let url = URL(string: "\(HAEndpoint.baseURL(host: ip, port: 4357))/ping") else { return }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 2
-
-        observerTask?.cancel()
-        observerTask = Task { @MainActor in
-            do {
-                let (_, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
-                guard !self.supervisorReachableNotified else { return }
-                self.supervisorReachableNotified = true
-                self.logger.info("Supervisor is running at \(ip):4357 — Home Assistant is starting up...")
-            } catch {
-                // Observer not up yet — retry silently on next poll
-            }
+    private func cancelActiveWebUIProbes() {
+        for probe in activeWebUIProbes.values {
+            probe.task.cancel()
         }
+        activeWebUIProbes.removeAll()
+        nextWebUIProbeAt.removeAll()
     }
 
-    /// Poll the Home Assistant web UI health-check endpoint until it responds.
-    /// Stops after the first successful response or after `healthPollMax` attempts
-    /// (~5 minutes at the 250 ms tick cadence).
-    ///
-    /// Tries each candidate address in turn and records the one that answered,
-    /// so the ready message names an address the user can actually open and
-    /// shutdown does not have to guess again.
+    /// Poll the Supervisor's Observer `/ping` endpoint on port 4357, enforcing
+    /// a hard wall-clock deadline so a stalled request never wedges polling.
+    private func checkObserver() {
+        let now = Date()
+        if let deadline = bootDeadline, now >= deadline { return }
+        if let active = observerProbe {
+            guard now >= active.deadline else { return }
+            active.task.cancel()
+            observerProbe = nil
+            nextObserverProbeAt = now.addingTimeInterval(Self.probeRetryIntervalSeconds)
+        }
+        guard now >= nextObserverProbeAt, let ip = guestIP else { return }
+
+        let client = haClient
+        let deadline = now.addingTimeInterval(Self.observerProbeTimeoutSeconds)
+        let task = Task { @MainActor [weak self] in
+            let reachable = await client.pingObserver(host: ip, timeout: 2)
+            guard let self, !Task.isCancelled else { return }
+            self.observerProbe = nil
+            self.nextObserverProbeAt = Date().addingTimeInterval(Self.probeRetryIntervalSeconds)
+            guard reachable, !self.supervisorReachableNotified else { return }
+            self.supervisorReachableNotified = true
+            self.logger.info("Supervisor is running at \(ip):4357 — Home Assistant is starting up...")
+        }
+        observerProbe = (task, deadline)
+    }
+
+    /// Poll each candidate Home Assistant web UI URL independently with a hard
+    /// wall-clock deadline per probe so neither a stalled request nor a
+    /// blackholed sibling port can block readiness detection.
     private func checkWebUI() {
-        guard healthPollCount < healthPollMax else {
+        let now = Date()
+        if let deadline = bootDeadline, now >= deadline {
             if !webUIReadyNotified {
                 webUIReadyNotified = true
+                observerProbe?.task.cancel()
+                observerProbe = nil
+                cancelActiveWebUIProbes()
                 logger.warning("Timed out waiting for Home Assistant web UI after 5 minutes")
-                // The boot phase is over even though nothing answered. Without
-                // this the Dock keeps a "booting" badge for as long as the VM
-                // runs, which is the opposite of what it means.
                 setGuestStatus(.unreachable)
             }
             return
         }
-        healthPollCount += 1
 
         let candidates = haBaseURLCandidates()
         guard !candidates.isEmpty else { return }
+        let client = haClient
 
-        webUITask?.cancel()
-        webUITask = Task { @MainActor in
-            // Race the candidates rather than walking them one at a time. Each
-            // tick cancels this task, so a probe has only until the next tick
-            // (~250 ms) to answer: a first candidate that *accepts* a
-            // connection and then never replies would spend that whole window
-            // and the second candidate would never be tried at all. Racing
-            // gives every candidate the same window, so neither can starve the
-            // other. A refused connection still returns at once — it simply
-            // loses the race.
-            let answered = await withTaskGroup(of: String?.self) { group -> String? in
-                for baseURL in candidates {
-                    group.addTask { await Self.answersManifest(at: baseURL) ? baseURL : nil }
-                }
-                for await winner in group {
-                    guard let winner else { continue }
-                    group.cancelAll()
-                    return winner
-                }
-                return nil
+        for baseURL in candidates {
+            if let active = activeWebUIProbes[baseURL] {
+                guard now >= active.deadline else { continue }
+                active.task.cancel()
+                activeWebUIProbes.removeValue(forKey: baseURL)
+                nextWebUIProbeAt[baseURL] = now.addingTimeInterval(Self.probeRetryIntervalSeconds)
             }
+            guard now >= (nextWebUIProbeAt[baseURL] ?? .distantPast) else { continue }
 
-            guard let answered else { return }
-            self.resolvedHAURL = answered
-            if let url = URL(string: answered) {
-                self.setGuestStatus(.ready(url))
+            let deadline = now.addingTimeInterval(Self.webUIProbeTimeoutSeconds)
+            let task = Task { @MainActor [weak self] in
+                let ok = await client.answersManifest(at: baseURL, timeout: Self.webUIProbeTimeoutSeconds)
+                guard let self, !Task.isCancelled else { return }
+                self.activeWebUIProbes.removeValue(forKey: baseURL)
+                self.nextWebUIProbeAt[baseURL] = Date().addingTimeInterval(Self.probeRetryIntervalSeconds)
+                guard ok else { return }
+
+                self.cancelActiveWebUIProbes()
+                self.resolvedHAURL = baseURL
+                if let url = URL(string: baseURL) {
+                    self.setGuestStatus(.ready(url))
+                }
+                guard !self.webUIReadyNotified else { return }
+                self.webUIReadyNotified = true
+                self.logger.info("Home Assistant is ready at \(baseURL)")
             }
-            guard !self.webUIReadyNotified else { return }
-            self.webUIReadyNotified = true
-            self.logger.info("Home Assistant is ready at \(answered)")
-        }
-    }
-
-    /// Whether `baseURL/manifest.json` answers 200. That file is Home
-    /// Assistant's own frontend manifest, so a 200 identifies Home Assistant
-    /// rather than merely something listening on the port.
-    private static func answersManifest(at baseURL: String) async -> Bool {
-        guard let url = URL(string: "\(baseURL)/manifest.json") else { return false }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 5
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
-        } catch {
-            // Not listening here, or no answer in time.
-            return false
+            activeWebUIProbes[baseURL] = (task, deadline)
         }
     }
 
@@ -1128,18 +1088,17 @@ public final class ServiceRuntime: NSObject, @unchecked Sendable {
         }
     }
 
-    /// The guest's address in NAT mode, where macOS vmnet is the DHCP server
-    /// and the lease file is the only record of it.
-    ///
-    /// The MAC address is stable after VM start, so its byte form is parsed
-    /// once. The file's modification date is cached too, so the 250 ms boot
-    /// tick does not re-read and re-parse it while the lease is still pending.
-    private lazy var guestMACBytes: [UInt8]? = {
-        vmController.guestMAC.flatMap(DHCPLeases.bytes(ofMAC:))
-    }()
+    private func currentGuestMACBytes() -> [UInt8]? {
+        guard let mac = vmController.guestMAC else { return nil }
+        if mac != cachedMACString {
+            cachedMACString = mac
+            cachedMACBytes = DHCPLeases.bytes(ofMAC: mac)
+        }
+        return cachedMACBytes
+    }
 
     private func discoverViaDHCPLeases() -> String? {
-        guard let guestMACBytes else { return nil }
+        guard let guestMACBytes = currentGuestMACBytes() else { return nil }
 
         let leaseURL = URL(fileURLWithPath: DHCPLeases.path)
 

@@ -222,7 +222,10 @@ usb:
 
 ha:
   url: "https://homeassistant.local:443"  # default: probed — http://<ip> or http://<ip>:8123
-  api_token: "eyJ..."     # HA long-lived access token for REST API calls
+  api_token: "eyJ..."     # HA long-lived access token (or api_token_file / HAVM_HA_API_TOKEN)
+  api_token_file: "~/.config/havm/ha.token"  # read token from a separate file
+  ca_cert: "~/.config/havm/ca.pem"        # optional PEM/DER custom CA cert for HTTPS ha.url
+  insecure_skip_verify: false             # set true to skip TLS verification for self-signed certs
 
 logging:
   format: text            # text (default) or json (NDJSON, one object per line)
@@ -379,7 +382,7 @@ A `host` entry is a bind address, and the port comes from `prometheus.port`
 quietly bound somewhere else.
 
 To serve a Unix socket instead of a port — reachable by file permissions
-rather than by TCP, which suits a scraper on the same host:
+(`0600`, owner-only) rather than by TCP, which suits a scraper on the same host:
 
 ```yaml
 metrics:
@@ -419,7 +422,8 @@ through to the next if one fails:
 
 1. **HA REST API** — `POST <ha.url>/api/services/hassio/host_shutdown`, where the default
    address is probed: `http://<ip>` on HAOS 2026.8+, `http://<ip>:8123` before it
-   (requires a [long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile) in `ha.api_token`)
+   (requires a [long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile)
+   via `HAVM_HA_API_TOKEN`, `ha.api_token_file`, or `ha.api_token`)
 2. **Debug SSH (port 22222)** — `ssh root@<ip> -p 22222 shutdown -h now`
    (requires `ssh.authorized_keys` for CONFIG disk import)
 3. **SSH add-on (port 22)** — `ssh root@<ip> -p 22 ha host shutdown`
@@ -427,12 +431,14 @@ through to the next if one fails:
 4. **Force-stop** — if Home Assistant has not halted by then, the VM is stopped
    immediately (a hard power-off)
 
-The shutdown timeout and API token are configurable:
+The shutdown timeout, API token, and TLS trust settings are configurable:
 
 ```yaml
 ha:
-  api_token: "eyJ..."     # HA long-lived access token
+  api_token: "eyJ..."     # or use api_token_file / HAVM_HA_API_TOKEN
   url: "https://homeassistant.local:443"  # default: probed (see above)
+  ca_cert: "~/.config/havm/ca.pem"        # optional custom CA cert (PEM/DER)
+  insecure_skip_verify: false             # skip TLS verification for self-signed certs
 
 shutdown:
   timeout_seconds: 90     # max wait for Home Assistant to halt (default: 90)

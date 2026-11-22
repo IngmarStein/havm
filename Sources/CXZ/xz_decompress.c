@@ -56,11 +56,7 @@ typedef struct {
 } lzma_stream;
 
 #define LZMA_STREAM_INIT { NULL, 0, 0, NULL, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0 }
-#define LZMA_TELL_NO_CHECK          0x01U
-#define LZMA_TELL_UNSUPPORTED_CHECK 0x02U
-#define LZMA_TELL_ANY_CHECK         0x04U
 #define LZMA_CONCATENATED           0x08U
-#define LZMA_IGNORE_CHECK           0x10U
 
 // Direct calls into liblzma — resolved at link time.
 extern lzma_ret lzma_stream_decoder(lzma_stream *strm, uint64_t memlimit, uint32_t flags);
@@ -104,9 +100,9 @@ int xz_decompress_file(const char *input_path, const char *output_path) {
         return 1;
     }
 
-    // Initialize decoder
+    // Initialize decoder (LZMA_CONCATENATED handles multi-stream .xz archives)
     lzma_stream strm = LZMA_STREAM_INIT;
-    lzma_ret ret = lzma_stream_decoder(&strm, DECODER_MEMLIMIT, 0);
+    lzma_ret ret = lzma_stream_decoder(&strm, DECODER_MEMLIMIT, LZMA_CONCATENATED);
     if (ret != LZMA_OK) {
         fprintf(stderr, "lzma_stream_decoder failed: %d\n", ret);
         goto cleanup;
@@ -162,10 +158,13 @@ cleanup:
     lzma_end(&strm);
     free(in_buf);
     free(out_buf);
-    fclose(out);
+    int close_err = fclose(out);
     fclose(in);
 
-    if (ret != LZMA_STREAM_END) {
+    if (ret != LZMA_STREAM_END || close_err != 0) {
+        if (close_err != 0) {
+            perror("fclose output");
+        }
         // Remove partial output on error
         remove(output_path);
         return 1;

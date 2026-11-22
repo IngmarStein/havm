@@ -46,7 +46,10 @@ usb:
 
 ha:
   url: "https://homeassistant.local:443"  # default: probed — http://<ip> or http://<ip>:8123
-  api_token: "eyJ..."     # HA long-lived access token for REST API calls
+  api_token: "eyJ..."     # HA long-lived access token (or use api_token_file / HAVM_HA_API_TOKEN)
+  api_token_file: "~/.config/havm/ha.token"  # read token from a separate file
+  ca_cert: "~/.config/havm/ca.pem"        # optional PEM/DER custom CA cert for HTTPS ha.url
+  insecure_skip_verify: false             # set true to skip TLS verification for self-signed certs
 
 logging:
   format: text            # text (default) or json (NDJSON, one object per line)
@@ -122,18 +125,34 @@ By default `havm` probes the address the guest answered on — no port on HAOS
 one replied. Set this only if Home Assistant lives somewhere neither default
 covers, or behind HTTPS.
 
-### `ha.api_token`
+### `ha.api_token` / `ha.api_token_file` / `HAVM_HA_API_TOKEN`
 A [long-lived access token][token], used for the REST API shutdown call and for
 the Dock menu's "Restart Home Assistant". Without it, `havm` shuts the guest
 down over SSH instead.
 
-The token is a bearer credential: anyone who can read `config.yml` can use it.
-`havm` warns at startup when the file is accessible by other users, and the fix
-it names is the right one:
+To keep credentials out of `config.yml`, `havm` resolves the token in this order:
+1. The `HAVM_HA_API_TOKEN` environment variable
+2. `ha.api_token_file` — path to a file containing the token (whitespace trimmed)
+3. `ha.api_token` — inline in `config.yml`
+
+The token is a bearer credential: anyone who can read the file holding it can
+use it. `havm` warns at startup and on hot-reload when `config.yml` (with an
+inline token) or `api_token_file` is accessible by other users:
 
 ```bash
 chmod 600 ~/.config/havm/config.yml
 ```
+
+On shared or untrusted LANs, note that the default probed endpoint uses
+plaintext HTTP over mDNS (`homeassistant.local`). Configure `ha.url` with HTTPS
+(or a static IP) to avoid transmitting the bearer token in the clear.
+
+### `ha.ca_cert` / `ha.insecure_skip_verify`
+When `ha.url` uses HTTPS with a private CA or self-signed certificate:
+- Set `ha.ca_cert` to a PEM (single cert or CA bundle) or DER certificate file
+  to trust alongside system roots.
+- Or set `ha.insecure_skip_verify: true` to skip TLS certificate verification
+  for `ha.url` (not recommended on untrusted networks).
 
 [token]: https://www.home-assistant.io/docs/authentication/#your-account-profile
 
@@ -160,14 +179,14 @@ The following settings take effect immediately when you edit and save
 |---|---|
 | `logging.level` | Changes log verbosity within seconds |
 | `metrics.enabled` / `metrics.prometheus.port` / `metrics.prometheus.host` | Starts, stops, or reconfigures the Prometheus exporter. Changing `host` re-binds: a `unix://` entry's socket file appears, and the one it replaced is removed. A value that parses but cannot be bound leaves metrics down until it is fixed — the guest keeps running |
-| `ha.api_token` | Updates the API token used for REST API shutdown |
+| `ha.api_token` / `ha.api_token_file` / `ha.url` / `ha.ca_cert` / `ha.insecure_skip_verify` | Updates Home Assistant REST API credentials, endpoint, and TLS trust settings |
 | `shutdown.timeout_seconds` | Applies to the next shutdown attempt |
 
 Settings that **do require a restart** (they only take effect when the VM
 is recreated): CPU, memory, disk size, network type/interface/mac, USB,
 SSH key path, and log format. Run `kill -HUP $(cat ~/Library/Application\ Support/havm/vm/havm.pid)`
-for a graceful restart — the VM shuts down cleanly and launchd / Homebrew
-auto-restarts the process.
+for a graceful restart — `havm` halts the guest cleanly, reloads `config.yml`,
+re-applies disk size and SSH key settings, and starts a fresh VM in-process.
 
 ## Metrics
 

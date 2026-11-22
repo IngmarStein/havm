@@ -58,10 +58,16 @@ import Testing
 
         let metrics = try tcpRequest(port: port, "GET /metrics HTTP/1.1\r\n\r\n")
         #expect(metrics.contains("200 OK"))
+        #expect(metrics.contains("Connection: close"))
         #expect(metrics.contains("havm_tcp 1.0"))
 
         let health = try tcpRequest(port: port, "GET /health HTTP/1.1\r\n\r\n")
         #expect(health.contains("200 OK"))
+        #expect(health.contains("Connection: close"))
+
+        #expect(try tcpRequest(port: port, "GET /metricsfoo HTTP/1.1\r\n\r\n").contains("404 Not Found"))
+        #expect(try tcpRequest(port: port, "GET /healthz HTTP/1.1\r\n\r\n").contains("404 Not Found"))
+        #expect(try tcpRequest(port: port, "GET /metrics?format=text HTTP/1.1\r\n\r\n").contains("200 OK"))
     }
 
     @Test("A host the framework cannot bind is refused, never bound elsewhere")
@@ -120,6 +126,10 @@ import Testing
 
         let health = try unixSocketRequest(path: socketPath, "GET /health HTTP/1.1\r\n\r\n")
         #expect(health.contains("200 OK"))
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: socketPath)
+        let mode = (attrs[.posixPermissions] as? NSNumber)?.uint16Value
+        #expect(mode == 0o600)
     }
 
     @Test("Starting a socket server creates the socket file and its directory")
@@ -389,6 +399,20 @@ import Testing
         let output = registry.emit()
         // %.6g formats this as "1e-06"
         #expect(output.contains("test 1e-06"))
+    }
+
+    @Test("SimpleRegistry emit: non-finite and out-of-Int64 values do not trap")
+    func emitSpecialDoubles() {
+        let registry = SimpleRegistry()
+        registry.record(name: "m_nan", labels: [], value: .nan)
+        registry.record(name: "m_pinf", labels: [], value: .infinity)
+        registry.record(name: "m_ninf", labels: [], value: -.infinity)
+        registry.record(name: "m_huge", labels: [], value: 1e20)
+        let output = registry.emit()
+        #expect(output.contains("m_nan NaN"))
+        #expect(output.contains("m_pinf +Inf"))
+        #expect(output.contains("m_ninf -Inf"))
+        #expect(output.contains("m_huge 1e+20"))
     }
 }
 

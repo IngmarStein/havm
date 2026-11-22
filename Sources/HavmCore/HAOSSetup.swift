@@ -2,6 +2,7 @@ import Foundation
 import CXZ
 import Logging
 import CryptoKit
+import Synchronization
 
 // MARK: - GitHub Release model
 
@@ -230,8 +231,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
     public func setupIfNeeded() async throws {
         if isSetupComplete {
             logger.info("VM already set up, skipping download.")
-            try ensureDiskSize()
-            try setupSSHConfigDisk()
+            try refreshBeforeBoot()
             return
         }
 
@@ -267,11 +267,17 @@ public final class HAOSSetupManager: @unchecked Sendable {
             logger.info("Using cached image: \(cachedImagePath)")
         } else {
             if !fileManager.fileExists(atPath: cachedXZPath) {
-                _ = try await downloadAsset(imageAsset, to: cachedXZPath)
-                if let expected = await expectedSHA256(for: imageAsset, in: release) {
-                    try verifyChecksum(for: cachedXZPath, expectedHex: expected)
-                } else {
-                    logger.warning("The release publishes no SHA-256 for \(imageAsset.name) — skipping integrity check")
+                let tempPath = try await downloadAssetToTemp(imageAsset)
+                do {
+                    if let expected = await expectedSHA256(for: imageAsset, in: release) {
+                        try verifyChecksum(for: tempPath, expectedHex: expected)
+                    } else {
+                        logger.warning("The release publishes no SHA-256 for \(imageAsset.name) — skipping integrity check")
+                    }
+                    try atomicMove(from: tempPath, to: cachedXZPath)
+                } catch {
+                    try? fileManager.removeItem(atPath: tempPath)
+                    throw error
                 }
             } else {
                 logger.info("Using cached download: \(cachedXZPath)")
@@ -280,25 +286,27 @@ public final class HAOSSetupManager: @unchecked Sendable {
             logger.info("Decompressed to \(rawPath)")
         }
 
-        // 3. Clone disk image to persistent location (CoW on APFS, preserves sparseness)
-        let destURL = URL(fileURLWithPath: HavmConfig.persistentDiskPath)
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try FileManager.default.removeItem(at: destURL)
+        // 3. Clone disk image to persistent location atomically (CoW on APFS, preserves sparseness)
+        let destPath = HavmConfig.persistentDiskPath
+        let tempDest = destPath + ".tmp-\(UUID().uuidString)"
+        defer { try? fileManager.removeItem(atPath: tempDest) }
+        if clonefile(cachedImagePath, tempDest, 0) != 0 {
+            try fileManager.copyItem(atPath: cachedImagePath, toPath: tempDest)
         }
-        let srcURL = URL(fileURLWithPath: cachedImagePath)
-        if clonefile(srcURL.path, destURL.path, 0) != 0 {
-            // Cross-volume fallback
-            try FileManager.default.copyItem(at: srcURL, to: destURL)
-        }
-        logger.info("Copied disk image to \(HavmConfig.persistentDiskPath)")
+        try atomicMove(from: tempDest, to: destPath)
+        logger.info("Copied disk image to \(destPath)")
 
-        // 4. Resize disk image if needed
-        try ensureDiskSize()
-
-        // 5. Create SSH CONFIG disk if authorized_keys is configured
-        try setupSSHConfigDisk()
+        // 4. Resize disk image if needed & create SSH CONFIG disk
+        try refreshBeforeBoot()
 
         logger.info("✅ HA OS setup complete.")
+    }
+
+    /// Re-apply mutable pre-boot disk settings (disk size increase and SSH
+    /// CONFIG disk) before starting or restarting a VM.
+    public func refreshBeforeBoot() throws {
+        try ensureDiskSize()
+        try setupSSHConfigDisk()
     }
 
     // MARK: - SSH CONFIG disk
@@ -332,7 +340,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
             logger.warning("SSH CONFIG disk not created: \(error)")
             return
         }
-        try configDisk.write(to: URL(fileURLWithPath: HavmConfig.configDiskPath))
+        try configDisk.write(to: URL(fileURLWithPath: HavmConfig.configDiskPath), options: .atomic)
         logger.info("SSH CONFIG disk created at \(HavmConfig.configDiskPath)")
     }
 
@@ -492,7 +500,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
 
         guard let sums = release.assets.first(where: { $0.name == "SHA256SUMS" }),
-              let url = URL(string: sums.browserDownloadURL) else {
+              let url = Self.validatedHTTPSURL(sums.browserDownloadURL) else {
             return nil
         }
         do {
@@ -510,40 +518,59 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
     }
 
+    /// Reject non-HTTPS or hostless URLs (defense against tampered `releases.cache`).
+    static func validatedHTTPSURL(_ raw: String) -> URL? {
+        guard let url = URL(string: raw),
+              url.scheme?.lowercased() == "https",
+              let host = url.host, !host.isEmpty else {
+            return nil
+        }
+        return url
+    }
+
     // MARK: - Download
 
-    private func downloadAsset(_ asset: GitHubAsset, to destination: String) async throws -> String {
-        guard let url = URL(string: asset.browserDownloadURL) else {
+    private func downloadTempDirectory() throws -> String {
+        let tempDir = URL(fileURLWithPath: HavmConfig.cacheDirectory)
+            .appendingPathComponent(".downloads").path
+        try fileManager.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+        return tempDir
+    }
+
+    private func atomicMove(from sourcePath: String, to destinationPath: String) throws {
+        if fileManager.fileExists(atPath: destinationPath) {
+            try fileManager.removeItem(atPath: destinationPath)
+        }
+        try fileManager.moveItem(atPath: sourcePath, toPath: destinationPath)
+    }
+
+    private func downloadAssetToTemp(_ asset: GitHubAsset) async throws -> String {
+        guard let url = Self.validatedHTTPSURL(asset.browserDownloadURL) else {
             throw SetupError.downloadFailed(asset.browserDownloadURL,
-                NSError(domain: havmErrorDomain, code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
+                NSError(domain: havmErrorDomain, code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid or non-HTTPS URL"]))
         }
 
         logger.info("Downloading \(asset.name) (\(ByteCountFormatter.string(fromByteCount: asset.size, countStyle: .file)))...")
 
-        // Stream to a temporary file first, then rename atomically.
-        // Uses URLSession.download which streams to disk — no memory pressure
-        // from large (300+ MB) images.
-        let tempDir = URL(fileURLWithPath: HavmConfig.cacheDirectory)
-            .appendingPathComponent(".downloads").path
-        try fileManager.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
-
+        let tempDir = try downloadTempDirectory()
         let tempPath = URL(fileURLWithPath: tempDir).appendingPathComponent(UUID().uuidString).path
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let delegate = DownloadDelegate(tempPath: tempPath, logger: logger, assetName: asset.name)
+            let delegate = DownloadDelegate(
+                tempPath: tempPath,
+                sourceURL: asset.browserDownloadURL,
+                logger: logger
+            )
             let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
             let task = session.downloadTask(with: url)
-            delegate.onComplete = { result in
+            delegate.setCompletion { result in
                 session.invalidateAndCancel()
                 continuation.resume(with: result)
             }
             task.resume()
         }
 
-        // Atomic rename: move from temp to final destination
-        try fileManager.moveItem(atPath: tempPath, toPath: destination)
-
-        return destination
+        return tempPath
     }
 
     // MARK: - Checksum verification
@@ -572,10 +599,16 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
     private func decompressXZ(_ xzPath: String, to outputPath: String) throws -> String {
         logger.info("Decompressing \(xzPath)...")
-        let result = xz_decompress_file(xzPath, outputPath)
+        let tempDir = try downloadTempDirectory()
+        let tempOut = URL(fileURLWithPath: tempDir)
+            .appendingPathComponent("decompress-\(UUID().uuidString).img").path
+        defer { try? fileManager.removeItem(atPath: tempOut) }
+
+        let result = xz_decompress_file(xzPath, tempOut)
         guard result == 0 else {
             throw SetupError.decompressFailed(xzPath)
         }
+        try atomicMove(from: tempOut, to: outputPath)
         return outputPath
     }
 
@@ -634,15 +667,7 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 logger.warning("Could not resize the ASIF disk: \(error) — the guest keeps its current size.")
                 return
             }
-        case .unsupported(let format):
-            // The file is not the disk: extending it would append zeros to a
-            // container the guest never sees, and the log would claim a resize.
-            // The check above has already refused this file; nothing to do.
-            logger.debug("Skipping the disk size check for a \(format.displayName) container.")
-            return
-        case .stacked:
-            // Same reasoning: the check above has already refused this file.
-            logger.debug("Skipping the disk size check for a layered image.")
+        case .unsupported, .stacked:
             return
         }
         logger.info("Disk resized. HA OS will auto-expand partitions on first boot.")
@@ -690,9 +715,11 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
     }
 
+    private static let maxEFIPartitionBytes: UInt64 = 512 * 1024 * 1024
+
     /// The GPT/ESP walk and rewrite, run against anything seekable: the image
     /// file itself for a raw disk, or the block device for a container.
-    private static func patchConsoleCmdline(in fh: FileHandle, logger: Logger) {
+    static func patchConsoleCmdline(in fh: FileHandle, logger: Logger) {
         // Read LBA 0 (protective MBR) and LBA 1 (GPT header).
         guard let headerBlock = try? fh.read(upToCount: 1024), headerBlock.count >= 1024 else { return }
         let headerBytes = [UInt8](headerBlock)
@@ -700,15 +727,17 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
         // GPT header: partition entry LBA at byte 72, entry count at byte 80,
         // entry size at byte 84 (all little-endian).
-        let entryStartLBA = UInt64(littleEndian: headerBytes[512+72..<512+80].withUnsafeBytes { $0.load(as: UInt64.self) })
-        let entryCount = Int(UInt32(littleEndian: headerBytes[512+80..<512+84].withUnsafeBytes { $0.load(as: UInt32.self) }))
-        let entrySize  = Int(UInt32(littleEndian: headerBytes[512+84..<512+88].withUnsafeBytes { $0.load(as: UInt32.self) }))
-        guard entryCount > 0, entrySize > 0 else { return }
+        let entryStartLBA = readLE64(headerBytes, at: 512 + 72)
+        let entryCount = Int(readLE32(headerBytes, at: 512 + 80))
+        let entrySize  = Int(readLE32(headerBytes, at: 512 + 84))
+        guard entryCount > 0, entryCount <= 1024, entrySize >= 128, entrySize <= 4096 else { return }
 
         // Partition entries as specified by the GPT header (typically LBA 2).
-        let entryBufSize = entryCount * entrySize
-        let entryOffset = entryStartLBA * 512
-        try? fh.seek(toOffset: entryOffset)
+        let (entryBufSize, overflow) = entryCount.multipliedReportingOverflow(by: entrySize)
+        guard !overflow else { return }
+        let (entryOffset, offsetOverflow) = entryStartLBA.multipliedReportingOverflow(by: 512)
+        guard !offsetOverflow else { return }
+        do { try fh.seek(toOffset: entryOffset) } catch { return }
         guard let entryData = try? fh.read(upToCount: entryBufSize),
               entryData.count >= entryBufSize else { return }
         let entryBytes = [UInt8](entryData)
@@ -722,10 +751,17 @@ public final class HAOSSetupManager: @unchecked Sendable {
             let off = i * entrySize
             guard off + 48 <= entryBytes.count else { break }
             guard Array(entryBytes[off..<off+16]) == espGUID else { continue }
-            let startLBA = entryBytes[off+32..<off+40].withUnsafeBytes { $0.load(as: UInt64.self) }
-            let endLBA   = entryBytes[off+40..<off+48].withUnsafeBytes { $0.load(as: UInt64.self) }
-            efiOffset = startLBA * 512
-            efiSize = (endLBA - startLBA + 1) * 512
+            let startLBA = readLE64(entryBytes, at: off + 32)
+            let endLBA   = readLE64(entryBytes, at: off + 40)
+            guard endLBA >= startLBA else { continue }
+            let (sectors, secOverflow) = (endLBA - startLBA).addingReportingOverflow(1)
+            let (offsetBytes, offOverflow) = startLBA.multipliedReportingOverflow(by: 512)
+            let (sizeBytes, sizeOverflow) = sectors.multipliedReportingOverflow(by: 512)
+            guard !secOverflow, !offOverflow, !sizeOverflow, sizeBytes <= maxEFIPartitionBytes else {
+                continue
+            }
+            efiOffset = offsetBytes
+            efiSize = sizeBytes
             break
         }
         guard efiOffset > 0, efiSize > 0 else {
@@ -734,12 +770,13 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
 
         // Read the EFI partition.
-        try? fh.seek(toOffset: efiOffset)
+        do { try fh.seek(toOffset: efiOffset) } catch { return }
         guard let efiData = try? fh.read(upToCount: Int(efiSize)), !efiData.isEmpty else { return }
         var efiBytes = [UInt8](efiData)
 
-        let consolePrefix: [UInt8] = [0x63, 0x6f, 0x6e, 0x73, 0x6f, 0x6c, 0x65, 0x3d]  // "console="
-        let hvc0: [UInt8] = [0x68, 0x76, 0x63, 0x30]  // "hvc0"
+        let consolePrefix = Array("console=".utf8)
+        let hvc0 = Array("hvc0".utf8)
+        let replacement = Array("console=hvc0".utf8)  // 12 bytes, no embedded NUL
 
         // Scan for "console=". Only replace console values that are known
         // non-virtio types — never touch an unrecognized value.
@@ -755,7 +792,8 @@ public final class HAOSSetupManager: @unchecked Sendable {
             }
             // Determine the console value up to the next whitespace or null.
             var end = valStart
-            while end < efiBytes.count, efiBytes[end] != 0x20, efiBytes[end] != 0x0a, efiBytes[end] != 0x00 {
+            while end < efiBytes.count,
+                  efiBytes[end] != 0x20, efiBytes[end] != 0x0a, efiBytes[end] != 0x0d, efiBytes[end] != 0x00 {
                 end += 1
             }
             let oldValue = Array(efiBytes[valStart..<end])
@@ -776,21 +814,26 @@ public final class HAOSSetupManager: @unchecked Sendable {
                 if next + consolePrefix.count <= efiBytes.count,
                    Array(efiBytes[next..<next+consolePrefix.count]) == consolePrefix {
                     end = next + consolePrefix.count
-                    while end < efiBytes.count, efiBytes[end] != 0x20, efiBytes[end] != 0x0a, efiBytes[end] != 0x00 {
+                    while end < efiBytes.count,
+                          efiBytes[end] != 0x20, efiBytes[end] != 0x0a, efiBytes[end] != 0x0d, efiBytes[end] != 0x00 {
                         end += 1
                     }
                 } else { break }
             }
 
-            // Write "console=hvc0\0" and null remaining old bytes in place.
-            let replacement: [UInt8] = [0x63, 0x6f, 0x6e, 0x73, 0x6f, 0x6c, 0x65, 0x3d, 0x68, 0x76, 0x63, 0x30, 0x00]
+            // Never overwrite bytes past `end` (would corrupt following kernel args).
+            guard end - idx >= replacement.count else {
+                logger.debug("console=\(oldStr) is shorter than console=hvc0 — leaving as-is")
+                idx = end; continue
+            }
+
+            // Write "console=hvc0" and pad remaining old bytes with ASCII spaces
+            // (0x20), never NUL (0x00), so subsequent kernel arguments stay intact.
             for (j, byte) in replacement.enumerated() {
-                guard idx + j < efiBytes.count else { break }
                 efiBytes[idx + j] = byte
             }
             for j in (idx + replacement.count)..<end {
-                guard j < efiBytes.count else { break }
-                efiBytes[j] = 0
+                efiBytes[j] = 0x20
             }
             patched = true
             idx = end
@@ -807,6 +850,18 @@ public final class HAOSSetupManager: @unchecked Sendable {
         }
     }
 
+    private static func readLE32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+        bytes[offset..<(offset + 4)].withUnsafeBytes {
+            UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self))
+        }
+    }
+
+    private static func readLE64(_ bytes: [UInt8], at offset: Int) -> UInt64 {
+        bytes[offset..<(offset + 8)].withUnsafeBytes {
+            UInt64(littleEndian: $0.loadUnaligned(as: UInt64.self))
+        }
+    }
+
     private func createDirectories() {
         for dir in [HavmConfig.dataDirectory, HavmConfig.cacheDirectory, HavmConfig.vmDirectory] {
             try? fileManager.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -816,33 +871,53 @@ public final class HAOSSetupManager: @unchecked Sendable {
 
 // MARK: - Download delegate (streaming)
 
-/// URLSessionDownloadDelegate that reports completion and streams to disk.
-/// The delegate keeps session alive via its `onComplete` closure.
-private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+/// URLSessionDownloadDelegate that reports completion exactly once, validates
+/// HTTP 2xx status, and streams to disk.
+private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
     let tempPath: String
+    let sourceURL: String
     let logger: Logger
-    let assetName: String
-    var onComplete: ((Result<Void, Error>) -> Void)?
+    private let completion = Mutex<((Result<Void, Error>) -> Void)?>(nil)
 
-    init(tempPath: String, logger: Logger, assetName: String) {
+    init(tempPath: String, sourceURL: String, logger: Logger) {
         self.tempPath = tempPath
+        self.sourceURL = sourceURL
         self.logger = logger
-        self.assetName = assetName
+    }
+
+    func setCompletion(_ handler: @escaping @Sendable (Result<Void, Error>) -> Void) {
+        completion.withLock { $0 = handler }
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        let handler = completion.withLock { current -> ((Result<Void, Error>) -> Void)? in
+            let saved = current
+            current = nil
+            return saved
+        }
+        handler?(result)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
+        if let http = downloadTask.response as? HTTPURLResponse,
+           !(200...299).contains(http.statusCode) {
+            finish(.failure(SetupError.downloadFailed(sourceURL,
+                NSError(domain: havmErrorDomain, code: http.statusCode,
+                        userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"]))))
+            return
+        }
         do {
             try FileManager.default.moveItem(at: location, to: URL(fileURLWithPath: tempPath))
-            onComplete?(.success(()))
+            finish(.success(()))
         } catch {
-            onComplete?(.failure(error))
+            finish(.failure(error))
         }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error {
-            onComplete?(.failure(error))
+            finish(.failure(SetupError.downloadFailed(sourceURL, error)))
         }
     }
 

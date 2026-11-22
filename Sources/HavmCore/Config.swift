@@ -18,7 +18,12 @@ public struct HavmConfig: Decodable, Sendable {
     /// Path to the effective config file (where havm looks), for file
     /// watching / hot-reload. `loadConfig` always sets this — even when the
     /// file doesn't exist yet (defaults are used in that case).
+    /// Excluded from YAML decoding via `CodingKeys`.
     public var configPath: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case vm, network, haos, usb, ssh, ha, shutdown, logging, metrics
+    }
 
     public struct VMOverrides: Decodable, Sendable {
         public var cpuCount: Int?
@@ -113,7 +118,11 @@ public struct HavmConfig: Decodable, Sendable {
 
     /// Home Assistant connection settings. Used for both shutdown and
     /// pre-UI-ready checks (e.g. manifest.json polling).
-    public struct HAConfig: Decodable, Sendable {
+    public struct HAConfig: Decodable, Sendable, Equatable {
+        /// Environment variable that supplies the HA long-lived access token
+        /// without storing a secret in `config.yml`.
+        public static let apiTokenEnvironmentVariable = "HAVM_HA_API_TOKEN"
+
         /// Base URL of the Home Assistant instance.
         /// Overrides the probed default — `http://<discovered-ip>` on HAOS
         /// 2026.8 and newer, `http://<discovered-ip>:8123` on installs that
@@ -123,15 +132,35 @@ public struct HavmConfig: Decodable, Sendable {
         /// Long-lived access token for REST API calls (shutdown, etc.).
         /// Create one at http://<ip>/profile/security.
         public var apiToken: String?
+        /// Path to a file containing the long-lived access token (alternative
+        /// to inline `api_token` so secrets can live outside `config.yml`).
+        public var apiTokenFile: String?
+        /// Path to a PEM or DER CA / server certificate file to trust for
+        /// HTTPS requests to `ha.url`.
+        public var caCert: String?
+        /// Skip TLS certificate verification for `ha.url`. Off by default.
+        public var insecureSkipVerify: Bool?
 
         enum CodingKeys: String, CodingKey {
             case url
             case apiToken = "api_token"
+            case apiTokenFile = "api_token_file"
+            case caCert = "ca_cert"
+            case insecureSkipVerify = "insecure_skip_verify"
         }
 
-        public init(url: String? = nil, apiToken: String? = nil) {
+        public init(
+            url: String? = nil,
+            apiToken: String? = nil,
+            apiTokenFile: String? = nil,
+            caCert: String? = nil,
+            insecureSkipVerify: Bool? = nil
+        ) {
             self.url = url
             self.apiToken = apiToken
+            self.apiTokenFile = apiTokenFile
+            self.caCert = caCert
+            self.insecureSkipVerify = insecureSkipVerify
         }
     }
 
@@ -157,6 +186,15 @@ public struct HavmConfig: Decodable, Sendable {
 
         public enum LogLevel: String, Decodable, Sendable {
             case debug, info, warning, error
+
+            public var loggerLevel: Logger.Level {
+                switch self {
+                case .debug:   .debug
+                case .info:    .info
+                case .warning: .warning
+                case .error:   .error
+                }
+            }
         }
 
         public enum LogFormat: String, Decodable, Sendable {
@@ -320,12 +358,7 @@ public struct HavmConfig: Decodable, Sendable {
 
     /// Effective log level: defaults to `.info`.
     public var effectiveLogLevel: Logger.Level {
-        switch logging?.level {
-        case .debug: .debug
-        case .warning: .warning
-        case .error: .error
-        case .info, nil: .info
-        }
+        logging?.level?.loggerLevel ?? .info
     }
 
     // MARK: - Defaults
@@ -383,22 +416,69 @@ public struct HavmConfig: Decodable, Sendable {
         shutdown?.timeoutSeconds ?? 90
     }
 
-    /// Home Assistant long-lived access token for REST API use.
-    /// Set via `ha.api_token`. Used for API calls like shutdown.
-    /// Returns nil for empty or whitespace-only strings so the
-    /// shutdown chain skips the REST API step when no token is set.
-    public var effectiveHAAPIToken: String? {
-        guard let token = ha?.apiToken?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !token.isEmpty else { return nil }
-        return token
+    /// Whether `config.yml` carries an inline `ha.api_token` value.
+    public var hasInlineHAAPIToken: Bool {
+        guard let token = ha?.apiToken?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !token.isEmpty
     }
 
-    /// Base URL for the Home Assistant web UI and REST API.
-    /// Set via `ha.url`. If not set, havm probes ``HAEndpoint/probePorts``
-    /// on the discovered guest address — 80, which the URL may leave out, on
-    /// HAOS 2026.8 and newer; 8123 on installations that predate it.
+    /// Expanded path to `ha.api_token_file`, if configured.
+    public var effectiveHAAPITokenFilePath: String? {
+        guard let raw = ha?.apiTokenFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        return NSString(string: raw).expandingTildeInPath
+    }
+
+    /// Home Assistant long-lived access token for REST API use.
+    ///
+    /// Resolution order:
+    /// 1. `HAVM_HA_API_TOKEN` environment variable
+    /// 2. `ha.api_token_file` (trimmed file contents)
+    /// 3. `ha.api_token` (inline YAML value)
+    public var effectiveHAAPIToken: String? {
+        effectiveHAAPIToken(environment: ProcessInfo.processInfo.environment)
+    }
+
+    /// Testable overload accepting an explicit environment dictionary.
+    public func effectiveHAAPIToken(environment: [String: String]) -> String? {
+        if let envToken = environment[HAConfig.apiTokenEnvironmentVariable]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !envToken.isEmpty {
+            return envToken
+        }
+        if let path = effectiveHAAPITokenFilePath,
+           let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+            let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        if let inline = ha?.apiToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !inline.isEmpty {
+            return inline
+        }
+        return nil
+    }
+
+    /// Base URL for the Home Assistant web UI and REST API, normalized with
+    /// surrounding whitespace and trailing slashes stripped.
     public var effectiveHAURL: String? {
-        ha?.url
+        guard var raw = ha?.url?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        while raw.hasSuffix("/") { raw.removeLast() }
+        return raw.isEmpty ? nil : raw
+    }
+
+    /// Expanded path to a custom CA / server certificate file (`ha.ca_cert`), if set.
+    public var effectiveHACACertPath: String? {
+        guard let raw = ha?.caCert?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        return NSString(string: raw).expandingTildeInPath
+    }
+
+    /// Whether TLS certificate verification is explicitly skipped for `ha.url`.
+    public var effectiveHAInsecureSkipVerify: Bool {
+        ha?.insecureSkipVerify ?? false
     }
 
     // MARK: - Init
@@ -437,15 +517,23 @@ public struct HavmConfig: Decodable, Sendable {
         ssh?.authorizedKeys
     }
 
+    /// Hostname or IP for reaching the guest for a given active network type.
+    public func effectiveGuestHostname(networkType: NetworkType) -> String? {
+        if let hostname = network?.hostname?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !hostname.isEmpty {
+            return hostname
+        }
+        switch networkType {
+        case .bridge: return "homeassistant.local"
+        case .nat: return nil  // DHCP lease parsing works, no hostname needed
+        }
+    }
+
     /// Hostname or IP for reaching the guest. In bridge mode, defaults to
     /// `homeassistant.local`. Override via `network.hostname` if you run
     /// multiple HA instances or use a static IP.
     public var effectiveGuestHostname: String? {
-        if let hostname = network?.hostname { return hostname }
-        switch effectiveNetworkType {
-        case .bridge: return "homeassistant.local"
-        case .nat: return nil  // DHCP lease parsing works, no hostname needed
-        }
+        effectiveGuestHostname(networkType: effectiveNetworkType)
     }
 
     /// Metrics enabled (defaults to false).
@@ -609,6 +697,21 @@ public enum ConfigFilePermissions {
         guard mode & 0o077 != 0 else { return nil }
         return "\(path) holds ha.api_token and is accessible by other users "
             + "(mode \(String(mode, radix: 8))). Run: chmod 600 \(path)"
+    }
+
+    /// All permission warnings for files holding API tokens in `config`
+    /// (`config.yml` when `ha.api_token` is set inline, and `ha.api_token_file`
+    /// when configured).
+    public static func warnings(for config: HavmConfig, configPath: String) -> [String] {
+        var results: [String] = []
+        if let w = warning(path: configPath, hasAPIToken: config.hasInlineHAAPIToken) {
+            results.append(w)
+        }
+        if let tokenFile = config.effectiveHAAPITokenFilePath,
+           let w = warning(path: tokenFile, hasAPIToken: true) {
+            results.append(w)
+        }
+        return results
     }
 }
 

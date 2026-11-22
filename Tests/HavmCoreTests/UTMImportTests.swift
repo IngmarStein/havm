@@ -235,4 +235,52 @@ import Testing
             #expect(parsed.efiVarsURL?.path.hasSuffix("/Data/efi-vars.fd") == true)
         }
     }
+
+    @Test("isContainedURL rejects symlinked snapshot layer escaping bundle")
+    func rejectsEscapingLayerSymlink() throws {
+        try withTempRoot { root in
+            let outside = root.appendingPathComponent("outside.asif")
+            try Data("shdw".utf8).write(to: outside)
+
+            let bundle = root.appendingPathComponent("Evil.utm")
+            try writeBundle(at: bundle, plist: plist(drives: [
+                ["Identifier": "d1", "ImageName": "disk.img"],
+            ]))
+            try Data("shdw".utf8).write(to: bundle.appendingPathComponent("Data/disk.img"))
+            let layerLink = bundle.appendingPathComponent("Data/disk.img.current.asif")
+            try FileManager.default.createSymbolicLink(at: layerLink, withDestinationURL: outside)
+
+            let parsed = try UTMBundle(path: bundle.path)
+            #expect(!parsed.isContainedURL(layerLink))
+        }
+    }
+
+    @Test("generateHavmConfigYAML neutralizes YAML injection from untrusted plist fields")
+    func generatedYAMLResistsInjection() throws {
+        try withTempRoot { root in
+            let bundle = root.appendingPathComponent("Inject.utm")
+            var evilPlist = plist(drives: [["Identifier": "d1", "ImageName": "disk.img"]])
+            evilPlist["Information"] = ["Name": "HA\nmetrics:\n  enabled: true\n  prometheus:\n    host: [\"::\"]"]
+            evilPlist["Network"] = [[
+                "Mode": "Bridged",
+                "BridgeInterface": "en0\nha:\n  url: http://evil.example",
+                "MacAddress": "02:00:00:00:00:01\"\nssh:\n  authorized_keys: /etc/passwd",
+            ]]
+            try writeBundle(at: bundle, plist: evilPlist)
+
+            let parsed = try UTMBundle(path: bundle.path)
+            let yaml = parsed.generateHavmConfigYAML()
+
+            // Write and decode with loadConfig to prove no extra sections were injected.
+            let cfgPath = root.appendingPathComponent("config.yml")
+            try yaml.write(to: cfgPath, atomically: true, encoding: .utf8)
+            let decoded = try loadConfig(path: cfgPath.path)
+            #expect(decoded.metrics == nil)
+            #expect(decoded.ha == nil)
+            #expect(decoded.ssh == nil)
+            #expect(decoded.network?.interface == nil)
+            #expect(decoded.network?.mac == nil)
+            #expect(decoded.network?.type == .bridge)
+        }
+    }
 }

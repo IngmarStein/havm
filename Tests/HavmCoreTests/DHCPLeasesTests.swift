@@ -63,4 +63,25 @@ import Testing
             """
         #expect(DHCPLeases.address(forMAC: Self.guestMAC, in: text) == nil)
     }
+
+    @Test func prefersTheLeaseWithTheLatestExpiryTimestamp() {
+        let text = """
+            {
+            ip_address=192.168.64.2
+            hw_address=1,2:0:0:0:0:1
+            lease=0x68e10000
+            }
+            {
+            ip_address=192.168.64.9
+            hw_address=1,2:0:0:0:0:1
+            lease=0x68e2ffff
+            }
+            {
+            ip_address=192.168.64.3
+            hw_address=1,2:0:0:0:0:1
+            lease=0x68e10001
+            }
+            """
+        #expect(DHCPLeases.address(forMAC: Self.guestMAC, in: text) == "192.168.64.9")
+    }
 }

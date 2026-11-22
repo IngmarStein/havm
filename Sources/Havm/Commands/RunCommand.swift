@@ -119,17 +119,7 @@ struct RunCommand: AsyncParsableCommand {
         let format = logFormat ?? (json ? .json : havmConfig.effectiveLogFormat)
         // Kept apart from the effective level so a config reload after start
         // can tell a CLI-pinned level from one it is free to change.
-        let logLevelOverride: Logger.Level? = {
-            if let cliLevel = logLevel {
-                switch cliLevel {
-                case .debug:  return .debug
-                case .info:   return .info
-                case .warning: return .warning
-                case .error:  return .error
-                }
-            }
-            return verbose ? .debug : nil
-        }()
+        let logLevelOverride: Logger.Level? = logLevel?.loggerLevel ?? (verbose ? .debug : nil)
         let effectiveLogLevel = logLevelOverride ?? havmConfig.effectiveLogLevel
 
         if console && format == .json {
@@ -140,7 +130,9 @@ struct RunCommand: AsyncParsableCommand {
         // `logging.file` replaces stdout entirely. It is the only way to keep
         // a log from a launch that has no terminal — Finder, `open`, a login
         // item — and it works the same for the launches that do.
-        let logFile = havmConfig.effectiveLogFile.flatMap { LogDestination.openFile(at: $0) }
+        let configuredLogFile = havmConfig.effectiveLogFile
+        let logFile = configuredLogFile.flatMap { LogDestination.openFile(at: $0) }
+        let useStderr = console
 
         if useJSON {
             LoggingSystem.bootstrap { label in
@@ -156,10 +148,21 @@ struct RunCommand: AsyncParsableCommand {
                 handler.logLevel = effectiveLogLevel
                 return handler
             }
+        } else {
+            LoggingSystem.bootstrap { label in
+                var handler = useStderr
+                    ? StreamLogHandler.standardError(label: label)
+                    : StreamLogHandler.standardOutput(label: label)
+                handler.logLevel = effectiveLogLevel
+                return handler
+            }
         }
 
         var logger = Logger(label: "havm.run")
         logger.logLevel = effectiveLogLevel
+        if let configuredLogFile, logFile == nil {
+            logger.warning("Could not open logging.file at \(configuredLogFile) — falling back to standard output")
+        }
 
         // One havm per data directory. A second instance would open the same
         // disk and the same EFI variable store read-write, which is how a VM
@@ -181,9 +184,7 @@ struct RunCommand: AsyncParsableCommand {
         let configHint = FileManager.default.fileExists(atPath: configPath)
             ? "" : " (not found — using defaults)"
         logger.info("Config: \(configPath)\(configHint)")
-        if let warning = ConfigFilePermissions.warning(
-            path: configPath, hasAPIToken: havmConfig.effectiveHAAPIToken != nil
-        ) {
+        for warning in ConfigFilePermissions.warnings(for: havmConfig, configPath: configPath) {
             logger.warning("\(warning)")
         }
 

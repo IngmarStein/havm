@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Network
 import Metrics
@@ -82,13 +83,13 @@ public final class SimpleRegistry: Sendable {
     }
 }
 
-/// Format a double for Prometheus exposition. Drops trailing zeros (".0" → "0")
-/// while preserving enough precision for realistic gauge values.
+/// Format a double for Prometheus exposition. Handles NaN/Inf per spec and
+/// avoids trapping on values outside `Int64`.
 private func formatValue(_ v: Double) -> String {
-    // Prometheus expects at least one decimal digit for gauge values.
-    // Use a compact format: integer values get ".0", fractional get up to 6 places.
-    if v == Double(Int64(v)) {
-        return "\(Int64(v)).0"
+    if v.isNaN { return "NaN" }
+    if v.isInfinite { return v.sign == .minus ? "-Inf" : "+Inf" }
+    if let intVal = Int64(exactly: v) {
+        return "\(intVal).0"
     }
     return String(format: "%.6g", v)
 }
@@ -241,13 +242,17 @@ public final class MetricsServer: @unchecked Sendable {
                     throw MetricsError.invalidPort(port)
                 }
                 for host in hosts {
+                    let ready = ListenerStartupSignal()
                     let listener = try makeListener(
                         endpoint: .hostPort(host: NWEndpoint.Host(host), port: nwPort),
-                        displayName: Self.formatHostPort(host: host, port: port)
+                        displayName: Self.formatHostPort(host: host, port: port),
+                        startupSignal: ready
                     )
                     listener.start(queue: queue)
                     listeners.append(listener)
-                    try waitForBoundPort(of: listener, host: host, requested: requested)
+                    if case .ready(let bound) = ready.wait(timeout: 2), bound != requested {
+                        throw MetricsError.portNotBound(host: host, requested: requested, bound: bound)
+                    }
                 }
             }
 
@@ -259,49 +264,6 @@ public final class MetricsServer: @unchecked Sendable {
             // discard the server when this throws.
             stop()
             throw error
-        }
-    }
-
-    /// Wait for a TCP listener to settle, then check the port it actually
-    /// bound.
-    ///
-    /// A listener that reaches `.ready` has bound *something*; whether it is
-    /// the configured port is a separate question, and the one that matters.
-    /// `requiredLocalEndpoint` is not honoured for an entry that is not a
-    /// numeric address: the listener reports itself ready on a wildcard
-    /// ephemeral port and the configured port stays unbound — silently, with
-    /// no `.failed` — so the bound port is the only evidence, the TCP
-    /// counterpart of the socket file ``waitForSocketFile(at:timeout:)``
-    /// waits for. A mismatch throws: a listener bound elsewhere is an
-    /// endpoint the user did not ask for, and for a wildcard that means the
-    /// LAN, which is not something to log about and carry on.
-    ///
-    /// A listener that never becomes ready is left to the state handler,
-    /// which already reports it: a port someone else is using is an
-    /// environment condition, not a misconfiguration.
-    private func waitForBoundPort(
-        of listener: NWListener,
-        host: String,
-        requested: UInt16,
-        timeout: TimeInterval = 2
-    ) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while true {
-            switch listener.state {
-            case .ready:
-                let bound = listener.port?.rawValue
-                guard bound == requested else {
-                    throw MetricsError.portNotBound(host: host, requested: requested, bound: bound)
-                }
-                return
-            case .failed, .cancelled:
-                return
-            case .setup, .waiting:
-                guard Date() < deadline else { return }
-                Thread.sleep(forTimeInterval: 0.005)
-            @unknown default:
-                return
-            }
         }
     }
 
@@ -335,63 +297,29 @@ public final class MetricsServer: @unchecked Sendable {
         }
         try clearStaleSocket(at: socketPath)
 
+        let ready = ListenerStartupSignal()
         let listener = try makeListener(
             endpoint: .unix(path: socketPath),
-            displayName: "unix:\(socketPath)"
+            displayName: "unix:\(socketPath)",
+            startupSignal: ready
         )
         listener.start(queue: queue)
         listeners.append(listener)
         socketFiles.append(socketPath)
 
-        // The socket file is the evidence the bind succeeded — `start()`
-        // returns before the bind happens, so wait for the file rather than
-        // checking once and racing the listener's queue. A bind that never
-        // happens is reported by the state handler.
-        guard waitForSocketFile(at: socketPath) else {
+        guard case .ready = ready.wait(timeout: 2),
+              FileManager.default.fileExists(atPath: socketPath) else {
             throw MetricsError.socketBindFailed(socketPath)
         }
-        // The file appears at bind, a moment before `listen()`: a client that
-        // connects in that window is refused. Waiting for `.ready` makes a
-        // successful `start()` mean the endpoint answers, not merely that a
-        // file exists — which is what a scrape issued right after startup, and
-        // every test that connects to it, needs.
-        guard waitForReady(of: listener) else {
-            throw MetricsError.socketBindFailed(socketPath)
-        }
-    }
-
-    /// Wait for a listener to reach `.ready`, the state in which it accepts
-    /// connections. `.failed` and `.cancelled` are final, so there is nothing
-    /// left to wait for.
-    private func waitForReady(of listener: NWListener, timeout: TimeInterval = 2) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while true {
-            switch listener.state {
-            case .ready:
-                return true
-            case .failed, .cancelled:
-                return false
-            case .setup, .waiting:
-                guard Date() < deadline else { return false }
-                Thread.sleep(forTimeInterval: 0.005)
-            @unknown default:
-                return false
-            }
-        }
-    }
-
-    /// Wait for a bound listener to create its socket file.
-    private func waitForSocketFile(at path: String, timeout: TimeInterval = 2) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !FileManager.default.fileExists(atPath: path) {
-            guard Date() < deadline else { return false }
-            Thread.sleep(forTimeInterval: 0.005)
-        }
-        return true
+        _ = chmod(socketPath, 0o600)
     }
 
     /// Create a listener that serves the metrics endpoints.
-    private func makeListener(endpoint: NWEndpoint, displayName: String) throws -> NWListener {
+    private func makeListener(
+        endpoint: NWEndpoint,
+        displayName: String,
+        startupSignal: ListenerStartupSignal
+    ) throws -> NWListener {
         let params = NWParameters.tcp
         // Allow multiple listeners on the same port (e.g. 127.0.0.1 + ::1).
         params.allowLocalEndpointReuse = true
@@ -401,7 +329,7 @@ public final class MetricsServer: @unchecked Sendable {
         listener.newConnectionHandler = { [weak self] connection in
             self?.handleConnection(connection)
         }
-        listener.stateUpdateHandler = { [weak self] state in
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
             guard let self else { return }
             switch state {
             case .setup:
@@ -410,10 +338,13 @@ public final class MetricsServer: @unchecked Sendable {
                 self.logger.warning("Metrics server waiting on \(displayName) — \(error.localizedDescription)")
             case .ready:
                 self.logger.info("Metrics server listening on \(displayName)")
+                startupSignal.resolve(.ready(port: listener?.port?.rawValue))
             case .failed(let error):
                 self.logger.error("Metrics server failed on \(displayName) — \(error.localizedDescription)")
+                startupSignal.resolve(.failed)
             case .cancelled:
                 self.logger.debug("Metrics server stopped on \(displayName)")
+                startupSignal.resolve(.failed)
             @unknown default:
                 break
             }
@@ -477,8 +408,15 @@ public final class MetricsServer: @unchecked Sendable {
     // MARK: - Connection handling
 
     private func handleConnection(_ connection: NWConnection) {
+        let received = Mutex(false)
+        queue.asyncAfter(deadline: .now() + 5) {
+            if received.withLock({ !$0 }) {
+                connection.cancel()
+            }
+        }
         connection.start(queue: queue)
         connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
+            received.withLock { $0 = true }
             guard let self else { connection.cancel(); return }
 
             let responseData: Data
@@ -496,14 +434,20 @@ public final class MetricsServer: @unchecked Sendable {
 
     private func buildResponse(for request: String) -> Data {
         let line: String
-        if let crlf = request.firstIndex(of: "\r\n") {
-            line = String(request[..<crlf])
+        if let lineEnd = request.firstIndex(where: { $0 == "\r" || $0 == "\n" }) {
+            line = String(request[..<lineEnd])
         } else {
             line = request
         }
 
+        let parts = line.split(separator: " ", maxSplits: 2)
+        guard parts.count >= 2, parts[0] == "GET" else {
+            return Self.httpResponse(status: "404 Not Found", body: "")
+        }
+        let path = parts[1].split(separator: "?", maxSplits: 1).first ?? parts[1]
+
         // GET /metrics — Prometheus scrape endpoint
-        if line.hasPrefix("GET /metrics") {
+        if path == "/metrics" {
             preScrape?()
             let body = registry.emit()
             return Self.httpResponse(
@@ -514,7 +458,7 @@ public final class MetricsServer: @unchecked Sendable {
         }
 
         // GET /health — liveness check
-        if line.hasPrefix("GET /health") {
+        if path == "/health" {
             return Self.httpResponse(status: "200 OK", body: "OK")
         }
 
@@ -533,11 +477,38 @@ public final class MetricsServer: @unchecked Sendable {
             response.append(contentsOf: "Content-Type: \(ct)\r\n".utf8)
         }
         let bodyData = body.data(using: .utf8) ?? Data()
-        response.append(contentsOf: "Content-Length: \(bodyData.count)\r\n\r\n".utf8)
+        response.append(contentsOf: "Content-Length: \(bodyData.count)\r\n".utf8)
+        response.append(contentsOf: "Connection: close\r\n\r\n".utf8)
         if !bodyData.isEmpty {
             response.append(contentsOf: bodyData)
         }
         return response
+    }
+}
+
+/// Bridges `NWListener.stateUpdateHandler` to `MetricsServer.start()` without busy-waiting.
+private final class ListenerStartupSignal: Sendable {
+    enum Outcome: Sendable {
+        case ready(port: UInt16?)
+        case failed
+        case timedOut
+    }
+
+    private let semaphore = DispatchSemaphore(value: 0)
+    private let outcome = Mutex<Outcome?>(nil)
+
+    func resolve(_ value: Outcome) {
+        let shouldSignal = outcome.withLock { current -> Bool in
+            guard current == nil else { return false }
+            current = value
+            return true
+        }
+        if shouldSignal { semaphore.signal() }
+    }
+
+    func wait(timeout: TimeInterval) -> Outcome {
+        if semaphore.wait(timeout: .now() + timeout) == .timedOut { return .timedOut }
+        return outcome.withLock { $0 ?? .timedOut }
     }
 }
 

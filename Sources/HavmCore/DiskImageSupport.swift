@@ -227,7 +227,10 @@ public enum DiskImageSupport {
                 let image = try DiskImageKit.DiskImage(opening: .open(url: url, mode: .readWrite))
                 let blockSize = UInt64(image.blockSize.rawValue)
                 guard blockSize > 0 else { throw DiskImageError.resizeFailed(url, "unknown block size") }
-                try image.truncate(blockCount: Int(bytes / blockSize))
+                // Ceiling division so a non-block-aligned size (e.g. decimal GB)
+                // reaches at least `bytes` instead of re-triggering resize every boot.
+                let blockCount = (bytes / blockSize) + (bytes % blockSize == 0 ? 0 : 1)
+                try image.truncate(blockCount: Int(blockCount))
                 return
             } catch let error as DiskImageError {
                 throw error
@@ -331,9 +334,17 @@ public enum DiskImageSupport {
         } catch {
             return DiskutilResult(status: -1, stdout: Data(), message: "could not run diskutil: \(error)")
         }
-        // Read before waiting: a pipe that fills up would otherwise deadlock.
+        // Drain stdout and stderr concurrently so neither pipe buffer can fill
+        // and deadlock the child process.
+        nonisolated(unsafe) var errData = Data()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            errData = err.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
         let outData = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
+        group.wait()
         process.waitUntilExit()
 
         let message = (String(bytes: errData, encoding: .utf8) ?? "")
