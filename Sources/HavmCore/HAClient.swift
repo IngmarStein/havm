@@ -61,14 +61,20 @@ final class HATLSDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     }
 
     /// Whether a redirect from `originalURL` to `nextURL` stays on the same
-    /// host (case-insensitive). Allows `http` → `https` and port changes on the
-    /// same host while blocking cross-host hops and userinfo spoofing.
+    /// host (case-insensitive) and does not downgrade `https` to non-`https`.
+    /// Allows `http` → `https` and port changes on the same host while blocking
+    /// cross-host hops, userinfo spoofing, and TLS downgrades.
     static func shouldFollowRedirect(from originalURL: URL?, to nextURL: URL?) -> Bool {
         guard let originalHost = originalURL?.host?.lowercased(), !originalHost.isEmpty,
               let nextHost = nextURL?.host?.lowercased(), !nextHost.isEmpty else {
             return false
         }
-        return originalHost == nextHost
+        guard originalHost == nextHost else { return false }
+        if originalURL?.scheme?.lowercased() == "https",
+           nextURL?.scheme?.lowercased() != "https" {
+            return false
+        }
+        return true
     }
 
     func urlSession(
@@ -81,11 +87,17 @@ final class HATLSDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         let originalURL = task.originalRequest?.url
         let nextURL = request.url
         guard Self.shouldFollowRedirect(from: originalURL, to: nextURL) else {
-            let fromHost = originalURL?.host ?? "(unknown)"
-            let toHost = nextURL?.host ?? "(unknown)"
-            let key = "\(fromHost)->\(toHost)"
+            let fromScheme = originalURL?.scheme?.lowercased() ?? ""
+            let toScheme = nextURL?.scheme?.lowercased() ?? ""
+            let fromHost = originalURL?.host?.lowercased() ?? "(unknown)"
+            let toHost = nextURL?.host?.lowercased() ?? "(unknown)"
+            let key = "\(fromScheme)://\(fromHost)->\(toScheme)://\(toHost)"
             let isFirst = loggedBlockedRedirects.withLock { $0.insert(key).inserted }
-            let message: Logger.Message = "Blocked cross-host redirect from \(fromHost) to \(toHost) — set ha.url to the canonical URL if Home Assistant is behind a reverse proxy"
+            let message: Logger.Message = if fromHost == toHost, fromScheme == "https", toScheme != "https" {
+                "Blocked HTTPS downgrade redirect from \(fromScheme)://\(fromHost) to \(toScheme)://\(toHost)"
+            } else {
+                "Blocked cross-host redirect from \(fromHost) to \(toHost) — set ha.url to the canonical URL if Home Assistant is behind a reverse proxy"
+            }
             if isFirst {
                 logger?.warning(message)
             } else {

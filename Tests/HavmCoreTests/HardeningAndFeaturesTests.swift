@@ -231,7 +231,7 @@ import Testing
 
     // MARK: - Redirect policy
 
-    @Test("HATLSDelegate allows same-host scheme/port upgrades and blocks cross-host or userinfo redirects")
+    @Test("HATLSDelegate allows same-host scheme/port upgrades and blocks cross-host, userinfo, and HTTPS downgrade redirects")
     func redirectPolicyEnforcesSameHost() {
         let httpHA = URL(string: "http://homeassistant.local/manifest.json")
         let httpsHA = URL(string: "https://homeassistant.local:443/manifest.json")
@@ -241,6 +241,8 @@ import Testing
 
         #expect(HATLSDelegate.shouldFollowRedirect(from: httpHA, to: httpsHA))
         #expect(HATLSDelegate.shouldFollowRedirect(from: httpHA, to: upperHA))
+        #expect(HATLSDelegate.shouldFollowRedirect(from: httpsHA, to: upperHA))
+        #expect(!HATLSDelegate.shouldFollowRedirect(from: httpsHA, to: httpHA))
         #expect(!HATLSDelegate.shouldFollowRedirect(from: httpHA, to: otherHost))
         #expect(!HATLSDelegate.shouldFollowRedirect(from: httpHA, to: userinfoTrick))
         #expect(!HATLSDelegate.shouldFollowRedirect(from: httpHA, to: nil))
